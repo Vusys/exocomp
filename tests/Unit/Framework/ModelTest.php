@@ -156,6 +156,31 @@ final class ModelTest extends TestCase
         $this->assertStringContainsString('Composer cannot place it either', $run->errors);
     }
 
+    public function test_a_relation_read_as_an_attribute_is_a_reference_but_not_a_resolved_one(): void
+    {
+        // `$order->customer` is Eloquent's `__get` magic reaching the relation method. Missing
+        // it would make a rename of `customer()` break at runtime; calling it resolved would
+        // claim the engine can see a magic method it cannot. It is a reference, inferred, with
+        // the reason attached.
+        $run = Cli::inLaravel(['references-to', 'App\\Models\\Order::customer', '--json']);
+        $byKind = [];
+
+        foreach (explode("\n", trim($run->output)) as $line) {
+            $record = json_decode($line, true);
+
+            if (is_array($record) && is_string($record['kind'] ?? null)) {
+                $byKind[$record['kind']] = $record;
+            }
+        }
+
+        $this->assertSame('resolved', $byKind['method call']['confidence'] ?? null);
+        $this->assertSame('inferred', $byKind['property fetch']['confidence'] ?? null);
+        $note = $byKind['property fetch']['note'] ?? null;
+
+        $this->assertIsString($note);
+        $this->assertStringContainsString('__get', $note);
+    }
+
     public function test_an_unknown_name_is_not_found(): void
     {
         $this->assertSame(1, Cli::inLaravel(['model', 'NoSuchModel'])->exitCode);

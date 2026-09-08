@@ -487,6 +487,30 @@ single short name — five queued jobs, in different namespaces, all called the 
 Answering about the first is correct as far as it goes; answering silently is how someone reads
 an answer about a class they were not asking about. The others are now named in a note.
 
+### Eloquent's `__get`, which Tier E allows the profile to resolve
+
+`$order->customer` is the relation method `customer()`, reached through `__get`. Plain PHP says
+that line is a property access on a class declaring no such property and stops there — so a
+rename of the relation that ignores these breaks at runtime, which is the failure §8 is about.
+
+`references-to` already found it: the reference scanner matches on the member's name and the
+receiver's type, not on the shape of the access. What it did *not* do was distinguish the two:
+`$order->customer()` and `$order->customer` both came back `resolved`, and the second is not a
+fact the engine can see. A property fetch naming a method now comes back `inferred`, carrying
+the reason:
+
+```
+$order->customer()   resolved   receiver is App\Models\Order
+$order->customer     inferred   receiver is App\Models\Order; read as a property, but the
+                                member is declared as a method — this resolves through __get,
+                                if the class defines one
+```
+
+Recall is unchanged, because nothing was dropped; what changed is the claim made about one of
+the two. The distinction is stated without the engine knowing anything about Eloquent: a class
+with `__get` resolves it, a class without one has a bug there, and which of those it is cannot
+be seen from the access.
+
 ### What it still declines, on purpose
 
 Read against the corpus, these are the honest limits rather than a to-do list:

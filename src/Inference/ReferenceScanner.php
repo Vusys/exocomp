@@ -14,6 +14,7 @@ use Vusys\Exocomp\Index\MemberOrigin;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\Identifier as SymbolIdentifier;
+use Vusys\Exocomp\Symbol\SymbolKind;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -43,6 +44,11 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
     /** @var array<string, bool> */
     private array $relatedness = [];
+
+    /** @var ?SymbolKind the kind the target member is declared as, looked up once */
+    private ?SymbolKind $targetKind = null;
+
+    private bool $targetKindResolved = false;
 
     public function __construct(
         private readonly SymbolRef $target,
@@ -214,6 +220,15 @@ final class ReferenceScanner extends NodeVisitorAbstract
             ? $type->reason.', '.$relation['reason']
             : $relation['reason'];
 
+        // A property fetch naming a method is not the same claim as calling it. On a class with
+        // `__get` it really is that member — an Eloquent relation read as an attribute is the
+        // commonest example there is — and on a class without one it is a bug rather than a
+        // use. Either way the engine cannot see which, so it says so instead of asserting.
+        if ($this->shapeDisagrees($kind)) {
+            $confidence = $this->weaker($confidence, Confidence::Inferred);
+            $reason .= '; read as a property, but the member is declared as a method — this resolves through __get, if the class defines one';
+        }
+
         $this->record($node, $kind, $confidence, $reason);
     }
 
@@ -240,6 +255,32 @@ final class ReferenceScanner extends NodeVisitorAbstract
         }
 
         $this->record($node, 'declaration', Confidence::Resolved, 'declared here');
+    }
+
+    /**
+     * Whether the way the member was reached disagrees with the way it was declared.
+     */
+    private function shapeDisagrees(string $kind): bool
+    {
+        return $kind === 'property fetch' && $this->targetKind() === SymbolKind::Method;
+    }
+
+    private function targetKind(): ?SymbolKind
+    {
+        if ($this->targetKindResolved) {
+            return $this->targetKind;
+        }
+
+        $this->targetKindResolved = true;
+        $member = (string) $this->target->member;
+
+        foreach ($this->graph->members($this->target->owner)['members'] as $resolved) {
+            if (strcasecmp($resolved->record->name, $member) === 0) {
+                return $this->targetKind = $resolved->record->kind;
+            }
+        }
+
+        return $this->targetKind;
     }
 
     private function staticReceiverType(Node\Name $name): ResolvedType
