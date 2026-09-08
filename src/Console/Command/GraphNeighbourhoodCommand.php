@@ -134,7 +134,9 @@ final class GraphNeighbourhoodCommand extends GraphCommand
         $remaining = count($stops) - count($shown);
 
         if ($remaining > 0) {
-            $notes[] = sprintf('%d further edge%s could not be followed and are not listed', $remaining, $remaining === 1 ? '' : 's');
+            $notes[] = $remaining === 1
+                ? 'one further edge could not be followed and is not listed'
+                : sprintf('%d further edges could not be followed and are not listed', $remaining);
         }
 
         return [$rows, $notes];

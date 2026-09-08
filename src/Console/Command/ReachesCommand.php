@@ -243,7 +243,9 @@ final class ReachesCommand extends GraphCommand
         $remaining = count($stops) - count($shown);
 
         if ($remaining > 0) {
-            $notes[] = sprintf('%d further place%s the walk could not follow are not listed', $remaining, $remaining === 1 ? '' : 's');
+            $notes[] = $remaining === 1
+                ? 'one further place the walk could not follow is not listed'
+                : sprintf('%d further places the walk could not follow are not listed', $remaining);
         }
 
         return [$rows, $notes];
@@ -258,7 +260,9 @@ final class ReachesCommand extends GraphCommand
         $dependencies = count($reach->stopsOfKind(Stop::DEPENDENCY));
 
         if ($dependencies > 0 && ! $reach->found) {
-            $notes[] = sprintf('%d edge%s led into a dependency and were not walked past; --through-vendor follows them', $dependencies, $dependencies === 1 ? '' : 's');
+            $notes[] = $dependencies === 1
+                ? 'one edge led into a dependency and was not walked past; --through-vendor follows it'
+                : sprintf('%d edges led into a dependency and were not walked past; --through-vendor follows them', $dependencies);
         }
 
         if ($reach->exhausted && ! $reach->found) {

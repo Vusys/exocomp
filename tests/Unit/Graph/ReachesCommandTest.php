@@ -124,6 +124,64 @@ final class ReachesCommandTest extends TestCase
         $this->assertSame('resolved', $first['confidence']);
     }
 
+    public function test_a_sweep_record_carries_the_whole_verdict_and_not_only_its_wording(): void
+    {
+        $output = Cli::inLaravel(['reaches', 'route:*', 'App\Models\Order::save', '--json'])->output;
+        $records = $this->records($output);
+        $reached = $this->recordWhere($records, 'kind', 'reached');
+
+        $this->assertSame('routes/web.php', $reached['file']);
+        $this->assertSame(18, $reached['line']);
+        $this->assertSame(1, $reached['col']);
+        $this->assertSame('App\Http\Controllers\OrderController::store', $reached['fqn']);
+        $this->assertSame('resolved', $reached['confidence']);
+        $this->assertSame(3, $reached['steps']);
+        $this->assertSame('routes/web.php:18:1  POST /orders                reached in 3 steps', $reached['text']);
+    }
+
+    public function test_a_starting_point_that_was_not_reached_says_so_in_every_field(): void
+    {
+        $records = $this->records(Cli::inLaravel(['reaches', 'route:*', 'App\Models\Order::save', '--json'])->output);
+        $missed = $this->recordWhere($records, 'fqn', 'App\Http\Controllers\HealthController::__invoke');
+
+        $this->assertSame('not reached', $missed['kind']);
+        $this->assertSame('textual', $missed['confidence']);
+        $this->assertSame(0, $missed['steps']);
+    }
+
+    public function test_a_stop_record_names_where_the_walk_was_and_why_it_stopped(): void
+    {
+        $records = $this->records(Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', 'Nothing\AtAll::ever', '--json'])->output);
+        $stop = $this->recordWhere($records, 'kind', 'unresolved');
+
+        $this->assertSame('app/Services/ReportDispatcher.php', $stop['file']);
+        $this->assertSame(48, $stop['line']);
+        $this->assertSame(35, $stop['col']);
+        $this->assertSame('App\Services\ReportDispatcher::queue', $stop['from']);
+        $this->assertSame('receiver type unknown', $stop['reason']);
+        $this->assertTrue($stop['unresolved']);
+    }
+
+    public function test_a_dependency_stop_names_the_class_that_declares_the_method(): void
+    {
+        $records = $this->records(Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', 'Nothing\AtAll::ever', '--json'])->output);
+        $stop = $this->recordWhere($records, 'kind', 'dependency');
+
+        // The address asked for and the declaration found are both reported, because they are
+        // different facts: the walk was at the model, the body is on the framework base class.
+        $this->assertSame('App\Models\Order::save', $stop['from']);
+        $this->assertStringContainsString('Illuminate\Database\Eloquent\Model::save', $this->text($stop, 'text'));
+        $this->assertStringStartsWith('vendor/', $this->text($stop, 'file'));
+    }
+
+    public function test_one_of_something_is_said_as_one_rather_than_as_a_plural(): void
+    {
+        $output = Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', 'Nothing\AtAll::ever'])->output;
+
+        $this->assertStringContainsString('one edge led into a dependency and was not walked past', $output);
+        $this->assertStringNotContainsString('1 edge led', $output);
+    }
+
     public function test_a_destination_matching_any_class_is_accepted(): void
     {
         $run = Cli::inLaravel(['reaches', 'App\Services\OrderService::place', '::save']);
@@ -155,6 +213,55 @@ final class ReachesCommandTest extends TestCase
 
         $this->assertSame(1, $run->exitCode);
         $this->assertStringContainsString('no declaration', $run->errors);
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function text(array $record, string $field): string
+    {
+        $value = $record[$field] ?? null;
+
+        $this->assertIsString($value, "{$field} is not a string");
+
+        return $value;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $records
+     * @return array<string, mixed>
+     */
+    private function recordWhere(array $records, string $field, string $value): array
+    {
+        foreach ($records as $record) {
+            if (($record[$field] ?? null) === $value) {
+                return $record;
+            }
+        }
+
+        $this->fail("no record with {$field} = {$value}");
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function records(string $output): array
+    {
+        $records = [];
+
+        foreach (explode("\n", trim($output)) as $line) {
+            $decoded = json_decode($line, true);
+
+            if (! is_array($decoded)) {
+                continue;
+            }
+
+            /** @var array<string, mixed> $record */
+            $record = $decoded;
+            $records[] = $record;
+        }
+
+        return $records;
     }
 
     public function test_limit_caps_the_neighbourhood_like_every_other_command(): void

@@ -20,7 +20,7 @@ final readonly class DispatchSite
         public string $class,
         public string $sender,
         public int $line,
-        public int $position = -1,
+        public int $position,
         public Confidence $confidence = Confidence::Resolved,
         public ?string $note = null,
     ) {}

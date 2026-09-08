@@ -26,6 +26,19 @@ final class ReportDispatcher
     }
 
     /**
+     * The other two spellings of the same thing. `resolve()` is the helper's alias, and
+     * `app()->make()` is the container method itself — all three name a class in an argument
+     * and return `mixed`, which is the honest signature and the reason the edge has to come
+     * from somewhere other than the type.
+     */
+    public function alternates(): bool
+    {
+        app()->make(ReportWriter::class);
+
+        return resolve(ReportWriter::class)->write('alternate.csv');
+    }
+
+    /**
      * The dispatch is resolvable and the expression inside its argument is not. They sit on one
      * line and are two different facts: an edge that was filled must not hide a gap that was
      * not, which is what matching a framework edge to a call by line alone would do.

@@ -116,9 +116,46 @@ final class WalkTest extends TestCase
             static fn (Edge $edge): bool => $edge->kind === 'implementation',
         ));
 
-        $this->assertNotSame([], $edges);
+        $this->assertSame(
+            ['App\Services\NullReportWriter::write', 'App\Services\PdfReportWriter::write'],
+            array_map(static fn (Edge $edge): string => $edge->to, $edges),
+        );
         $this->assertSame(Confidence::Inferred, $edges[0]->confidence);
         $this->assertStringContainsString('nothing at the call site says which', $edges[0]->reason);
+    }
+
+    public function test_an_indirect_edge_is_addressed_at_the_call_it_came_from(): void
+    {
+        // Not at the declaration it points to. The address a reader acts on is the line they
+        // would have had to read four files to understand.
+        foreach ($this->walk()->edgesFrom('App\Http\Controllers\OrderController::index') as $edge) {
+            if ($edge->kind !== 'binding' && $edge->kind !== 'implementation') {
+                continue;
+            }
+
+            $this->assertSame('app/Http/Controllers/OrderController.php', $edge->path);
+            $this->assertSame(21, $edge->line);
+            $this->assertSame(16, $edge->column);
+            $this->assertSame('App\Http\Controllers\OrderController::index', $edge->from);
+        }
+    }
+
+    public function test_the_container_helper_the_alias_and_the_method_all_produce_the_edge(): void
+    {
+        $edges = array_values(array_filter(
+            $this->walk()->edgesFrom('App\Services\ReportDispatcher::alternates'),
+            static fn (Edge $edge): bool => $edge->kind === 'binding',
+        ));
+
+        $targets = array_map(static fn (Edge $edge): string => $edge->to, $edges);
+        sort($targets);
+
+        // `resolve(X)->write()` lands on the method; `app()->make(X)` on its own lands on the
+        // constructor, because nothing is called on what came back.
+        $this->assertSame(
+            ['App\Services\CsvReportWriter::__construct', 'App\Services\CsvReportWriter::write'],
+            $targets,
+        );
     }
 
     public function test_the_fan_out_cap_is_disclosed_when_it_bites(): void
@@ -211,6 +248,57 @@ final class WalkTest extends TestCase
         $this->assertSame([], $reach->path);
     }
 
+    public function test_a_cycle_terminates_without_the_depth_limit_doing_the_work(): void
+    {
+        // Six steps of budget and two methods calling each other: the walk must end because it
+        // has seen both, not because it ran out of depth.
+        $reach = $this->walk()->reach('App\Services\RetryLoop::attempt', Target::parse('Nothing\AtAll::ever'));
+
+        $this->assertFalse($reach->found);
+        $this->assertFalse($reach->exhausted);
+        $this->assertSame(2, $reach->expanded);
+    }
+
+    public function test_a_declaration_reachable_two_ways_is_visited_once(): void
+    {
+        // Both the job's handler and a listener call `save()` on the same model. It is one
+        // declaration, and listing it per route in would make a neighbourhood read as larger
+        // than it is.
+        $found = $this->walk()->neighbourhood('App\Services\OrderService::place', 3);
+        $arrivals = array_filter($found, static fn (array $one): bool => $one[1]->to === 'App\Models\Order::save');
+
+        $this->assertCount(1, $arrivals);
+    }
+
+    public function test_a_node_budget_that_bites_is_reported_as_such(): void
+    {
+        $reach = $this->walk(maxNodes: 1)->reach('App\Services\OrderService::place', Target::parse('App\Models\Order::save'));
+
+        $this->assertFalse($reach->found);
+        $this->assertTrue($reach->exhausted);
+        $this->assertSame(1, $reach->expanded);
+    }
+
+    public function test_a_node_budget_bounds_a_neighbourhood_too(): void
+    {
+        $wide = $this->walk()->neighbourhood('App\Services\OrderService::place', 3);
+        $narrow = $this->walk(maxNodes: 1)->neighbourhood('App\Services\OrderService::place', 3);
+
+        $this->assertGreaterThan(count($narrow), count($wide));
+    }
+
+    public function test_the_same_stop_asked_for_twice_is_recorded_once(): void
+    {
+        $walk = $this->walk();
+        $walk->edgesFrom('App\Services\ReportDispatcher::queue');
+        $first = count($walk->stops());
+
+        $walk->edgesFrom('App\Services\ReportDispatcher::queue');
+
+        $this->assertSame(1, $first);
+        $this->assertCount($first, $walk->stops());
+    }
+
     public function test_a_depth_budget_that_bites_is_reported_as_such(): void
     {
         $reach = $this->walk(maxDepth: 1)->reach('App\Services\OrderService::place', Target::parse('App\Models\Order::save'));
@@ -252,7 +340,7 @@ final class WalkTest extends TestCase
         $this->fail("no edge from {$from} to {$to}");
     }
 
-    private function walk(int $maxDepth = 6, bool $throughDependencies = false, int $fanout = 12): Walk
+    private function walk(int $maxDepth = 6, bool $throughDependencies = false, int $fanout = 12, int $maxNodes = 1500): Walk
     {
         $project = Project::at(Cli::laravelRoot());
         $map = AutoloadMap::forProject($project);
@@ -282,7 +370,7 @@ final class WalkTest extends TestCase
                 $fanout,
             ),
             maxDepth: $maxDepth,
-            maxNodes: 1500,
+            maxNodes: $maxNodes,
             throughDependencies: $throughDependencies,
         );
     }
