@@ -539,8 +539,9 @@ checking that a column had the right type, or that the line number reported for 
 Every address in a `schema` answer is something a reader is expected to click; reading the dump
 correctly and reporting the wrong line for it is its own way of being confidently wrong.
 
-Unit tests for the readers took it to **71.57%** and found four defects on the way, three of
-which reached the output:
+Unit tests for the readers took it to 71.57%, and a second batch covering the container, model,
+dispatch and config readers to **72.82%**. Four defects turned up in the writing, three of them
+reaching the output:
 
 - `Route::get($uri, ['uses' => …, 'as' => 'api.health'])` lost its name, because the options
   array was read for the action and nothing else — and a name is what a route is most often
@@ -554,8 +555,8 @@ which reached the output:
   failing, leaving the branch silently dead. PHPStan catches this; the test caught it first
   because the gate had not been run since the method was written.
 
-The threshold stays at 71 rather than being ratcheted to 71.57. Half a point of headroom is not
-a gate.
+The threshold stays at 71 rather than being ratcheted to 72.8. Ratcheting to within a point of
+the measurement makes the next commit a coin toss rather than a check.
 
 ## The 60 commands, after four phases
 

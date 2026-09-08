@@ -20,14 +20,14 @@
     // Phase 4 then took it to 69.35% (5,772 mutants), and this time the escapes were not
     // diffuse: 840 of 1,769 sat in the framework readers, which had been tested end to end
     // through the CLI and so asserted that a string appeared somewhere rather than that a column
-    // had the right type on the right line. Unit tests for those readers took it to 71.57%, and
-    // found four real defects on the way — a route losing its name, a column type printed in a
-    // spelling the framework does not have, a PHP warning leaking into the output, and a dead
-    // branch behind an unimported class name.
+    // had the right type on the right line. Unit tests for those readers took it to 71.57% and
+    // then to **72.82%** on the committed tree, and found four real defects on the way — a route
+    // losing its name, a column type printed in a spelling the framework does not have, a PHP
+    // warning leaking into the output, and a dead branch behind an unimported class name.
     //
-    // The threshold stays at 71 rather than being ratcheted to the new figure: 0.57 points of
-    // headroom is not a gate, it is a coin toss on the next commit. It goes up when there is
-    // room to raise it to.
+    // The threshold stays at 71 rather than being ratcheted to the measured figure. Ratcheting
+    // to within a point of the measurement makes the next commit a coin toss rather than a
+    // check; it goes up when there is room to raise it to.
     "minMsi": 71,
     "minCoveredMsi": 71
 }
