@@ -51,15 +51,16 @@ abstract class RelationCommand extends IndexedCommand
 
         // Resolving the subject first means "no such class" and "no subclasses" are different
         // answers. Conflating them would let a typo read as a clean bill of health.
-        if (! $subject instanceof SymbolRecord) {
-            throw new SymbolNotFound($ref->owner, sprintf(
-                '"%s" is not a class, interface or trait in the index — check the name with: exocomp locate %s',
-                $ref->owner,
-                $this->shortName($ref->owner),
-            ));
-        }
+        //
+        // The index is not the only place a class can be, though. "Everything that extends
+        // `Illuminate\Database\Eloquent\Model`" is one of the most useful questions there is,
+        // and its subject lives in `vendor/`, which is not indexed — so a subject the index does
+        // not know is looked up through Composer's autoload map before it is refused. The edges
+        // themselves were never the problem: they are recorded by the files that declare the
+        // children, so they exist whether or not the parent does.
+        $fqn = $subject instanceof SymbolRecord ? $subject->fqn : $this->outsideTheIndex($ref, $context, $notes);
 
-        $records = $this->relatives($graph, $subject->fqn, ! $this->boolOption($input, 'direct'));
+        $records = $this->relatives($graph, $fqn, ! $this->boolOption($input, 'direct'));
         $width = $this->addressWidth($records);
 
         [$kept, $elided] = $context->budget->apply(array_map(
@@ -68,11 +69,35 @@ abstract class RelationCommand extends IndexedCommand
         ));
 
         return new Result(
-            header: sprintf('%d %s of %s', count($records), $this->noun(count($records)), $subject->fqn),
+            header: sprintf('%d %s of %s', count($records), $this->noun(count($records)), $fqn),
             sections: [new Section('', $kept)],
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
         );
+    }
+
+    /**
+     * @param  list<string>  $notes
+     */
+    private function outsideTheIndex(SymbolRef $ref, CommandContext $context, array &$notes): string
+    {
+        try {
+            $located = $context->locator->locateOwner($ref);
+        } catch (SymbolNotFound) {
+            throw new SymbolNotFound($ref->owner, sprintf(
+                '"%s" is not a class, interface or trait in the index, and Composer cannot place it either — check the name with: exocomp locate %s',
+                $ref->owner,
+                $this->shortName($ref->owner),
+            ));
+        }
+
+        $notes[] = sprintf(
+            '%s is outside the indexed source roots; it was placed at %s through Composer\'s autoload map',
+            $located->declaration->fqn,
+            $located->analysis->file->displayPath,
+        );
+
+        return $located->declaration->fqn;
     }
 
     private function shortName(string $fqn): string

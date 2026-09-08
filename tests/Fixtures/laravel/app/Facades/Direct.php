@@ -17,4 +17,12 @@ final class Direct extends Facade
     {
         return ReportBuilder::class;
     }
+
+    /**
+     * A facade's own static method. The important ones are written this way — `fake()`, `spy()`
+     * and `swap()` all live on the facade rather than on the class it resolves to — so looking
+     * only at the concrete class reports them as forwarded, which is wrong about a method
+     * declared twenty lines above the accessor.
+     */
+    public static function fake(): void {}
 }

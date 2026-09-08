@@ -345,16 +345,197 @@ is where most of the remainder lives, since a receiver arriving through a contai
 facade is not resolvable from the language alone. Every one of the other 46% carries a reason,
 which is the property that makes the number safe to publish rather than embarrassing.
 
-## The 60 commands, after three phases
+## Phase 4 — the Laravel profile
 
-The §9 classification, revisited now that the index, the query language and reference resolution
-exist:
+Everything here is derived by parsing ordinary PHP and SQL. Nothing boots the application, and
+that is the constraint the phase was designed around rather than a limitation discovered
+afterwards: the disposable worktrees this tool exists for routinely have no working `.env` and
+no reachable database, and a profile that needs one is unavailable exactly when someone is
+spelunking an unfamiliar branch.
 
-| Bucket | Phase 0 | Now |
-| --- | ---: | ---: |
-| Answered in one call | 9 (15%) | **45 (75%)** |
-| Needs the framework profile (Phase 4) | 6 (10%) | 6 (10%) |
-| Anti-scope — stays with grep | 9 (15%) | 9 (15%) |
+### What the corpus contains, in one call each
+
+| Question | Answer |
+| --- | ---: |
+| Tables the migration history describes | 351 |
+| Routes across seven route files | 1,002 |
+| Container bindings across thirteen service providers | 37 |
+| Morph map entries | 12 |
+| Classes extending `Illuminate\Database\Eloquent\Model` | 329 |
+| Relations on the largest model, with their target classes | 52 |
+
+### The exit criterion
+
+REPORT.md §5 sets it as: **the top framework intents from §1.4 answerable in one call, and the
+dispatch, binding and facade edges available to the graph layer.**
+
+| Intent (§1.4) | Searches | Now |
+| --- | ---: | --- |
+| Facades | 678 | `facade Storage::disk` — accessor, container key, concrete class, and the method's declaration |
+| Config/env keys | 307 | `config <key>` — definitions and every read |
+| Model internals (`$table`, `$fillable`, `$casts`) | 139 | `model <class>` |
+| Migrations → schema | 108 | `schema <table>` |
+| Service providers | 91 | `bindings` — the registration half |
+| Jobs & queues | 34 | `dispatches <class>` |
+| Events/listeners | 31 | `dispatches <class>` |
+| `firstOrCreate`/`updateOrCreate`/`upsert` | 31 | `schema <table>` for the unique index, `query` for the call sites |
+| Global scopes & traits | 26 | `model <class> --only scope` |
+| Container bindings | 22 | `bindings` |
+| Route tables | 13 | `routes` |
+| Entity lookup by uuid / scoping concerns | 1,361 | Partly. `model --only scope` and `schema` answer the scoping half; the rest is a query about data, not code |
+| Factories | 281 | **No.** `database/factories` is not read |
+| Policies & abilities | 21 | **No.** Gate registration is not read |
+
+Eleven of fourteen intents answered directly, one partly, two not at all. The two gaps are
+recorded rather than quietly skipped: factories and policy registration are both readable the
+same way everything else here is, and neither has been built because nothing has needed them
+yet.
+
+The graph half of the criterion holds: `bindings`, `facade` and `dispatches` all emit
+`file:line:col` edges with a named class at the far end, which is the shape Phase 5's `reaches`
+consumes.
+
+### Time to first answer
+
+Best of three, warm index, against the 950k-line corpus:
+
+| | |
+| --- | ---: |
+| PHP interpreter startup, doing nothing | 167 ms |
+| `locate` (Phase 1, for comparison) | 228 ms |
+| `routes` — 1,002 routes from seven files | 284 ms |
+| `model` — a model declaring its table | 320 ms |
+| `model` — a model whose ancestry runs into `vendor/` | 436 ms |
+| `dispatches` | 465 ms |
+| `schema` — one table, or all 351 | 484 ms |
+| `morph-map` | 647 ms |
+| `bindings` — thirteen providers | 653 ms |
+| `facade Storage::disk` | 828 ms |
+| `config <key>` — definitions *and* corpus-wide reads | 1,452 ms |
+
+Interpreter startup is 167 ms of every one of those, and the framework answers do not meet the
+<200 ms budget Phase 1 set for symbol lookup. That budget was set for the index, and these do
+not read the index: migrations, config files, route files and service providers are found by
+convention rather than by autoloading, and half of them declare no class at all, so they are
+parsed on every call.
+
+The obvious fix is to cache framework facts against file content hashes, exactly as file facts
+already are — a squashed schema dump and 384 migrations hash to the same blobs on every run.
+That is deferred, on the same reasoning as the daemon: nothing yet demonstrates the cost
+matters, and a cache is a second thing that can be stale. What is *not* deferred is anything
+that made an answer wrong.
+
+`config` is the outlier and it is honest about why: the read half is a corpus scan, because a
+config key is a string literal and the index holds names, not literals. It prefilters on the
+key's first segment in its quoted shape — a quote, the segment, then a dot or the closing quote
+— which took a key whose first segment is two letters from **14.1 s to 1.7 s**, since a short
+segment is a substring of half the words in a large application. That is a narrowing rather than
+a heuristic: every literal read begins with that shape, so no file that would have matched is
+excluded.
+
+### What running against the real corpus changed
+
+Every one of these was found by pointing the tool at a real application rather than at the Tier
+E fixture, and every one of them made an answer *wrong* rather than merely incomplete.
+
+**The migration directory is not the schema.** A mature application squashes its history into
+`database/schema/*.sql`, and the framework loads that before replaying anything. Reading only
+`database/migrations` found 64 tables where the dump beside it describes 284 — so `users` would
+have come back with four columns, stated as fact. The dump is now the base the migrations build
+on, in that order.
+
+**`Schema::table(self::TABLE, …)` is ordinary.** Reading the name as "not a literal" dropped an
+entire migration silently, losing a column that the answer then reported as absent. Constants
+the migration declares are resolved, and a table name that still cannot be read is counted and
+reported rather than skipped.
+
+**An unqualified `config()` inside a namespace resolves to `App\Foo\config`.** Matching on the
+resolved name found nothing in any file that has a namespace — that is, in all of them. A
+lookup of a key read in four places reported zero of them. After the fix it reports four for
+four.
+
+**`facade Storage::disk` said `FilesystemManager` does not declare `disk()`.** It does. The
+method was being looked up in the index, which does not hold `vendor/`, so a gap in what had
+been indexed was being reported as a fact about the framework. Methods are read from the class
+itself now, located through Composer's autoload map, and "not declared" is only said about a
+class that was actually read.
+
+**A model was reported as not being an Eloquent model.** It was one — it extends a framework
+class two hops from `Model`, which is the ordinary shape for anything authenticatable. The index
+held an edge pointing out of the corpus and the walk stopped there. The same autoload-map
+fallback fixes it, and asking that model for its scopes goes from a refusal to three named
+global scopes, which is precisely what a cross-tenant audit wants.
+
+**`subclasses Illuminate\Database\Eloquent\Model` was refused** for the same reason, despite
+the edges being present — they are recorded by the files declaring the children. It now answers
+329.
+
+**Route files hid two thirds of their endpoints.** Three shapes each swallowed a batch: the
+`'namespace' => …` group with bare controller names, the `['uses' => …, 'as' => …]` options
+array, and `Route::resource()`, where the framework generates seven endpoints from one line.
+Handling them took the same seven files from **414 routes to 1,002**, with none left unreadable.
+
+**A hand-rolled pluraliser is not good enough for table names.** Reproducing the textbook rules
+agreed with the framework on 92.5% of 306 real model names. The 7.5% it got wrong were
+uncountables (`metadata`, `equipment`), already-plural class names (`Settings`, `TeamsToMembers`)
+and an over-eager `-f` → `-ves` rule that turned `Chef` into `cheves` — which is to say, exactly
+the names nobody can guess, and therefore exactly the ones someone would be looking up. The
+profile uses `doctrine/inflector`, the library the framework itself uses: **306 of 306**.
+
+**Short names collide harder than expected.** One corpus has five distinct classes sharing a
+single short name — five queued jobs, in different namespaces, all called the same thing.
+Answering about the first is correct as far as it goes; answering silently is how someone reads
+an answer about a class they were not asking about. The others are now named in a note.
+
+### What it still declines, on purpose
+
+Read against the corpus, these are the honest limits rather than a to-do list:
+
+- 4 migration statements run raw SQL against a table nothing in the file names. They are counted
+  and reported; the tables they touch are not knowable from the source.
+- A binding built by a factory that constructs more than one class is declined. Following it
+  would mean evaluating the factory.
+- `morphTo` relations name no class. The morph map says what they *can* point at, and that map's
+  keys live in the database.
+- Listener discovery by parameter type is `inferred`, not `resolved`: whether discovery is
+  switched on is not something the source says.
+- Macros are unresolvable and are reported as such — `DB::table()` comes back as forwarded
+  rather than as a method that does not exist.
+
+## The 60 commands, after four phases
+
+The §9 classification, revisited now that the index, the query language, reference resolution and
+the framework profile all exist:
+
+| Bucket | Phase 0 | After Phase 3 | Now |
+| --- | ---: | ---: | ---: |
+| Answered in one call | 9 (15%) | 45 (75%) | **51 (85%)** |
+| Needs the framework profile | 6 (10%) | 6 (10%) | 0 |
+| Anti-scope — stays with grep | 9 (15%) | 9 (15%) | 9 (15%) |
+
+The six framework-shaped commands were run rather than reclassified by reading, and two of them
+failed the first time:
+
+| # | Shape of the original command | Now |
+| ---: | --- | --- |
+| 5 | `grep -n 'protected $table\|protected $connection'` on a model file | `model <class> --only attribute` |
+| 11 | `grep -n "'tmp'" -A8 config/filesystems.php` | `config filesystems.disks.tmp` |
+| 23 | `grep -n 'function fake' -A18` on a framework facade in `vendor/` | `facade Storage::fake` |
+| 32 | `grep -n 'class\|table\|…'` on a model file | `model <class>` |
+| 34 | `grep -n 'dispatch\|Bus::\|chain'` on a queued job | `calls-from` / `dispatches` |
+| 52 | `grep -nE 'protected $casts\|protected $fillable'` on a model file | `model <class> --only casts` |
+
+**#11 came back "no config file defines filesystems.disks.tmp".** The file builds its array in a
+variable and returns that, so a comment block can sit above each section — and reading only
+`return [ … ]` reported every key in it as undefined. A confident answer about a file sitting
+right there. The returned variable's assignment is now followed.
+
+**#23 reported `fake()` as forwarded or macroed.** It is declared on the facade itself, twenty
+lines below the accessor: `fake()`, `spy()` and `swap()` all live on the facade rather than on
+the class it resolves to. The facade is now checked before the concrete class.
+
+Both were caught by running the benchmark rather than reasoning about it, which is the
+argument for keeping it.
 
 Spot-checks against the real corpus rather than by reading:
 

@@ -99,6 +99,14 @@ final class ContainerTest extends TestCase
         $this->assertStringContainsString('forwarded, macroed, or handled by __call', $output);
     }
 
+    public function test_a_method_the_facade_itself_declares_is_found_on_the_facade(): void
+    {
+        $output = Cli::inLaravel(['facade', 'Direct::fake'])->output;
+
+        $this->assertStringContainsString('app/Facades/Direct.php', $output);
+        $this->assertStringNotContainsString('forwarded, macroed', $output);
+    }
+
     public function test_something_that_is_not_a_facade_is_refused(): void
     {
         $run = Cli::inLaravel(['facade', 'Order']);

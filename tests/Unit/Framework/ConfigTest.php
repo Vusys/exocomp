@@ -71,6 +71,14 @@ final class ConfigTest extends TestCase
         $this->assertStringNotContainsString('BillingService', $output);
     }
 
+    public function test_a_config_file_that_returns_a_variable_is_followed(): void
+    {
+        $output = Cli::inLaravel(['config', 'queue.connections.redis.retry_after'])->output;
+
+        $this->assertStringContainsString('queue.connections.redis.retry_after', $output);
+        $this->assertStringContainsString('90', $output);
+    }
+
     public function test_an_unknown_key_is_not_found(): void
     {
         $run = Cli::inLaravel(['config', 'nothing.at.all']);

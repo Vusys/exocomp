@@ -136,6 +136,26 @@ final class ModelTest extends TestCase
         $this->assertStringContainsString('applied by a closure', $output);
     }
 
+    public function test_subclasses_of_a_class_outside_the_index_are_still_found(): void
+    {
+        // "Everything that extends Model" is one of the most useful questions there is, and its
+        // subject lives outside the indexed source roots. The edges were never the problem —
+        // they are recorded by the files declaring the children — but the subject was refused.
+        $run = Cli::inLaravel(['subclasses', 'Illuminate\\Database\\Eloquent\\Model']);
+
+        $this->assertSame(0, $run->exitCode);
+        $this->assertStringContainsString('App\\Models\\Order', $run->output);
+        $this->assertStringContainsString('outside the indexed source roots', $run->output);
+    }
+
+    public function test_a_name_nothing_can_place_is_still_refused(): void
+    {
+        $run = Cli::inLaravel(['subclasses', 'Nothing\\Like\\This']);
+
+        $this->assertSame(1, $run->exitCode);
+        $this->assertStringContainsString('Composer cannot place it either', $run->errors);
+    }
+
     public function test_an_unknown_name_is_not_found(): void
     {
         $this->assertSame(1, Cli::inLaravel(['model', 'NoSuchModel'])->exitCode);

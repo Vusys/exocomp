@@ -109,12 +109,50 @@ final class ConfigReader
         }
 
         foreach (new NodeFinder()->findInstanceOf($statements, Node\Stmt\Return_::class) as $return) {
-            if ($return->expr instanceof Node\Expr\Array_) {
-                $this->walk($return->expr, $root, $path);
+            $array = $this->returnedArray($return, $statements);
+
+            if ($array instanceof Node\Expr\Array_) {
+                $this->walk($array, $root, $path);
 
                 return;
             }
         }
+
+        $this->notes[] = sprintf('%s does not return an array this reader could follow, so its keys are missing', $path);
+    }
+
+    /**
+     * The array a config file returns.
+     *
+     * Plenty of real config files build the array in a variable and return that — usually so a
+     * comment block can sit above each section. Handling only `return [ … ]` reports every key
+     * in such a file as undefined, which is a confident answer about a file sitting right there.
+     *
+     * @param  array<int, Node>  $statements
+     */
+    private function returnedArray(Node\Stmt\Return_ $return, array $statements): ?Node\Expr\Array_
+    {
+        if ($return->expr instanceof Node\Expr\Array_) {
+            return $return->expr;
+        }
+
+        if (! $return->expr instanceof Node\Expr\Variable || ! is_string($return->expr->name)) {
+            return null;
+        }
+
+        $name = $return->expr->name;
+        $found = null;
+
+        // The last assignment wins, since a later one supersedes an earlier one.
+        foreach (new NodeFinder()->findInstanceOf($statements, Node\Expr\Assign::class) as $assignment) {
+            if ($assignment->var instanceof Node\Expr\Variable
+                && $assignment->var->name === $name
+                && $assignment->expr instanceof Node\Expr\Array_) {
+                $found = $assignment->expr;
+            }
+        }
+
+        return $found;
     }
 
     private function walk(Node\Expr\Array_ $array, string $prefix, string $path): void

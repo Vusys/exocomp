@@ -92,7 +92,7 @@ final class FacadeCommand extends IndexedFrameworkCommand
         $unresolved = [];
 
         if ($ref->hasMember()) {
-            [$found, $missing] = $this->method($source, $concrete, (string) $ref->member, $confidence);
+            [$found, $missing] = $this->method($source, $facade, $concrete, (string) $ref->member, $confidence);
             $sections[] = new Section('method', $found);
             $unresolved = $missing;
         }
@@ -123,8 +123,18 @@ final class FacadeCommand extends IndexedFrameworkCommand
      *
      * @return array{list<Row>, list<Row>}
      */
-    private function method(ClassSource $source, ?string $concrete, string $member, Confidence $confidence): array
+    private function method(ClassSource $source, LoadedClass $facade, ?string $concrete, string $member, Confidence $confidence): array
     {
+        // A facade can declare its own static methods, and the important ones do: `fake()`,
+        // `spy()` and `swap()` live on the facade rather than on the class it resolves to.
+        // Looking only at the concrete class reports those as forwarded or macroed, which is
+        // wrong about a method declared twenty lines above the accessor.
+        $own = $this->declaredMethod($source, $facade->fqn, $member, Confidence::Resolved, 0);
+
+        if ($own instanceof Row) {
+            return [[$own], []];
+        }
+
         if ($concrete === null) {
             return [[], [new Row(
                 file: '',

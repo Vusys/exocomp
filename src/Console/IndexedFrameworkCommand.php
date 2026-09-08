@@ -25,10 +25,10 @@ abstract class IndexedFrameworkCommand extends IndexedCommand
      * The class a name refers to, saying so when the name refers to more than one.
      *
      * Short names collide, and in a large application they collide a lot: one measured corpus
-     * has five distinct classes called `CreateExportJob`. Picking the first and answering about
-     * it is correct as far as it goes, and silently picking the first is how someone reads an
-     * answer about a class they were not asking about. The others are named so the caller can
-     * ask again with the one they meant.
+     * has five queued jobs, in five namespaces, sharing a single short name. Picking the first
+     * and answering about it is correct as far as it goes, and silently picking the first is how
+     * someone reads an answer about a class they were not asking about. The others are named so
+     * the caller can ask again with the one they meant.
      *
      * @param  list<SymbolRecord>  $records
      * @param  list<string>  $notes
