@@ -12,6 +12,7 @@ use Vusys\Exocomp\Console\Command\CheckCommand;
 use Vusys\Exocomp\Console\Command\ConfigCommand;
 use Vusys\Exocomp\Console\Command\DispatchesCommand;
 use Vusys\Exocomp\Console\Command\FacadeCommand;
+use Vusys\Exocomp\Console\Command\GraphNeighbourhoodCommand;
 use Vusys\Exocomp\Console\Command\ImplementorsCommand;
 use Vusys\Exocomp\Console\Command\ImportsCommand;
 use Vusys\Exocomp\Console\Command\IndexCommand;
@@ -22,6 +23,7 @@ use Vusys\Exocomp\Console\Command\MorphMapCommand;
 use Vusys\Exocomp\Console\Command\OutlineCommand;
 use Vusys\Exocomp\Console\Command\OverridesCommand;
 use Vusys\Exocomp\Console\Command\QueryCommand;
+use Vusys\Exocomp\Console\Command\ReachesCommand;
 use Vusys\Exocomp\Console\Command\ReferencesToCommand;
 use Vusys\Exocomp\Console\Command\RoutesCommand;
 use Vusys\Exocomp\Console\Command\SchemaCommand;
@@ -60,6 +62,8 @@ final class Application extends SymfonyApplication
             new DispatchesCommand,
             new RoutesCommand,
             new SchemaCommand,
+            new ReachesCommand,
+            new GraphNeighbourhoodCommand,
             new IndexCommand,
         ]);
     }

@@ -1,0 +1,324 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vusys\Exocomp\Console\Command;
+
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Vusys\Exocomp\Console\CommandContext;
+use Vusys\Exocomp\Console\GraphCommand;
+use Vusys\Exocomp\Framework\Laravel\RouteDefinition;
+use Vusys\Exocomp\Framework\Laravel\RouteNamespace;
+use Vusys\Exocomp\Framework\Laravel\RouteReader;
+use Vusys\Exocomp\Graph\Edge;
+use Vusys\Exocomp\Graph\Reachability;
+use Vusys\Exocomp\Graph\Start;
+use Vusys\Exocomp\Graph\Stop;
+use Vusys\Exocomp\Graph\Target;
+use Vusys\Exocomp\Graph\Walk;
+use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Result;
+use Vusys\Exocomp\Output\Row;
+use Vusys\Exocomp\Output\Section;
+use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\SymbolNotFound;
+use Vusys\Exocomp\Symbol\Confidence;
+
+/**
+ * Is there a path from here to there.
+ *
+ * This is the query the whole read engine was built to make possible. A tenant-scoping audit —
+ * does any endpoint reach this write without going through the scope — is that question asked
+ * once per endpoint, and doing it by hand is a day of opening files. Asked here it is one call,
+ * and `route:` as a starting point makes the sweep itself one call rather than one per route.
+ *
+ * The negative answer is the one that needs care. "No path" is a claim about a whole graph, and
+ * a graph of a dynamic language is never complete — so a bare "no" would be precisely the
+ * confidently-wrong answer this tool exists not to give. Every place the walk could not follow
+ * is reported with the verdict, along with whether a depth or node budget cut the search short,
+ * so a reader can see how much the "no" is actually worth.
+ */
+#[AsCommand(name: 'reaches', description: 'Whether a call path exists from one declaration (or route) to another')]
+final class ReachesCommand extends GraphCommand
+{
+    /**
+     * How many starting points a sweep will walk from before it stops and says so.
+     *
+     * A route table can be a thousand entries and each start is its own search. The cap is
+     * generous enough for a real audit and disclosed when it bites, which is the difference
+     * between a bounded answer and a misleading one.
+     */
+    private const int MAX_STARTS = 100;
+
+    /** How much of the frontier a negative answer shows before summarising the rest. */
+    private const int MAX_STOPS = 25;
+
+    protected function configure(): void
+    {
+        parent::configure();
+
+        $this
+            ->addArgument('from', InputArgument::REQUIRED, 'Where to start: a method address, or "route:<pattern>" for every matching endpoint')
+            ->addArgument('to', InputArgument::REQUIRED, 'What counts as arriving: "App\Models\Order::save", "App\Models\Order" for any member, or "::save" for any class\'s');
+    }
+
+    protected function answer(InputInterface $input, CommandContext $context): Result
+    {
+        $notes = [];
+        $graph = $this->graph($input, $context, $notes);
+        $walk = $this->walk($input, $context, $graph, $notes);
+        $target = Target::parse($this->stringArgument($input, 'to') ?? '');
+        $starts = $this->starts($this->stringArgument($input, 'from') ?? '', $context, $notes);
+
+        return count($starts) === 1
+            ? $this->one($walk, $starts[0], $target, $context, $notes)
+            : $this->sweep($walk, $starts, $target, $context, $notes);
+    }
+
+    /**
+     * @param  list<string>  $notes
+     */
+    private function one(Walk $walk, Start $start, Target $target, CommandContext $context, array $notes): Result
+    {
+        $reach = $walk->reach($start->node, $target);
+        $width = $this->stepWidth($reach->path);
+
+        if ($reach->found) {
+            return new Result(
+                header: $this->arrival($start, $target, $reach),
+                sections: [new Section('', array_map(fn (Edge $edge): Row => $this->step($edge, $width), $reach->path))],
+                notes: [...$notes, ...$this->coverage($reach), ...$context->notes()],
+            );
+        }
+
+        [$shown, $hidden] = $this->frontier($reach);
+
+        return new Result(
+            header: $this->absence($start, $target, $reach),
+            unresolvedTitle: 'not followed',
+            unresolved: $shown,
+            notes: [...$notes, ...$hidden, ...$this->coverage($reach), ...$context->notes()],
+            found: false,
+        );
+    }
+
+    /**
+     * @param  list<Start>  $starts
+     * @param  list<string>  $notes
+     */
+    private function sweep(Walk $walk, array $starts, Target $target, CommandContext $context, array $notes): Result
+    {
+        $rows = [];
+        $reached = 0;
+        $addressWidth = Address::width(array_map(
+            static fn (Start $start): string => Address::of($start->path, $start->line, 1),
+            $starts,
+        ));
+        $labelWidth = array_reduce($starts, static fn (int $widest, Start $start): int => max($widest, strlen($start->label)), 0);
+
+        foreach ($starts as $start) {
+            $reach = $walk->reach($start->node, $target);
+            $reached += $reach->found ? 1 : 0;
+            $rows[] = $this->verdict($start, $reach, $addressWidth, $labelWidth);
+        }
+
+        return new Result(
+            header: sprintf(
+                '%d of %d starting point%s reach %s',
+                $reached,
+                count($starts),
+                count($starts) === 1 ? '' : 's',
+                (string) $target,
+            ),
+            sections: [new Section('', $rows)],
+            notes: [
+                ...$notes,
+                'a sweep reports the verdict per starting point; ask about one of them directly to see its path and what the walk could not follow',
+                ...$context->notes(),
+            ],
+            found: $reached > 0,
+        );
+    }
+
+    private function verdict(Start $start, Reachability $reach, int $addressWidth, int $labelWidth): Row
+    {
+        $summary = $reach->found
+            ? sprintf('reached in %d step%s', count($reach->path), count($reach->path) === 1 ? '' : 's')
+            : ($reach->exhausted ? 'not reached within the budget' : 'not reached');
+
+        return new Row(
+            file: $start->path,
+            line: $start->line === 0 ? null : $start->line,
+            column: $start->line === 0 ? null : 1,
+            fqn: $start->node,
+            kind: $reach->found ? 'reached' : 'not reached',
+            text: rtrim(str_pad(Address::of($start->path, $start->line, 1), $addressWidth).'  '.str_pad($start->label, $labelWidth).'  '.$summary),
+            confidence: $reach->found ? $reach->confidence() : Confidence::Textual,
+            extra: ['steps' => count($reach->path), 'expanded' => $reach->expanded],
+            carriesAddress: $start->path !== '',
+        );
+    }
+
+    private function arrival(Start $start, Target $target, Reachability $reach): string
+    {
+        return sprintf(
+            '%s reaches %s in %d step%s; the weakest step is %s',
+            $start->label,
+            (string) $target,
+            count($reach->path),
+            count($reach->path) === 1 ? '' : 's',
+            $reach->confidence()->value,
+        );
+    }
+
+    private function absence(Start $start, Target $target, Reachability $reach): string
+    {
+        return sprintf(
+            'no path from %s to %s%s; %s walked',
+            $start->label,
+            (string) $target,
+            $reach->exhausted ? ', within the depth and node budget' : '',
+            $reach->expanded === 1 ? '1 declaration was' : sprintf('%d declarations were', $reach->expanded),
+        );
+    }
+
+    /**
+     * What the walk could not follow — the part that makes a "no" checkable.
+     *
+     * @return array{list<Row>, list<string>}
+     */
+    private function frontier(Reachability $reach): array
+    {
+        $stops = $reach->stops;
+        $shown = array_slice($stops, 0, self::MAX_STOPS);
+        $width = Address::width(array_map(
+            static fn (Stop $stop): string => Address::of($stop->path, $stop->line, $stop->column),
+            $shown,
+        ));
+
+        $rows = array_map(
+            static fn (Stop $stop): Row => new Row(
+                file: $stop->path,
+                line: $stop->line === 0 ? null : $stop->line,
+                column: $stop->column === 0 ? null : $stop->column,
+                fqn: $stop->from,
+                kind: $stop->kind,
+                text: rtrim(str_pad(Address::of($stop->path, $stop->line, $stop->column), $width).'  '.$stop->detail),
+                confidence: Confidence::Textual,
+                note: $stop->reason,
+                extra: ['from' => $stop->from, 'reason' => $stop->reason],
+                carriesAddress: $stop->path !== '',
+            ),
+            $shown,
+        );
+
+        $notes = [];
+        $remaining = count($stops) - count($shown);
+
+        if ($remaining > 0) {
+            $notes[] = sprintf('%d further place%s the walk could not follow are not listed', $remaining, $remaining === 1 ? '' : 's');
+        }
+
+        return [$rows, $notes];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function coverage(Reachability $reach): array
+    {
+        $notes = [];
+        $dependencies = count($reach->stopsOfKind(Stop::DEPENDENCY));
+
+        if ($dependencies > 0 && ! $reach->found) {
+            $notes[] = sprintf('%d edge%s led into a dependency and were not walked past; --through-vendor follows them', $dependencies, $dependencies === 1 ? '' : 's');
+        }
+
+        if ($reach->exhausted && ! $reach->found) {
+            $notes[] = 'the search stopped at its budget rather than at the end of the graph — raise --depth or --max-nodes before reading this as an absence';
+        }
+
+        // The strongest thing a negative answer can say, and worth saying explicitly: nothing
+        // was skipped. It is still a statement about the edges this tool models — a call
+        // through `__call`, a string callable or a route macro is not one of them — but within
+        // those, the search finished rather than gave up.
+        if (! $reach->found && ! $reach->exhausted && $reach->stops === []) {
+            $notes[] = 'the walk ran out of graph rather than out of budget, and every edge it met was followed — so within the edges this tool models, there is no path';
+        }
+
+        return $notes;
+    }
+
+    /**
+     * @param  list<string>  $notes
+     * @return list<Start>
+     */
+    private function starts(string $from, CommandContext $context, array &$notes): array
+    {
+        if (! str_starts_with($from, 'route:')) {
+            return [new Start($from, $from, '', 0)];
+        }
+
+        $pattern = substr($from, strlen('route:'));
+        $profile = $this->laravel($context);
+        $graph = $context->index()->graph(validate: false);
+        $reader = new RouteReader(new RouteNamespace($graph, new ClassSource($context->project, $graph, $context->locator))->root());
+        $reader->readDirectory(
+            $profile->routesDirectory($context->project),
+            static fn (string $absolute): string => $context->project->displayPath($absolute),
+        );
+
+        $starts = [];
+        $closures = 0;
+
+        foreach ($reader->routes() as $route) {
+            if (! $this->routeMatches($route, $pattern)) {
+                continue;
+            }
+
+            if ($route->controller === null || $route->action === null) {
+                $closures++;
+
+                continue;
+            }
+
+            $starts[] = new Start(
+                node: $route->controller.'::'.$route->action,
+                label: $route->method.' '.$route->uri,
+                path: $route->path,
+                line: $route->line,
+            );
+        }
+
+        if ($starts === []) {
+            throw new SymbolNotFound($from, sprintf(
+                '%d route%s were read and none matches "%s"',
+                count($reader->routes()),
+                count($reader->routes()) === 1 ? '' : 's',
+                $pattern,
+            ));
+        }
+
+        if ($closures > 0) {
+            $notes[] = sprintf('%d matching route%s answered by a closure rather than a controller, so there is no declaration to start from', $closures, $closures === 1 ? ' is' : 's are');
+        }
+
+        if (count($starts) > self::MAX_STARTS) {
+            $notes[] = sprintf('%d routes matched; the first %d were walked. Narrow the pattern to cover the rest.', count($starts), self::MAX_STARTS);
+            $starts = array_slice($starts, 0, self::MAX_STARTS);
+        }
+
+        return $starts;
+    }
+
+    private function routeMatches(RouteDefinition $route, string $pattern): bool
+    {
+        if ($pattern === '' || $pattern === '*') {
+            return true;
+        }
+
+        return array_any([$route->method.' '.$route->uri, $route->uri, (string) $route->name, $route->target()], fn (string $candidate): bool => Target::glob($pattern, $candidate) || str_contains($candidate, $pattern));
+    }
+}
