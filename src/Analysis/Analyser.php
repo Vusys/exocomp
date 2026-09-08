@@ -87,6 +87,24 @@ final readonly class Analyser
     }
 
     /**
+     * Whether a call names a particular global function.
+     *
+     * An unqualified call inside a namespace resolves to the current namespace first and only
+     * then falls back to global, so the name resolver reports `config()` written in
+     * `App\Providers` as `App\Providers\config`. Comparing that against `config` finds
+     * nothing — which is how a search for a helper call comes back empty in exactly the files
+     * that are organised into namespaces, meaning all of them.
+     */
+    public static function isGlobalFunction(Node\Name $name, string $function): bool
+    {
+        if ($name->isUnqualified()) {
+            return strcasecmp($name->toString(), $function) === 0;
+        }
+
+        return strcasecmp(ltrim(self::resolvedName($name), '\\'), $function) === 0;
+    }
+
+    /**
      * Resolves the fully-qualified name a `Name` node refers to, preferring what the name
      * resolver worked out over the literal spelling. A relative or imported short name means
      * nothing on its own — resolving it is precisely the thing grep cannot do.

@@ -8,6 +8,7 @@ use Symfony\Component\Console\Application as SymfonyApplication;
 use Vusys\Exocomp\Console\Command\CallersOfCommand;
 use Vusys\Exocomp\Console\Command\CallsFromCommand;
 use Vusys\Exocomp\Console\Command\CheckCommand;
+use Vusys\Exocomp\Console\Command\ConfigCommand;
 use Vusys\Exocomp\Console\Command\ImplementorsCommand;
 use Vusys\Exocomp\Console\Command\ImportsCommand;
 use Vusys\Exocomp\Console\Command\IndexCommand;
@@ -47,6 +48,7 @@ final class Application extends SymfonyApplication
             new QueryCommand,
             new CheckCommand,
             new ModelCommand,
+            new ConfigCommand,
             new SchemaCommand,
             new IndexCommand,
         ]);
