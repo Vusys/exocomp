@@ -32,7 +32,11 @@ final class FacadeResolver
 {
     private const string APPLICATION = 'Illuminate\Foundation\Application';
 
-    private const string FACADE_NAMESPACE = 'Illuminate\Support\Facades\\';
+    /**
+     * The framework's own facades live here and are not indexed, so a name under this prefix is
+     * the one facade candidate that cannot be recognised from the corpus graph.
+     */
+    public const string FACADE_NAMESPACE = 'Illuminate\Support\Facades\\';
 
     /** @var ?array<string, string> */
     private ?array $coreAliases = null;

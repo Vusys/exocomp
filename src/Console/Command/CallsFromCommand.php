@@ -4,24 +4,21 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Console\Command;
 
-use PhpParser\Node;
-use PhpParser\NodeTraverser;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedCommand;
-use Vusys\Exocomp\Inference\CallScanner;
+use Vusys\Exocomp\Graph\Body;
+use Vusys\Exocomp\Graph\CodeEdges;
 use Vusys\Exocomp\Inference\OutgoingCall;
-use Vusys\Exocomp\Inference\TypeResolver;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
+use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\SymbolNotFound;
-use Vusys\Exocomp\Source\SourceFile;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
@@ -49,32 +46,22 @@ final class CallsFromCommand extends IndexedCommand
         $notes = [];
         $graph = $this->graph($input, $context, $notes);
         $ref = SymbolRef::parse($this->stringArgument($input, 'symbol') ?? '');
-        $located = $context->locator->locateOwner($ref);
-        $owner = $located->declaration;
 
-        $declaration = $ref->hasMember() ? $owner->member((string) $ref->member, false) : $owner;
+        $code = new CodeEdges(
+            $context->project,
+            $graph,
+            new ClassSource($context->project, $graph, $context->locator),
+            $context->locator,
+        );
 
-        if (! $declaration instanceof Declaration) {
-            throw new SymbolNotFound((string) $ref, sprintf('%s declares no member "%s"', $owner->fqn, (string) $ref->member));
+        $body = $code->body((string) $ref);
+
+        if (! $body instanceof Body) {
+            $this->refuse($ref, $context);
         }
 
-        $file = SourceFile::fromPath($context->project->path($located->analysis->file->displayPath), $located->analysis->file->displayPath);
-        [$analysis, $statements] = new Analyser()->analyseWithAst($file);
+        $calls = $code->callsFrom($body);
 
-        $target = $this->findNode($statements, $declaration->startLine, $declaration->endLine);
-
-        if (! $target instanceof Node\FunctionLike) {
-            throw new SymbolNotFound((string) $ref, sprintf('"%s" is not a function or method', (string) $ref));
-        }
-
-        $types = new TypeResolver($graph);
-        $classFqn = $ref->hasMember() ? $owner->fqn : null;
-        $scope = $types->scopeFor($classFqn, $owner->extends[0] ?? null, $target, $analysis->imports);
-
-        $scanner = new CallScanner($analysis, $types, $scope, $graph);
-        new NodeTraverser($scanner)->traverse([$target]);
-
-        $calls = $scanner->calls();
         $width = Address::width(array_map(
             static fn (OutgoingCall $c): string => Address::of($c->path, $c->line, $c->column),
             $calls,
@@ -86,7 +73,7 @@ final class CallsFromCommand extends IndexedCommand
         [$kept, $elided] = $context->budget->apply($resolved);
 
         return new Result(
-            header: sprintf('%d call%s from %s', count($calls), count($calls) === 1 ? '' : 's', $declaration->fqn),
+            header: sprintf('%d call%s from %s', count($calls), count($calls) === 1 ? '' : 's', $body->fqn),
             sections: [new Section('', array_map(fn (OutgoingCall $c): Row => $this->row($c, $width), $kept))],
             unresolvedTitle: 'unresolved',
             unresolved: array_map(fn (OutgoingCall $c): Row => $this->row($c, $width, true), $unsure),
@@ -96,27 +83,24 @@ final class CallsFromCommand extends IndexedCommand
     }
 
     /**
-     * @param  array<int, Node>  $nodes
+     * Why the declaration could not be read, said precisely.
+     *
+     * "Not found" covers three different situations and a caller can act on only one of them
+     * at a time: the name is not in the corpus, the class is but the member is not, or the
+     * address names a class where a function was wanted.
+     *
+     * @throws SymbolNotFound always
      */
-    private function findNode(array $nodes, int $startLine, int $endLine): ?Node
+    private function refuse(SymbolRef $ref, CommandContext $context): never
     {
-        foreach ($nodes as $node) {
-            if ($node instanceof Node\FunctionLike && $node->getStartLine() === $startLine && $node->getEndLine() === $endLine) {
-                return $node;
-            }
+        $located = $context->locator->locateOwner($ref);
+        $owner = $located->declaration;
 
-            foreach ($node->getSubNodeNames() as $name) {
-                $value = $node->{$name};
-                $children = array_values(array_filter(is_array($value) ? $value : [$value], static fn (mixed $c): bool => $c instanceof Node));
-                $found = $this->findNode($children, $startLine, $endLine);
-
-                if ($found instanceof Node) {
-                    return $found;
-                }
-            }
+        if ($ref->hasMember() && ! $owner->member((string) $ref->member, false) instanceof Declaration) {
+            throw new SymbolNotFound((string) $ref, sprintf('%s declares no member "%s"', $owner->fqn, (string) $ref->member));
         }
 
-        return null;
+        throw new SymbolNotFound((string) $ref, sprintf('"%s" is not a function or method', (string) $ref));
     }
 
     private function row(OutgoingCall $call, int $width, bool $withReason = false): Row

@@ -18,6 +18,9 @@ final readonly class Result
      * @param  list<Row>  $unresolved  things deliberately not answered, each with a reason
      * @param  list<string>  $notes  operational remarks (an unparseable file, a stopped scan)
      * @param  array<string, string|int|bool|null>|null  $object  the `--json` payload for singleton commands
+     * @param  bool  $found  whether the question had an answer — the exit code, and for a
+     *                       negative one the body still carries why, because "no" and "no, and
+     *                       here is what I could not look at" are different claims
      */
     public function __construct(
         public string $header = '',
@@ -28,6 +31,7 @@ final readonly class Result
         public int $elided = 0,
         public array $notes = [],
         public ?array $object = null,
+        public bool $found = true,
     ) {}
 
     /**
@@ -74,6 +78,7 @@ final readonly class Result
             elided: $this->elided + $dropped,
             notes: $this->notes,
             object: $this->object,
+            found: $this->found,
         );
     }
 

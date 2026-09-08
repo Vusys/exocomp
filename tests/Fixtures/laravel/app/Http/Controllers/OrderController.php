@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Contracts\ReportWriter;
+use App\Models\Order;
+use App\Services\OrderService;
 
 final class OrderController
 {
@@ -22,5 +24,16 @@ final class OrderController
     public function show(): string
     {
         return 'one order';
+    }
+
+    /**
+     * The endpoint an audit is actually about: a route, two calls, and a queued job that runs
+     * somewhere else entirely. Reading this file tells you none of that.
+     */
+    public function store(OrderService $orders): string
+    {
+        $orders->place(new Order);
+
+        return 'created';
     }
 }

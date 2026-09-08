@@ -103,7 +103,9 @@ abstract class ExocompCommand extends Command
         // read as style tags and mangle, corrupting exactly what `show` exists to deliver.
         $output->writeln($rendered, OutputInterface::OUTPUT_RAW);
 
-        return self::EXIT_FOUND;
+        // A negative answer is still an answer and still goes to standard output — but the
+        // exit code has to say "not found", or `exocomp reaches … && …` means nothing.
+        return $result->found ? self::EXIT_FOUND : self::EXIT_NOT_FOUND;
     }
 
     private function fail(OutputInterface $output, string $message): void

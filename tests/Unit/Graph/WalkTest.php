@@ -1,0 +1,236 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vusys\Exocomp\Tests\Unit\Graph;
+
+use PHPUnit\Framework\TestCase;
+use Vusys\Exocomp\Framework\Laravel\ConfigReader;
+use Vusys\Exocomp\Framework\Laravel\ContainerReader;
+use Vusys\Exocomp\Graph\CodeEdges;
+use Vusys\Exocomp\Graph\Edge;
+use Vusys\Exocomp\Graph\LaravelEdges;
+use Vusys\Exocomp\Graph\Stop;
+use Vusys\Exocomp\Graph\Target;
+use Vusys\Exocomp\Graph\Walk;
+use Vusys\Exocomp\Index\Index;
+use Vusys\Exocomp\Project\AutoloadMap;
+use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\Project;
+use Vusys\Exocomp\Project\SymbolLocator;
+use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Tests\Support\Cli;
+
+/**
+ * The walk, asserted edge by edge rather than through the rendered answer.
+ *
+ * A verdict is one word and it is the same word whether the graph underneath it was right. The
+ * things that decide whether it was — which edges exist, what kind each is, what confidence it
+ * carries, and which of them were reported as unfollowable — are only visible here, so this is
+ * where they are checked.
+ */
+final class WalkTest extends TestCase
+{
+    public function test_a_dispatched_job_continues_at_its_own_handler(): void
+    {
+        $edge = $this->edge('App\Services\OrderService::place', 'App\Jobs\ProcessOrder::handle');
+
+        $this->assertSame('dispatch', $edge->kind);
+        $this->assertSame(Confidence::Resolved, $edge->confidence);
+        $this->assertStringContainsString('the job handles itself', $edge->reason);
+    }
+
+    public function test_an_event_continues_at_every_registered_listener(): void
+    {
+        $targets = array_map(
+            static fn (Edge $edge): string => $edge->to,
+            array_values(array_filter(
+                $this->walk()->edgesFrom('App\Services\OrderService::place'),
+                static fn (Edge $edge): bool => $edge->kind === 'listens',
+            )),
+        );
+
+        sort($targets);
+
+        $this->assertSame(
+            ['App\Listeners\NotifyCustomer::handle', 'App\Listeners\RecordMetrics::handle'],
+            $targets,
+        );
+    }
+
+    public function test_a_facade_call_continues_at_the_class_the_container_resolves(): void
+    {
+        $edge = $this->edge('App\Services\ReportDispatcher::run', 'App\Services\ReportBuilder::build');
+
+        $this->assertSame('facade', $edge->kind);
+        $this->assertSame(Confidence::Inferred, $edge->confidence);
+        $this->assertStringContainsString('reporting', $edge->reason);
+    }
+
+    public function test_a_class_resolved_out_of_the_container_continues_at_the_method_called_on_it(): void
+    {
+        $edge = $this->edge('App\Services\ReportDispatcher::run', 'App\Services\CsvReportWriter::write');
+
+        $this->assertSame('binding', $edge->kind);
+        $this->assertSame(Confidence::Inferred, $edge->confidence);
+        $this->assertStringContainsString('bound to it', $edge->reason);
+    }
+
+    public function test_a_call_on_an_interface_fans_out_to_its_implementations(): void
+    {
+        $edges = array_values(array_filter(
+            $this->walk()->edgesFrom('App\Http\Controllers\OrderController::index'),
+            static fn (Edge $edge): bool => $edge->kind === 'implementation',
+        ));
+
+        $this->assertNotSame([], $edges);
+        $this->assertSame(Confidence::Inferred, $edges[0]->confidence);
+        $this->assertStringContainsString('nothing at the call site says which', $edges[0]->reason);
+    }
+
+    public function test_a_dependency_is_a_wall_the_walk_reports_rather_than_crosses(): void
+    {
+        $walk = $this->walk();
+        $walk->reach('App\Jobs\ProcessOrder::handle', Target::parse('Nothing\AtAll::ever'));
+
+        $dependencies = array_values(array_filter(
+            $walk->stops(),
+            static fn (Stop $stop): bool => $stop->kind === Stop::DEPENDENCY,
+        ));
+
+        $this->assertNotSame([], $dependencies);
+        $this->assertStringStartsWith('vendor/', $dependencies[0]->path);
+        $this->assertStringContainsString('--through-vendor', $dependencies[0]->reason);
+    }
+
+    public function test_through_vendor_walks_on_instead(): void
+    {
+        $walk = $this->walk(throughDependencies: true);
+        $walk->reach('App\Jobs\ProcessOrder::handle', Target::parse('Nothing\AtAll::ever'));
+
+        $this->assertSame([], array_values(array_filter(
+            $walk->stops(),
+            static fn (Stop $stop): bool => $stop->kind === Stop::DEPENDENCY,
+        )));
+    }
+
+    public function test_a_built_in_function_is_the_edge_of_the_world_and_not_a_gap(): void
+    {
+        $walk = $this->walk();
+        $edges = $walk->edgesFrom('App\Services\PdfReportWriter::write');
+
+        // The call is an edge, so the answer says the function is reached...
+        $this->assertContains('str_ends_with', array_map(static fn (Edge $edge): string => $edge->to, $edges));
+
+        // ...but a built-in with no source behind it is not something the walk lost, and
+        // listing it as an edge it could not follow would bury the ones it did lose.
+        $walk->reach('App\Services\PdfReportWriter::write', Target::parse('Nothing\AtAll::ever'));
+
+        foreach ($walk->stops() as $stop) {
+            $this->assertNotSame('str_ends_with', $stop->detail);
+        }
+
+        $this->assertSame([], $walk->stops());
+    }
+
+    public function test_the_shortest_path_is_the_one_returned(): void
+    {
+        $reach = $this->walk()->reach('App\Services\OrderService::place', Target::parse('App\Models\Order::save'));
+
+        $this->assertTrue($reach->found);
+        $this->assertCount(2, $reach->path);
+        $this->assertSame('App\Jobs\ProcessOrder::handle', $reach->path[0]->to);
+        $this->assertSame(Confidence::Resolved, $reach->confidence());
+    }
+
+    public function test_a_path_is_worth_its_weakest_step(): void
+    {
+        $reach = $this->walk()->reach('App\Services\ReportDispatcher::run', Target::parse('App\Services\ReportBuilder::build'));
+
+        $this->assertTrue($reach->found);
+        $this->assertSame(Confidence::Inferred, $reach->confidence());
+    }
+
+    public function test_the_destination_being_the_start_is_a_path_of_no_steps(): void
+    {
+        $reach = $this->walk()->reach('App\Models\Order::save', Target::parse('App\Models\Order'));
+
+        $this->assertTrue($reach->found);
+        $this->assertSame([], $reach->path);
+    }
+
+    public function test_a_depth_budget_that_bites_is_reported_as_such(): void
+    {
+        $reach = $this->walk(maxDepth: 1)->reach('App\Services\OrderService::place', Target::parse('App\Models\Order::save'));
+
+        $this->assertFalse($reach->found);
+        $this->assertTrue($reach->exhausted);
+    }
+
+    public function test_a_complete_search_is_distinguishable_from_a_curtailed_one(): void
+    {
+        $reach = $this->walk()->reach('App\Services\ReportBuilder::build', Target::parse('App\Models\Order::save'));
+
+        $this->assertFalse($reach->found);
+        $this->assertFalse($reach->exhausted);
+        $this->assertSame([], $reach->stops);
+    }
+
+    public function test_a_neighbourhood_records_the_step_each_declaration_was_found_at(): void
+    {
+        $found = $this->walk()->neighbourhood('App\Services\OrderService::place', 2);
+        $depths = [];
+
+        foreach ($found as [$depth, $edge]) {
+            $depths[$edge->to] = $depth;
+        }
+
+        $this->assertSame(1, $depths['App\Jobs\ProcessOrder::handle']);
+        $this->assertSame(2, $depths['App\Models\Order::save']);
+    }
+
+    private function edge(string $from, string $to): Edge
+    {
+        foreach ($this->walk()->edgesFrom($from) as $edge) {
+            if ($edge->to === $to) {
+                return $edge;
+            }
+        }
+
+        $this->fail("no edge from {$from} to {$to}");
+    }
+
+    private function walk(int $maxDepth = 6, bool $throughDependencies = false): Walk
+    {
+        $project = Project::at(Cli::laravelRoot());
+        $map = AutoloadMap::forProject($project);
+        $index = Index::open($project, $map);
+        $graph = $index->graph(validate: false);
+        $locator = new SymbolLocator($project, $map);
+        $source = new ClassSource($project, $graph, $locator);
+
+        return new Walk(
+            code: new CodeEdges($project, $graph, $source, $locator),
+            framework: new LaravelEdges(
+                $project,
+                $graph,
+                $source,
+                $index->store,
+                static function () use ($project, $graph, $source): ContainerReader {
+                    $config = new ConfigReader;
+                    $config->readDirectory(
+                        $project->path('config'),
+                        static fn (string $absolute): string => $project->displayPath($absolute),
+                    );
+
+                    return new ContainerReader($graph, $source)->read(
+                        static fn (string $key): array => $config->matching($key),
+                    );
+                },
+            ),
+            maxDepth: $maxDepth,
+            maxNodes: 1500,
+            throughDependencies: $throughDependencies,
+        );
+    }
+}
