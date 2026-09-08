@@ -526,6 +526,37 @@ Read against the corpus, these are the honest limits rather than a to-do list:
 - Macros are unresolvable and are reported as such — `DB::table()` comes back as forwarded
   rather than as a method that does not exist.
 
+### What the mutation gate said about Phase 4
+
+Phase 4 took the mutation score from 73.3% to **69.35%** (5,772 mutants), below the 71%
+threshold. The distribution is what made this worth acting on rather than re-baselining: unlike
+the diffuse escapes of Phases 0-3, **840 of the 1,769 survivors sat in six framework reader
+classes**.
+
+That is a specific gap with a specific cause. The readers were tested end to end through the
+CLI, which asserts that a string appears somewhere in a command's output — so nothing was
+checking that a column had the right type, or that the line number reported for it was right.
+Every address in a `schema` answer is something a reader is expected to click; reading the dump
+correctly and reporting the wrong line for it is its own way of being confidently wrong.
+
+Unit tests for the readers took it to **71.57%** and found four defects on the way, three of
+which reached the output:
+
+- `Route::get($uri, ['uses' => …, 'as' => 'api.health'])` lost its name, because the options
+  array was read for the action and nothing else — and a name is what a route is most often
+  looked up by.
+- `$table->unsignedInteger(…)` was reported as type `unsignedinteger`. Dispatch lowercases the
+  Blueprint method and the type was being taken from the lowered form, so the answer printed a
+  method the framework does not have.
+- `SchemaDump::read` emitted a PHP warning on a missing file before returning empty. A tool that
+  prints warnings into its own output has corrupted the answer it was asked for.
+- An `instanceof` against an unimported class name, which PHP evaluates as false rather than
+  failing, leaving the branch silently dead. PHPStan catches this; the test caught it first
+  because the gate had not been run since the method was written.
+
+The threshold stays at 71 rather than being ratcheted to 71.57. Half a point of headroom is not
+a gate.
+
 ## The 60 commands, after four phases
 
 The §9 classification, revisited now that the index, the query language, reference resolution and
