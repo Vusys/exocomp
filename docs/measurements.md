@@ -558,10 +558,135 @@ reaching the output:
 The threshold stays at 71 rather than being ratcheted to 72.8. Ratcheting to within a point of
 the measurement makes the next commit a coin toss rather than a check.
 
-## The 60 commands, after four phases
+## Phase 5 — reachability
+
+### The exit criterion
+
+REPORT.md §5 sets it as: **`reaches` reproduces, in one call each, conclusions that previously
+took a manual endpoint-by-endpoint sweep.**
+
+The sweep, run against the corpus:
+
+```
+$ exocomp reaches 'route:<a prefix>' '::save'
+25 of 100 starting points reach ::save
+```
+
+A hundred endpoints, each walked for a path to any model write, in 22 seconds. By hand that is
+a hundred separate traces through controllers, services, jobs and listeners — the shape §3.4
+describes as "a manual, repeated evaluation of exactly that question, endpoint by endpoint".
+
+One of the positives, traced in full and then verified by hand at all three sites:
+
+```
+$ exocomp reaches '<a controller>::index' '::save'
+<controller>::index reaches ::save in 3 steps; the weakest step is resolved
+app/Http/…/…Controller.php:169:13  dispatch     →  <a queued job>::handle
+app/Jobs/…/…Job.php:43:17          method call  →  <a service>::suspendAccount
+app/Services/…/…Service.php:437:13 method call  →  <a model>::save
+```
+
+The second step is the one no language-only tool reaches: the controller calls
+`SomeJob::dispatch($contract)` and execution continues in a different class, in a different
+process. Reading the controller tells you nothing about the model that gets written.
+
+None of the 60 benchmark commands is a reachability question, and that is not evidence against
+the phase — it is the shape of the evidence. A reachability audit appears in a shell history as
+*dozens* of ordinary searches repeated with different arguments, never as one command, which is
+precisely why §3.4 names it as the highest-value query rather than the most frequent one.
+
+### Time to first answer
+
+Best of three, warm index, against the 950k-line corpus, with a 189 ms PHP startup floor:
+
+| Command | |
+| --- | ---: |
+| `routes` (now index-backed, for the controller namespace) | 333 ms |
+| `reaches`, negative, graph exhausted | 245 ms |
+| `graph --depth 3` from a controller (78 declarations) | 3,959 ms |
+| `reaches`, path found in 3 steps | 3,974 ms |
+| `reaches`, negative, budget hit after 127 declarations | 8,035 ms |
+| `reaches route:…`, 19 endpoints | 12,866 ms |
+| `reaches route:…`, 100 endpoints under one prefix | 21,902 ms |
+| `reaches route:*`, the first 100 of the whole table | 35,425 ms |
+
+Two things are worth reading off that table.
+
+The first is that a **negative answer can be the fastest one**. 245 ms is a complete search: the
+walk ran out of graph rather than out of budget, and every edge it met was followed. That is the
+strongest thing this command can say and it costs nothing, because a small subgraph is small.
+
+The second is that **a sweep gets cheaper per endpoint the more of one subsystem it covers**:
+677 ms each across 19 endpoints under one prefix, 219 ms each across 100 under the same one, and
+354 ms each across the first 100 of the whole table, which span more distinct code and so share
+fewer parsed files. The caches are shared across starts, so the second walk through a service
+pays only for the nodes it has not already parsed. The fixed cost — index validation, the
+container read, the route table — is about 1.7 seconds and is paid once.
+
+These are far above Phase 1's sub-200 ms index budget, for the same reason the Phase 4 answers
+are: a walk parses files by convention rather than reading rows, and nothing about a walk is
+cached between runs. The fix is the same one Phase 4 deferred — cache derived framework facts
+and expanded bodies against content hashes — and it is still deferred, because the thing being
+replaced is a day of manual tracing rather than a sub-second query.
+
+### What running against the real corpus changed
+
+Five defects, none of which the fixture would have shown, and two of them in Phase 4 code that
+the graph was the first thing to actually depend on.
+
+**Two-thirds of the route table pointed at classes that do not exist.** A controller named by a
+string is relative to a root namespace declared on the application's own route provider, and
+without it the reported name is unusable — `reaches route:*` could not start from most of the
+table. The root is now read from the provider rather than assumed, because recent framework
+versions default it to nothing and assuming the historical default would be wrong in the other
+direction. The first fix then produced names with the root written twice, because a string
+beginning with a backslash is already absolute and the framework checks for exactly that.
+
+**"Method not found on X" was two different statements.** One controller's walk produced twenty
+of them, all the same Eloquent forwarding: a model does not declare `select()`, its base class
+in `vendor/` does, and the call arrives there through a magic `__call`. Reported as "not found"
+that reads as "your code is broken". A reader who checks one and finds the tool mistaken stops
+trusting the rest of the output, which is the entire failure the confidence model exists to
+prevent. The answer now names the class the readable ancestry stops at.
+
+**Negative lookups were not cached.** `??=` re-runs whenever the cached value is null, and null
+is the common answer when walking a framework application: hundreds of names per walk are not
+in the corpus, and each retry was an index lookup, an autoload-map lookup and a stat. The
+nineteen-endpoint sweep went from 26 seconds to 13, with system time falling from 17 to 6.
+
+**A note was printed once per node.** Twenty identical lines of "a content scan was not run"
+ahead of the answer. At that point it is not a remark, it is the output.
+
+**Every distinct receiver type cost a file parse**, to establish whether it was an interface or
+a facade — facts the index already records. Deciding both from the index instead removed a parse
+per class encountered.
+
+### What it still declines
+
+Named rather than discovered later:
+
+- **Eloquent's magic forwarding.** `Order::where(...)->update(...)` runs on a query builder
+  reached through `__call`. Modelling it would mean reading the bodies of two magic methods and
+  a `newQuery()`, and getting it subtly wrong is worse than declining: the walk reports the call,
+  says the ancestry left the readable source, and stops. This is the single largest gap.
+- **`__call`/`__callStatic` in general**, string callables, and any target computed at runtime.
+- **Middleware, observers and policies.** §3.4 lists their registration sites as edges worth
+  having and they are not built. All three are readable the same way the others are.
+- **A widely implemented interface** is a fan-out rather than a path. The walk follows twelve
+  implementations and says when it stopped.
+- **Dependencies**, unless asked. The edge into one is recorded and checked against the
+  destination, so a path that ends at a framework method is found; walking on is
+  `--through-vendor`.
+
+Every one of these shows up in the answer as a place the walk stopped, with its address and its
+reason — which is the property that makes a negative verdict worth reading at all.
+
+## The 60 commands, after five phases
 
 The §9 classification, revisited now that the index, the query language, reference resolution and
-the framework profile all exist:
+the framework profile all exist. Phase 5 leaves it unchanged, for the reason given above: a
+reachability audit appears in the corpus as repetitions of simpler searches rather than as a
+command of its own.
 
 | Bucket | Phase 0 | After Phase 3 | Now |
 | --- | ---: | ---: | ---: |

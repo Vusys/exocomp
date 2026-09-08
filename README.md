@@ -272,8 +272,8 @@ a day of opening files.
 ```console
 $ exocomp reaches 'App\Http\Controllers\OrderController::store' 'App\Models\Order::save'
 App\Http\Controllers\OrderController::store reaches App\Models\Order::save in 3 steps; the weakest step is resolved
-app/Http/Controllers/OrderController.php:34:9  method call  →  App\Services\OrderService::place
-app/Services/OrderService.php:15:1             dispatch     →  App\Jobs\ProcessOrder::handle
+app/Http/Controllers/OrderController.php:35:9  method call  →  App\Services\OrderService::place
+app/Services/OrderService.php:15:9             dispatch  →  App\Jobs\ProcessOrder::handle
 app/Jobs/ProcessOrder.php:19:9                 method call  →  App\Models\Order::save
 ```
 
@@ -296,15 +296,16 @@ App\Models\*::delete*      globs in either half
 that was one invocation per route is one invocation:
 
 ```console
-$ exocomp reaches 'route:*/admin/*' 'App\Models\Order::save'
-4 of 19 starting points reach App\Models\Order::save
-routes/web.php:9:1   GET /admin/orders             not reached
-routes/web.php:14:1  POST /admin/orders            reached in 3 steps
+$ exocomp reaches 'route:*' 'App\Models\Order::save'
+1 of 8 starting points reach App\Models\Order::save
+routes/api.php:9:1   GET /api/orders             not reached
+routes/web.php:9:1   GET /admin/orders           not reached
+routes/web.php:18:1  POST /orders                reached in 3 steps
 …
 ```
 
 Measured on a 950,000-line application: a hundred endpoints swept in 22 seconds. One symbol's
-path in about four. These are far above the sub-200 ms the index answers in, for the same
+path in about four, and a negative one that exhausts a small subgraph in a quarter of a second. These are far above the sub-200 ms the index answers in, for the same
 reason the other framework commands are — a walk parses files by convention rather than reading
 rows, and nothing about a walk is cached between runs yet.
 
@@ -316,7 +317,7 @@ to give, so every negative says how much it is worth:
 
 ```console
 $ exocomp reaches 'App\Services\ReportBuilder::build' 'App\Models\Order::save'; echo "exit $?"
-no path from App\Services\ReportBuilder::build to App\Models\Order::save; 12 declarations were walked
+no path from App\Services\ReportBuilder::build to App\Models\Order::save; 1 declaration was walked
 note: the walk ran out of graph rather than out of budget, and every edge it met was followed —
       so within the edges this tool models, there is no path
 exit 1
