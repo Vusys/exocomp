@@ -1,0 +1,9 @@
+{
+    "name": "fixtures/corpus",
+    "description": "A miniature project whose only purpose is to be analysed. Never installed; its composer.json exists so the autoload map has something real to resolve against.",
+    "autoload": {
+        "psr-4": {
+            "Fixtures\\": "src/"
+        }
+    }
+}

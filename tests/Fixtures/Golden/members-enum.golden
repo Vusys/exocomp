@@ -1,0 +1,14 @@
+Enum cases, constants and methods
+-----
+members Fixtures\TierA\Colour
+-----
+src/TierA/Colour.php  Fixtures\TierA\Colour  (4 own members)
+
+own (4)
+    9  case Red = 'red'
+   11  case Green = 'green'
+   13  public const string FALLBACK = 'red'
+   15  public function describe(): string
+
+── 1 not listed ──
+implements Fixtures\TierA\Describable   members not listed here — try: exocomp members Fixtures\TierA\Describable

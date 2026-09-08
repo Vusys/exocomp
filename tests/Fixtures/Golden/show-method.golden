@@ -1,0 +1,12 @@
+Source of one method, docblock included
+-----
+show Fixtures\TierA\Baseline::greet
+-----
+src/TierA/Baseline.php:27-33  Fixtures\TierA\Baseline::greet
+    /**
+     * Documented so that `show` has a docblock to include in the span.
+     */
+    public function greet(string $name, int $times = 1): string
+    {
+        return str_repeat("hello {$name}", $times);
+    }

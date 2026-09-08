@@ -1,0 +1,17 @@
+A class reduced to its shape
+-----
+show Fixtures\TierA\Baseline --without-bodies
+-----
+src/TierA/Baseline.php:9-49  Fixtures\TierA\Baseline
+final class Baseline extends AbstractBase implements Contract
+{
+    use Fixtures\TierA\Loggable;
+    public const string DEFAULT_LABEL = 'baseline';
+    protected const int RETRIES = 3;
+    private static int $instances = 0;
+    public function __construct(private readonly Repository $repository, protected string $label = self::DEFAULT_LABEL) { … }
+    public function greet(string $name, int $times = 1): string { … }
+    public function repository(): Repository { … }
+    protected function retries(): int { … }
+    private function reset(): void { … }
+}

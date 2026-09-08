@@ -1,0 +1,28 @@
+name: infection
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  infection:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: shivammathur/setup-php@0f7f1d08e3e32076e51cae65eb0b0c871405b16e # v2.34.1
+        with:
+          php-version: '8.4'
+          coverage: xdebug
+
+      - run: composer update --no-interaction --prefer-dist --no-progress
+
+      # Thresholds start at 0 so the first run records a baseline; ratchet `minMsi` in
+      # infection.json5 to a point or two below the measured figure once it is known, so
+      # regressions fail the build but new mutators do not.
+      - run: composer infection

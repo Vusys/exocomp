@@ -1,0 +1,11 @@
+A capped result says how much it dropped
+-----
+members Fixtures\TierA\Types --limit 3
+-----
+src/TierA/Types.php  Fixtures\TierA\Types  (8 own members)
+
+own (3)
+   12  public function union(int|string): int|false
+   17  public function intersection(Countable&Stringable): string
+   22  public function disjunctiveNormalForm((Countable&Stringable)|null): ?string
+… 5 more (use --limit)

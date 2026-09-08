@@ -1,0 +1,15 @@
+# Keep the published Composer archive lean: dev-only paths are excluded from
+# `composer require` downloads (they stay in the git repo).
+/tests            export-ignore
+/box.json         export-ignore
+/builds           export-ignore
+/.github          export-ignore
+/.gitattributes   export-ignore
+/.gitignore       export-ignore
+/.editorconfig    export-ignore
+/phpunit.xml      export-ignore
+/phpstan.neon     export-ignore
+/rector.php       export-ignore
+/pint.json        export-ignore
+/infection.json5  export-ignore
+/CHANGELOG.md     export-ignore

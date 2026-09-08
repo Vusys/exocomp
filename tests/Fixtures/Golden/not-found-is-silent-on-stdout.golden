@@ -1,0 +1,5 @@
+A missing symbol writes nothing to stdout
+-----
+[exit=1] show Fixtures\TierA\NoSuchClass
+-----
+

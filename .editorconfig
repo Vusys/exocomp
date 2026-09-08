@@ -1,0 +1,25 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json,json5,neon}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# Golden files pin command output byte-for-byte, and aligned columns can end a line in
+# spaces — trimming them would silently rewrite what the fixture asserts.
+[*.golden]
+trim_trailing_whitespace = false
+
+# Fixture PHP is test data. Its bytes (including odd whitespace) are the thing under test.
+[tests/Fixtures/**]
+trim_trailing_whitespace = false
+insert_final_newline = false

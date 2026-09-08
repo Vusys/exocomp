@@ -1,0 +1,9 @@
+A file declaring the same short name in two namespaces
+-----
+outline src/TierB/Braces.php
+-----
+src/TierB/Braces.php  (2 declarations)
+    6  final class Fixtures\TierB\First\Inhabitant
+    8  public function where(): string
+   16  final class Fixtures\TierB\Second\Inhabitant
+   18  public function where(): string

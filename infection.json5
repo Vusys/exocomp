@@ -1,0 +1,21 @@
+{
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    "source": {
+        "directories": [
+            "src"
+        ]
+    },
+    "logs": {
+        "text": "build/infection/infection.log",
+        "summary": "build/infection/summary.log",
+        "github": true
+    },
+    "mutators": {
+        "@default": true
+    },
+    // Measured baseline on the first Phase 0 commit: 80% MSI, 80% covered MSI (1,031 mutants,
+    // 826 killed, 0 uncovered). The thresholds sit a couple of points below that so a genuine
+    // regression fails the build while a newly-added mutator does not.
+    "minMsi": 78,
+    "minCoveredMsi": 78
+}

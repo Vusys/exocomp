@@ -1,0 +1,12 @@
+parameters:
+    paths:
+        - src
+        - tests
+
+    # Fixture bytes are test data, not source code: Tier B contains deliberately confusing
+    # casing and aliases, Tier D is dynamic-PHP abuse, Tier F holds a file that does not parse.
+    # Analysing them would report on code whose whole purpose is to be pathological.
+    excludePaths:
+        - tests/Fixtures
+
+    level: 9

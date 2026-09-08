@@ -1,0 +1,11 @@
+Aliased, grouped, function and constant imports
+-----
+imports src/TierB/Aliases.php
+-----
+src/TierB/Aliases.php  Fixtures\TierB  (6 imports)
+    7  class     Fixtures\TierA\Baseline
+    8  class     Fixtures\TierA\Support\Repository as Store
+    9  class     Fixtures\TierB\Deep\Alpha
+    9  class     Fixtures\TierB\Deep\Beta as Second
+   11  function  Fixtures\TierB\Helpers\normalise
+   13  const     Fixtures\TierB\Helpers\MAX_DEPTH

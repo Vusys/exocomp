@@ -1,0 +1,5 @@
+The singleton JSON payload for show
+-----
+show Fixtures\TierA\Support\Repository::find --json
+-----
+{"file":"src/TierA/Support/Repository.php","line":9,"col":5,"endLine":12,"fqn":"Fixtures\\TierA\\Support\\Repository::find","kind":"method","confidence":"resolved","source":"    public function find(int $id): ?object\n    {\n        return null;\n    }"}
