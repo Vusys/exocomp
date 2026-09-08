@@ -13,3 +13,5 @@
 /pint.json        export-ignore
 /infection.json5  export-ignore
 /CHANGELOG.md     export-ignore
+/exocomp-rules.json    export-ignore
+/exocomp-baseline.json export-ignore

@@ -199,8 +199,14 @@ test runner. It emits joinable output and lets the shell compose.
 ```console
 composer test        # PHPUnit
 composer check       # Pint --test, Rector --dry-run, PHPStan level 9
+composer sweep       # exocomp's own rules, against its own baseline
 composer infection   # mutation testing
 ```
+
+`composer sweep` runs the tool against itself. Its two rules exist because both caught real
+bugs here: `array_filter()` with no callback silently drops the string `"0"`, and `substr()`
+cuts on a byte boundary and can split a multi-byte character. Existing safe uses are baselined,
+so the sweep fails only on new ones.
 
 `tests/Fixtures` is excluded from Pint, Rector and PHPStan, and that exclusion is load-bearing:
 most of the corpus is deliberately pathological code, and a formatter that tidies a naming trap

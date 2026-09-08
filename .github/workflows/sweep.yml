@@ -1,0 +1,28 @@
+name: sweep
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: shivammathur/setup-php@0f7f1d08e3e32076e51cae65eb0b0c871405b16e # v2.34.1
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - run: composer update --no-interaction --prefer-dist --no-progress
+
+      # The tool run against itself. Existing violations are baselined, so this fails only on
+      # new ones — which is the whole point of a ratchet: it can be switched on before the
+      # codebase passes, and from then on the known set can only shrink.
+      - run: composer sweep

@@ -117,7 +117,13 @@ final readonly class Predicates
      */
     public function namespacePrefixes(): array
     {
-        return array_values(array_filter(array_map(NamespaceGlob::literalPrefix(...), $this->in)));
+        // Filtered on emptiness, not truthiness: a glob beginning with a wildcard has no
+        // literal head and must be dropped, but `array_filter()` with no callback would also
+        // drop a prefix that happened to be "0".
+        return array_values(array_filter(
+            array_map(NamespaceGlob::literalPrefix(...), $this->in),
+            static fn (string $prefix): bool => $prefix !== '',
+        ));
     }
 
     private function withinNamespace(QueryMatch $match): bool

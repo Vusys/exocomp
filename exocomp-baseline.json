@@ -1,0 +1,46 @@
+{
+    "waived": [
+        {
+            "rule": "substr-on-possibly-multibyte-text",
+            "file": "src/Index/Index.php",
+            "context": "Vusys\\Exocomp\\Index\\Index::parserVersion",
+            "code": "substr($hash, 0, 12)",
+            "count": 1
+        },
+        {
+            "rule": "substr-on-possibly-multibyte-text",
+            "file": "src/Inference/ReferenceFinder.php",
+            "context": "Vusys\\Exocomp\\Inference\\ReferenceFinder::literalOccurrences",
+            "code": "substr($contents, 0, $position)",
+            "count": 1
+        },
+        {
+            "rule": "substr-on-possibly-multibyte-text",
+            "file": "src/Inference/TypeResolver.php",
+            "context": "Vusys\\Exocomp\\Inference\\TypeResolver::qualify",
+            "code": "substr($classFqn, 0, (int) strrpos($classFqn, '\\\\'))",
+            "count": 1
+        },
+        {
+            "rule": "substr-on-possibly-multibyte-text",
+            "file": "src/Project/AutoloadMap.php",
+            "context": "Vusys\\Exocomp\\Project\\AutoloadMap::candidates",
+            "code": "substr($relative, 0, $position + 1)",
+            "count": 1
+        },
+        {
+            "rule": "substr-on-possibly-multibyte-text",
+            "file": "src/Query/NamespaceGlob.php",
+            "context": "Vusys\\Exocomp\\Query\\NamespaceGlob::literalPrefix",
+            "code": "substr($glob, 0, $position)",
+            "count": 1
+        },
+        {
+            "rule": "substr-on-possibly-multibyte-text",
+            "file": "src/Symbol/SymbolRef.php",
+            "context": "Vusys\\Exocomp\\Symbol\\SymbolRef::parse",
+            "code": "substr($member, 0, -2)",
+            "count": 1
+        }
+    ]
+}

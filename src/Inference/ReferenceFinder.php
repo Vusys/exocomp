@@ -137,9 +137,14 @@ final class ReferenceFinder
                 $before = substr($contents, 0, $position);
                 $line = substr_count($before, "\n") + 1;
                 $lineStart = (int) strrpos("\n".$before, "\n");
-                $text = trim((string) strtok(substr($contents, $position - min($position, 40)), "\n"));
+                $text = trim((string) strtok(mb_strcut($contents, $position - min($position, 40), null, 'UTF-8'), "\n"));
 
-                $found[] = [$line, $position - $lineStart + 1, strlen($text) > 90 ? substr($text, 0, 90).'…' : $text];
+                // Cut on a character boundary. This runs over arbitrary source, so a byte cut
+                // would split a multi-byte character and produce a record that is not valid
+                // UTF-8 — the same fault this tool's own `check` rule exists to catch.
+                $snippet = strlen($text) > 90 ? mb_strcut($text, 0, 90, 'UTF-8').'…' : $text;
+
+                $found[] = [$line, $position - $lineStart + 1, $snippet];
             }
         }
 

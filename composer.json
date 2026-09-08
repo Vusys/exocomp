@@ -71,6 +71,8 @@
             "@analyse"
         ],
         "test": "phpunit",
-        "infection": "infection --threads=max"
+        "infection": "infection --threads=max",
+        "sweep": "php bin/exocomp check --baseline exocomp-baseline.json",
+        "sweep:update": "php bin/exocomp check --baseline exocomp-baseline.json --update-baseline"
     }
 }

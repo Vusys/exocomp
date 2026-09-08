@@ -1,0 +1,22 @@
+{
+    "rules": [
+        {
+            "id": "array-filter-without-callback",
+            "message": "array_filter() with no callback drops every falsy value, including the string \"0\"",
+            "pattern": "array_filter($X)",
+            "not-in": [
+                "Fixtures\\**",
+                "Installed\\**"
+            ]
+        },
+        {
+            "id": "substr-on-possibly-multibyte-text",
+            "message": "substr() cuts on a byte boundary and can split a character; use mb_strcut() for text",
+            "pattern": "substr($TEXT, 0, $LENGTH)",
+            "not-in": [
+                "Fixtures\\**",
+                "Installed\\**"
+            ]
+        }
+    ]
+}
