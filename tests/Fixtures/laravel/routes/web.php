@@ -15,6 +15,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth'])->group(function () 
     });
 });
 
+Route::post('/orders', [OrderController::class, 'store'])->name('place-order');
+
+// A leading backslash means the name is already absolute, so the root namespace must not be
+// joined on in front of it — the framework checks for exactly this.
+Route::get('/exports', '\App\Http\Controllers\OrderController@index')->name('exports');
+
 Route::group(['prefix' => 'legacy', 'namespace' => 'Legacy'], function () {
     // A bare controller name inside a namespaced group: a single-action controller, written
     // the way the framework wanted before callable arrays.

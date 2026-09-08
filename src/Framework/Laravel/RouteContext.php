@@ -43,6 +43,14 @@ final readonly class RouteContext
      */
     public function qualify(string $controller): string
     {
+        // A leading backslash means the name is already absolute, and the framework's own
+        // prefixing checks for exactly that before joining the group namespace on. Stripping it
+        // first and qualifying anyway produces a name with the root namespace written twice —
+        // which resolves to nothing, and looks authoritative while doing it.
+        if (str_starts_with($controller, '\\')) {
+            return ltrim($controller, '\\');
+        }
+
         return $this->namespace === '' ? $controller : $this->namespace.'\\'.$controller;
     }
 

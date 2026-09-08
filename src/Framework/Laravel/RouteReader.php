@@ -62,7 +62,14 @@ final class RouteReader
 
     private int $filesRead = 0;
 
-    public function __construct(private readonly Analyser $analyser = new Analyser) {}
+    /**
+     * @param  ?string  $rootNamespace  what a string-named controller is relative to, read off
+     *                                  the application's route provider by {@see RouteNamespace}
+     */
+    public function __construct(
+        private readonly ?string $rootNamespace = null,
+        private readonly Analyser $analyser = new Analyser,
+    ) {}
 
     /**
      * @param  callable(string): string  $displayPath
@@ -130,7 +137,7 @@ final class RouteReader
         }
 
         $this->filesRead++;
-        $this->walk($statements, new RouteContext, $path);
+        $this->walk($statements, new RouteContext(namespace: $this->rootNamespace ?? ''), $path);
     }
 
     /**
@@ -346,7 +353,9 @@ final class RouteReader
         if (is_string($literal) && str_contains($literal, '@')) {
             [$class, $method] = explode('@', $literal, 2);
 
-            return [$context->qualify(ltrim($class, '\\')), $method, Confidence::Inferred, 'named by a string, so it is relative to the route namespace rather than fully qualified'];
+            return str_starts_with($class, '\\')
+                ? [$context->qualify($class), $method, Confidence::Resolved, null]
+                : [$context->qualify($class), $method, Confidence::Inferred, 'named by a string, so it is relative to the route namespace rather than fully qualified'];
         }
 
         $class = LiteralValue::className($action);
@@ -363,7 +372,9 @@ final class RouteReader
         // the way the framework wanted before callable arrays. Reporting it as unreadable would
         // hide a whole route file's worth of endpoints.
         if (is_string($literal) && $literal !== '') {
-            return [$context->qualify(ltrim($literal, '\\')), '__invoke', Confidence::Inferred, 'named by a string, so it is relative to the route namespace rather than fully qualified'];
+            return str_starts_with($literal, '\\')
+                ? [$context->qualify($literal), '__invoke', Confidence::Resolved, null]
+                : [$context->qualify($literal), '__invoke', Confidence::Inferred, 'named by a string, so it is relative to the route namespace rather than fully qualified'];
         }
 
         return [null, null, Confidence::Textual, 'the action is not readable from the source'];

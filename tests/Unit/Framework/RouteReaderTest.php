@@ -7,7 +7,13 @@ namespace Vusys\Exocomp\Tests\Unit\Framework;
 use PHPUnit\Framework\TestCase;
 use Vusys\Exocomp\Framework\Laravel\RouteContext;
 use Vusys\Exocomp\Framework\Laravel\RouteDefinition;
+use Vusys\Exocomp\Framework\Laravel\RouteNamespace;
 use Vusys\Exocomp\Framework\Laravel\RouteReader;
+use Vusys\Exocomp\Index\Index;
+use Vusys\Exocomp\Project\AutoloadMap;
+use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\Project;
+use Vusys\Exocomp\Project\SymbolLocator;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Tests\Support\Cli;
 
@@ -115,6 +121,38 @@ final class RouteReaderTest extends TestCase
         $this->assertStringContainsString('not a literal', (string) $declined[0]->note);
     }
 
+    public function test_a_root_namespace_qualifies_a_bare_name(): void
+    {
+        $route = $this->named($this->rooted(), 'legacy.orders');
+
+        // The group namespace joins on after the root, in that order.
+        $this->assertSame('App\Http\Controllers\Legacy\OrderListController', $route->controller);
+        $this->assertSame(Confidence::Inferred, $route->confidence);
+    }
+
+    public function test_a_leading_backslash_means_the_name_is_already_absolute(): void
+    {
+        $route = $this->named($this->rooted(), 'exports');
+
+        // Not `App\Http\Controllers\App\Http\Controllers\…`, which is what prefixing
+        // regardless would produce — a name that resolves to nothing and looks authoritative.
+        $this->assertSame('App\Http\Controllers\OrderController', $route->controller);
+        $this->assertSame('index', $route->action);
+        $this->assertSame(Confidence::Resolved, $route->confidence);
+        $this->assertNull($route->note);
+    }
+
+    public function test_the_root_namespace_is_read_from_the_applications_own_route_provider(): void
+    {
+        $project = Project::at(Cli::laravelRoot());
+        $map = AutoloadMap::forProject($project);
+        $graph = Index::open($project, $map)->graph(validate: false);
+
+        $root = new RouteNamespace($graph, new ClassSource($project, $graph, new SymbolLocator($project, $map)))->root();
+
+        $this->assertSame('App\Http\Controllers', $root);
+    }
+
     public function test_both_route_files_are_read(): void
     {
         $this->assertSame(2, $this->reader()->filesRead());
@@ -126,6 +164,25 @@ final class RouteReaderTest extends TestCase
 
         $this->assertSame([], $reader->routes());
         $this->assertStringContainsString('is not there', $reader->notes()[0]);
+    }
+
+    private function rooted(): RouteReader
+    {
+        return new RouteReader('App\Http\Controllers')->readDirectory(
+            Cli::laravelRoot().'/routes',
+            static fn (string $absolute): string => 'routes/'.basename($absolute),
+        );
+    }
+
+    private function named(RouteReader $reader, string $name): RouteDefinition
+    {
+        foreach ($reader->routes() as $route) {
+            if ($route->name === $name) {
+                return $route;
+            }
+        }
+
+        $this->fail("no route named {$name}");
     }
 
     private function reader(): RouteReader

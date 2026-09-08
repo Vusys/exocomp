@@ -9,13 +9,15 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Console\CommandContext;
-use Vusys\Exocomp\Console\FrameworkCommand;
+use Vusys\Exocomp\Console\IndexedFrameworkCommand;
 use Vusys\Exocomp\Framework\Laravel\RouteDefinition;
+use Vusys\Exocomp\Framework\Laravel\RouteNamespace;
 use Vusys\Exocomp\Framework\Laravel\RouteReader;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
+use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\SymbolNotFound;
 
 /**
@@ -30,7 +32,7 @@ use Vusys\Exocomp\Project\SymbolNotFound;
  * so the line that declares a route says almost nothing about the path it answers on.
  */
 #[AsCommand(name: 'routes', description: 'List routes with their controller and action, resolved through group prefixes')]
-final class RoutesCommand extends FrameworkCommand
+final class RoutesCommand extends IndexedFrameworkCommand
 {
     protected function configure(): void
     {
@@ -46,8 +48,13 @@ final class RoutesCommand extends FrameworkCommand
     {
         $this->refuseRevision($context, 'it reads the route files as they stand');
 
+        $notes = [];
+        $graph = $this->graph($input, $context, $notes);
         $profile = $this->laravel($context);
-        $reader = new RouteReader;
+
+        // The root namespace is what makes a string-named controller a name anything else can
+        // be asked about. Without it the answer names classes that do not exist.
+        $reader = new RouteReader(new RouteNamespace($graph, new ClassSource($context->project, $graph, $context->locator))->root());
         $reader->readDirectory(
             $profile->routesDirectory($context->project),
             static fn (string $absolute): string => $context->project->displayPath($absolute),
@@ -74,7 +81,7 @@ final class RoutesCommand extends FrameworkCommand
             unresolvedTitle: 'declared, but not readable',
             unresolved: $this->rows($declined, false, withNote: false),
             elided: $elided,
-            notes: [...$reader->notes(), ...$context->notes()],
+            notes: [...$notes, ...$reader->notes(), ...$context->notes()],
         );
     }
 
