@@ -8,20 +8,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **Phase 1 — the index, the inheritance graph, and history.**
-  - `locate <name>` — where a short or fully-qualified name is declared.
-  - `subclasses`, `implementors`, `traits-users` — the inheritance graph, transitively.
-    `implementors` follows `implements` and `extends` together, so a class satisfying an
-    interface through an intermediate one is found rather than silently dropped.
-  - `overrides <symbol>` — every declaration of one member across its hierarchy.
-  - `members <class>` now resolves through traits, parents and interfaces, grouped by where
-    each member came from, with anything the index could not reach reported rather than
-    omitted. `--own` keeps the declared-only view, answered from the file with no index.
-  - `index --status` / `--warm` — maintenance only; nothing else requires it.
-  - `--rev <SHA>` on every read command, answering about a git revision rather than the working
-    tree. 193 measured commands piped `git show SHA:file` into grep, and no existing PHP
-    intelligence tool addresses this at all.
-  - `--stdin`, to analyse a buffer the caller already holds.
 - **Phase 3 — inference and references.**
   - `references-to <symbol>` — every reference to a class or member, grouped `resolved` /
     `inferred` / `textual`. A same-named member on an unrelated class is excluded; one on a
@@ -47,6 +33,21 @@ All notable changes to this project are documented here. The format follows
   - The index now records every name a file *mentions*, so a corpus-wide query opens only the
     files that could possibly match. On a 950k-line codebase that took the audit's own worked
     example from 12.6s to 280ms, scanning 12 files instead of 6,536, for an 11% larger index.
+- **Phase 1 — the index, the inheritance graph, and history.**
+  - `locate <name>` — where a short or fully-qualified name is declared.
+  - `subclasses`, `implementors`, `traits-users` — the inheritance graph, transitively.
+    `implementors` follows `implements` and `extends` together, so a class satisfying an
+    interface through an intermediate one is found rather than silently dropped.
+  - `overrides <symbol>` — every declaration of one member across its hierarchy.
+  - `members <class>` now resolves through traits, parents and interfaces, grouped by where
+    each member came from, with anything the index could not reach reported rather than
+    omitted. `--own` keeps the declared-only view, answered from the file with no index.
+  - `index --status` / `--warm` — maintenance only; nothing else requires it.
+  - `--rev <SHA>` on every read command, answering about a git revision rather than the working
+    tree. 193 measured commands piped `git show SHA:file` into grep, and no existing PHP
+    intelligence tool addresses this at all.
+  - `--stdin`, to analyse a buffer the caller already holds.
+
 - **A content-addressed SQLite cache, shared between checkouts.** Facts belong to a file's
   contents rather than its path, so a second worktree of the same commit costs a walk instead of
   a parse: measured on a 950k-line application, 14.0s to build and 1.3s for a second checkout
