@@ -1,4 +1,4 @@
-# Phase 0 measured against a real corpus
+# Measured against a real corpus
 
 REPORT.md §9 proposes a cheap acceptance test: 60 genuine PHP search commands lifted unedited
 from real transcripts, with one bar per command — **answer it in one call, in fewer output
@@ -6,7 +6,9 @@ tokens, with no truncation.** Anything that cannot be answered that way is eithe
 capability or a deliberate anti-scope decision, and either finding is useful.
 
 This is that measurement, run against the private Laravel monolith the commands came from:
-6,920 application files (949,910 lines, 33.7 MB) and 30,910 vendor files (172.5 MB).
+6,920 application files (949,910 lines, 33.7 MB) and 30,910 vendor files (172.5 MB). It has been
+kept up to date as later phases landed, because a measurement taken once and never repeated is
+just a claim with a date on it.
 
 Neither the corpus of commands nor the codebase is committed here, and nothing in this
 repository references either — both carry real paths and identifiers from a private codebase, exactly
@@ -194,6 +196,99 @@ Phase 0's own fully-answered share, 15%, is more pessimistic than §3.2's projec
 searches whose *intent* is a declaration lookup, while this sample was selected for being
 representative, which weights it towards the hard composed pipelines. It is the more pessimistic
 reading and it is recorded as such rather than smoothed over.
+
+## Phase 1 — the index
+
+| | |
+| --- | ---: |
+| Cold build (6,536 files, 54,386 symbols, 8,822 inheritance edges) | 14.0 s |
+| **Second checkout of the same content** | **1.3 s** |
+| …files re-parsed for it | **0** |
+
+That second row is the design justifying itself. Facts belong to a file's contents rather than
+its path, so a worktree checked out from the same commit shares them. A cache living inside a
+worktree would die with it, and every disposable checkout would pay the full build — which is
+the most likely reason the obvious prior art was never used here.
+
+### Time to first answer
+
+| | |
+| --- | ---: |
+| `php -n -r ''` (bare interpreter) | 53 ms |
+| `locate` by fully-qualified name | 106 ms |
+| `subclasses` | 106 ms |
+| `locate` by short name | 144 ms |
+| `members`, resolved through the hierarchy | 205 ms |
+| `overrides` | 212 ms |
+
+Against a <200 ms budget, with ~53 ms of every figure being the PHP interpreter starting.
+
+Getting there took two corrections, both found by measuring rather than by reasoning. The
+obvious way to satisfy "validate on every query" is to walk the tree first, and that measured
+**83 ms** on this project — most of the budget spent proving that files nobody asked about have
+not moved. Validation is scoped to the answer instead: the files a result actually came from are
+stat-ed and re-read if they have changed, and a query that finds *nothing* escalates to one full
+pass, since a newly written class is indistinguishable from a missing one otherwise.
+
+The second correction: an early version escalated on *every* lookup, including the internal ones
+made while walking a hierarchy. That made `members` pay for a full corpus sync whenever a class
+extended something un-indexed — which is the ordinary case for anything extending a framework
+base. Escalation is now scoped to names the caller actually typed. `members` went from 324 ms to
+205 ms.
+
+### On the daemon
+
+REPORT.md §5 lists a persistent daemon as part of this phase. It has not been built, and the
+measurements are the reason: warm lookups already sit inside the budget without one, and the
+largest remaining term is not the engine but the PHP interpreter starting — 53 ms on a lean
+configuration, and 172 ms on this machine's default, which loads 69 extensions. A daemon is the
+right answer to *that*, and it remains the right answer, but it is now a change with a known
+size and a known payoff rather than an assumption. Building it before the engine was fast enough
+to need it would have hidden both of the corrections above.
+
+## Phase 2 — structural query
+
+The audit's own worked example, run against the same corpus. Four chained text filters
+approximating "call sites where the first argument is not a literal string":
+
+| | grep | exocomp |
+| --- | ---: | ---: |
+| Output | 1,747 B / 12 lines | 304 B / 3 lines |
+| Correct | **4 of the first 4 lines are comments** | 3 real call sites |
+
+A text filter cannot tell a docblock from a call, so two thirds of what it returned mentioned
+the method rather than calling it. The structural form returns the call sites, in **83% fewer
+bytes**, with nothing to eyeball.
+
+That first took **12.6 s**, because it parsed all 6,536 files. The index now records every name
+a file *mentions*, so the candidate set is whatever mentions the names a pattern requires
+literally:
+
+| | |
+| --- | ---: |
+| Files opened | 6,536 → **12** |
+| Time | 12.6 s → **280 ms** |
+| Index build cost | +11% |
+
+The filter is exact rather than heuristic — only names written literally count, and a pattern
+with none gets the full sweep it actually needs. The same name index is what reference finding
+needs, so it was paid for once.
+
+## Phase 3 — inference and references
+
+Two performance corrections again, both from this corpus. Looking for references to a method
+that is *declared* but never called was not opening the file that declares it, because the name
+index recorded only names a file referred to; declarations are mentions too. And the hierarchy
+walks were not cached, so every call site re-walked the target's ancestry and re-queried the
+database:
+
+| | |
+| --- | ---: |
+| `references-to` on a widely-used member | 10.9 s → **2.5 s** |
+| `references-to` on a framework method | 31.2 s → **4.8 s** |
+
+Reference finding remains the most expensive thing the tool does, which is expected: it is the
+only operation that must parse every file that could possibly mention a name.
 
 ## Re-running this
 

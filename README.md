@@ -45,8 +45,8 @@ writes `builds/exocomp.phar`, which runs anywhere with PHP 8.4 and no other setu
 
 ## Commands
 
-No type inference and no framework profile yet. It works on a fresh checkout with no `vendor/`
-and asks nothing of you before it answers.
+No framework profile yet, and no write side. It works on a fresh checkout with no `vendor/` and
+asks nothing of you before it answers.
 
 | Command | Answers |
 | --- | --- |
