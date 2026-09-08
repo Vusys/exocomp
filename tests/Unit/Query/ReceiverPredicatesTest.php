@@ -35,6 +35,16 @@ final class ReceiverPredicatesTest extends TestCase
         $this->assertStringNotContainsString('X=$this->envelope', $run->output);
     }
 
+    public function test_receiver_implements_reaches_an_interface(): void
+    {
+        $run = Cli::inCorpus(['query', '$R->_M($A)', '--receiver-implements', 'Fixtures\TierA\Describable']);
+
+        // `Colour` is an enum implementing `Describable`; nothing in the corpus calls a method
+        // on one, so the honest answer is none — and the predicate must say so rather than
+        // falling back to matching everything.
+        $this->assertStringContainsString('0 matches', $run->output);
+    }
+
     public function test_an_unresolvable_receiver_never_matches(): void
     {
         $run = Cli::inCorpus(['query', '$X->send($M)', '--receiver-type', 'Fixtures\TierD\Notifier']);

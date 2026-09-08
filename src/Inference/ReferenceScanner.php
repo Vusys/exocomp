@@ -301,10 +301,11 @@ final class ReferenceScanner extends NodeVisitorAbstract
             return false;
         }
 
-        // Methods fold case in PHP; properties, constants and enum cases do not.
+        // Methods fold case in PHP; properties, constants and enum cases do not. `strcasecmp`
+        // already covers exact equality, so there is nothing to add to it.
         return $this->target->memberIsProperty
             ? $text === $member
-            : strcasecmp($text, $member) === 0 || $text === $member;
+            : strcasecmp($text, $member) === 0;
     }
 
     private function record(Node $node, string $kind, Confidence $confidence, string $reason): void

@@ -93,6 +93,29 @@ final class ReferenceFinderTest extends TestCase
         $this->assertSame(Confidence::Inferred, $reference->confidence);
     }
 
+    /**
+     * PHP folds case on method names, so `$x->SEND()` and `$x->send()` are the same call. This
+     * is the half of the case-sensitivity rule that a strict comparison gets wrong; the other
+     * half — properties and constants, which do *not* fold — is covered in the Tier B tests.
+     */
+    public function test_a_method_call_in_another_case_is_the_same_method(): void
+    {
+        $this->assertContains('Fixtures\TierD\NotifierCallers::shoutingTheMethodName', $this->contexts());
+    }
+
+    /**
+     * The reason travels with the reference. A caller deciding what to do about a non-resolved
+     * reference needs to know *why* it is not resolved — that is what turns a limitation into a
+     * next step rather than a dead end.
+     */
+    public function test_an_inferred_reference_says_what_established_it(): void
+    {
+        $reference = $this->at('Fixtures\TierD\NotifierCallers::fromDocblock');
+
+        $this->assertInstanceOf(Reference::class, $reference);
+        $this->assertStringContainsString('@var', $reference->reason);
+    }
+
     public function test_a_variable_method_name_matches_nothing(): void
     {
         // `$this->notifier->{$method}()` names no member, so there is nothing to report — and

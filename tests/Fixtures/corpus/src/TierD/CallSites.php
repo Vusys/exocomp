@@ -62,4 +62,14 @@ final class NotifierCallers
     {
         return $given->send('hello');
     }
+
+    /**
+     * Method names fold case in PHP, so this calls the same method as every `send()` above.
+     * A search that compared them exactly would miss it, and a rename that missed it would
+     * break the codebase at runtime.
+     */
+    public function shoutingTheMethodName(Notifier $given): bool
+    {
+        return $given->SEND('hello');
+    }
 }
