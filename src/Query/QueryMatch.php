@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Query;
 
 use PhpParser\Node;
+use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Inference\ResolvedType;
 use Vusys\Exocomp\Source\SourceFile;
 
 /**
@@ -26,6 +28,8 @@ final readonly class QueryMatch
         public ?Node\FunctionLike $function,
         public ?string $functionName,
         public string $namespace,
+        public ?ResolvedType $receiverType = null,
+        public ?SymbolGraph $graph = null,
     ) {}
 
     public function line(): int

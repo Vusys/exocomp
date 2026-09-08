@@ -2,7 +2,7 @@ A capture, bound and rendered inline
 -----
 query $this->repository->_M($A) --capture M
 -----
-3 matches for $this->repository->_M($A)  (3 files scanned)
+3 matches for $this->repository->_M($A)  (4 files scanned)
 src/TierB/CallSites.php:36:16  M=find
 src/TierB/CallSites.php:36:46  M=findByUuid
 src/TierB/CallSites.php:44:16  M=findByUuid

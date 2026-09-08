@@ -67,8 +67,8 @@ final class IndexStore
         $symbol = $this->prepare('put_symbol', <<<'SQL'
             INSERT INTO symbols (hash, fqn, lower_fqn, name, lower_name, kind, owner, lower_owner,
                                  line, end_line, col, span_line, signature, full_signature,
-                                 modifiers, promoted, has_body)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 modifiers, promoted, has_body, type_fqn)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             SQL);
 
         foreach ($facts->symbols as $row) {
@@ -96,13 +96,23 @@ final class IndexStore
                 $this->text($row['modifiers']),
                 ($row['promoted'] ?? false) === true ? 1 : 0,
                 ($row['has_body'] ?? false) === true ? 1 : 0,
+                isset($row['type_fqn']) && is_string($row['type_fqn']) ? $row['type_fqn'] : null,
             ]);
         }
 
         $name = $this->prepare('put_name', 'INSERT INTO names (hash, lower_name) VALUES (?, ?)');
         $seen = [];
 
-        foreach ($facts->referencedNames as $referenced) {
+        // Declared names count as mentions. Without them, looking for references to a method
+        // that is declared but never called would not even open the file that declares it —
+        // and the declaration is the first thing a caller asking about a member wants.
+        $mentioned = $facts->referencedNames;
+
+        foreach ($facts->symbols as $symbol) {
+            $mentioned[] = self::text($symbol['name']);
+        }
+
+        foreach ($mentioned as $referenced) {
             $lower = mb_strtolower($referenced);
 
             if (isset($seen[$lower])) {
@@ -460,6 +470,7 @@ final class IndexStore
                 modifiers: $this->text($row['modifiers']),
                 isPromoted: $this->number($row['promoted']) === 1,
                 hasBody: $this->number($row['has_body']) === 1,
+                typeFqn: isset($row['type_fqn']) && is_string($row['type_fqn']) ? $row['type_fqn'] : null,
             );
         }
 

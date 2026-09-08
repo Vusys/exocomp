@@ -57,6 +57,8 @@ and asks nothing of you before it answers.
 | `locate <name>` | Where a short name or a fully-qualified one is declared. |
 | `subclasses` / `implementors` / `traits-users` | The inheritance graph, transitively. |
 | `overrides <symbol>` | Every declaration of one member across its hierarchy, up and down. |
+| `references-to <symbol>` | Every reference to a class or member, grouped by how certain each one is. |
+| `callers-of` / `calls-from` | The call graph in either direction, with unresolvable edges reported rather than dropped. |
 | `query <pattern>` | Structural search: the code shape you are looking for, written as PHP. |
 | `check [rules.json]` | Run saved rules against a baseline and fail on anything new. |
 | `index --status` / `--warm` | Maintenance. Nothing else requires it. |
@@ -109,6 +111,38 @@ every candidate is verified against the parsed declaration before it is returned
 classmap produces a miss rather than a wrong answer. The last resort — reading every file to
 find a class that shares one with a differently-named sibling — costs over a second, so it is
 behind `--scan`, and the tool says when it declined to take it.
+
+## References, and knowing what you don't know
+
+```console
+$ exocomp references-to 'App\Notifications\Notifier::send'
+9 references to App\Notifications\Notifier::send  (7 resolved, 1 inferred, 1 unresolved)
+...
+inferred (1)
+app/Http/Controller.php:51:16  $thing->send('hello')
+
+── 1 unresolved ──
+app/Legacy/Bridge.php:36:16    $anything->send('hello')   receiver type unknown
+```
+
+Two judgements matter more than finding the name, and grep can make neither:
+
+- **A same-named method on an unrelated class is excluded.** Without that, the tool is `sed`
+  with extra steps, and every rename it drives is wrong.
+- **A same-named method on a subclass is included.** Without that, a rename silently breaks
+  polymorphism — and in PHP it breaks at runtime, on whichever path happens to execute, not at
+  build time.
+
+Everything else goes in the trailing block with the reason. A rename with 98% recall is not 98%
+good, it is broken, so the useful output is not a list of references but a list plus an honest
+account of what is missing from it. Only `resolved` may ever be rewritten mechanically.
+
+Inference is deliberately narrow: declared parameter, property and return types, promoted
+properties, `$this`/`self`/`static`/`parent`, `new X`, assignment from an already-resolved call,
+enum cases, and docblocks — which are always `inferred`, never `resolved`, because an
+annotation is a claim about the code rather than a fact of it. Anything else is reported as
+unknown with a reason. That is not a gap to be closed later; it is what makes partial inference
+safe to ship.
 
 ## Structural query
 

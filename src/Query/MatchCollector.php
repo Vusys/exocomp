@@ -6,6 +6,11 @@ namespace Vusys\Exocomp\Query;
 
 use PhpParser\Node;
 use PhpParser\NodeVisitorAbstract;
+use Vusys\Exocomp\Analysis\FileAnalysis;
+use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Inference\ResolvedType;
+use Vusys\Exocomp\Inference\Scope;
+use Vusys\Exocomp\Inference\TypeResolver;
 use Vusys\Exocomp\Source\SourceFile;
 
 /**
@@ -30,12 +35,18 @@ final class MatchCollector extends NodeVisitorAbstract
 
     private readonly Matcher $matcher;
 
+    private Scope $scope;
+
     public function __construct(
         private readonly Pattern $pattern,
         private readonly SourceFile $file,
         private readonly Predicates $predicates,
+        private readonly ?TypeResolver $types = null,
+        private readonly ?FileAnalysis $analysis = null,
+        private readonly ?SymbolGraph $graph = null,
     ) {
         $this->matcher = new Matcher;
+        $this->scope = new Scope(null, null);
     }
 
     public function enterNode(Node $node): null
@@ -50,6 +61,11 @@ final class MatchCollector extends NodeVisitorAbstract
 
         if ($node instanceof Node\FunctionLike) {
             $this->functions[] = [$node, $this->nameOf($node)];
+            $this->scope = $this->scopeFor($node);
+        }
+
+        if ($node instanceof Node\Expr\Assign && $this->types instanceof TypeResolver && $this->analysis instanceof FileAnalysis) {
+            $this->types->observeAssignment($node, $this->scope, $this->analysis->imports);
         }
 
         $captures = new Captures;
@@ -67,6 +83,8 @@ final class MatchCollector extends NodeVisitorAbstract
                 function: $function[0] ?? null,
                 functionName: $function[1] ?? null,
                 namespace: $this->namespace,
+                receiverType: $this->receiverTypeOf($node),
+                graph: $this->graph,
             );
 
             if ($this->predicates->accepts($match)) {
@@ -96,6 +114,45 @@ final class MatchCollector extends NodeVisitorAbstract
     public function matches(): array
     {
         return $this->matches;
+    }
+
+    private function scopeFor(Node\FunctionLike $function): Scope
+    {
+        if (! $this->types instanceof TypeResolver || ! $this->analysis instanceof FileAnalysis) {
+            return new Scope(null, null);
+        }
+
+        $class = $this->classes === [] ? null : $this->classes[count($this->classes) - 1][1];
+
+        return $this->types->scopeFor($class, null, $function, $this->analysis->imports);
+    }
+
+    /**
+     * The static type of whatever a matched call or fetch is being made on.
+     *
+     * Only computed where a predicate could use it, because resolving a receiver walks the
+     * hierarchy and there is no reason to pay for that on a query that never asks.
+     */
+    private function receiverTypeOf(Node $node): ?ResolvedType
+    {
+        if (! $this->predicates->needsReceiver() || ! $this->types instanceof TypeResolver || ! $this->analysis instanceof FileAnalysis) {
+            return null;
+        }
+
+        $receiver = match (true) {
+            $node instanceof Node\Expr\MethodCall,
+            $node instanceof Node\Expr\NullsafeMethodCall,
+            $node instanceof Node\Expr\PropertyFetch,
+            $node instanceof Node\Expr\NullsafePropertyFetch => $node->var,
+            $node instanceof Node\Expr\StaticCall,
+            $node instanceof Node\Expr\StaticPropertyFetch,
+            $node instanceof Node\Expr\ClassConstFetch => $node->class,
+            default => null,
+        };
+
+        return $receiver instanceof Node
+            ? $this->types->typeOf($receiver, $this->scope, $this->analysis->imports)
+            : null;
     }
 
     private function nameOf(Node\FunctionLike $node): string

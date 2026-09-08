@@ -10,6 +10,9 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
+use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Inference\TypeResolver;
 use Vusys\Exocomp\Source\SourceFile;
 
 /**
@@ -24,8 +27,10 @@ final readonly class QueryEngine
 {
     private Parser $parser;
 
-    public function __construct(private Predicates $predicates = new Predicates)
-    {
+    public function __construct(
+        private Predicates $predicates = new Predicates,
+        private ?SymbolGraph $graph = null,
+    ) {
         $this->parser = (new ParserFactory)->createForNewestSupportedVersion();
     }
 
@@ -57,13 +62,20 @@ final readonly class QueryEngine
             return [];
         }
 
-        $collector = new MatchCollector($pattern, $file, $this->predicates);
+        // Receiver predicates need a hierarchy to judge against, and the analysis for the
+        // file's imports. Neither is built when nothing asks for them.
+        $needsTypes = $this->predicates->needsReceiver() && $this->graph instanceof SymbolGraph;
+        $analysis = null;
+        $types = null;
 
-        $traverser = new NodeTraverser(
-            new NodeVisitor\NameResolver(null, ['replaceNodes' => false]),
-            $collector,
-        );
-        $traverser->traverse($statements);
+        if ($needsTypes) {
+            [$analysis] = new Analyser()->analyseWithAst($file);
+            $types = new TypeResolver($this->graph);
+        }
+
+        $collector = new MatchCollector($pattern, $file, $this->predicates, $types, $analysis, $this->graph);
+
+        new NodeTraverser(new NodeVisitor\NameResolver(null, ['replaceNodes' => false]), $collector)->traverse($statements);
 
         return $collector->matches();
     }

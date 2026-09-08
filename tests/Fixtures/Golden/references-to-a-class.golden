@@ -1,0 +1,13 @@
+Class references, resolved through an alias
+-----
+references-to Fixtures\TierA\Support\Repository
+-----
+7 references to Fixtures\TierA\Support\Repository  (7 resolved, 0 inferred, 0 unresolved)
+src/TierA/Baseline.php:7:5     Fixtures\TierA\Support\Repository
+src/TierA/Baseline.php:23:26   Repository
+src/TierA/Baseline.php:35:35   Repository
+src/TierB/Aliases.php:8:5      Fixtures\TierA\Support\Repository as Store
+src/TierB/Aliases.php:23:26    Store
+src/TierB/CallSites.php:7:5    Fixtures\TierA\Support\Repository
+src/TierB/CallSites.php:18:50  Repository
+note: 1 file could not be parsed and is not in the index (see: exocomp index --status)

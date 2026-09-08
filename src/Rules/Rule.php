@@ -54,6 +54,9 @@ final readonly class Rule
                 usesTrait: self::strings($definition, 'uses-trait'),
                 extends: self::strings($definition, 'extends'),
                 implements: self::strings($definition, 'implements'),
+                receiverTypes: self::strings($definition, 'receiver-type'),
+                receiverImplements: self::strings($definition, 'receiver-implements'),
+                receiverExtends: self::strings($definition, 'receiver-extends'),
             ),
         );
     }

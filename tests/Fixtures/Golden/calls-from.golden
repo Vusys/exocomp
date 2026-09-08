@@ -1,0 +1,7 @@
+What one method calls, resolved through declared types
+-----
+calls-from Fixtures\TierB\CallSites::lookups
+-----
+2 calls from Fixtures\TierB\CallSites::lookups
+src/TierB/CallSites.php:36:16  Fixtures\TierA\Support\Repository::find
+src/TierB/CallSites.php:36:46  Fixtures\TierA\Support\Repository::findByUuid

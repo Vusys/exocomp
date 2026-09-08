@@ -64,7 +64,8 @@ final class CheckCommand extends IndexedCommand
 
             Every `query` predicate is available as a key: in, not-in, annotated,
             has-attribute, arg-is-literal, arg-is-not-literal, param-count, visibility,
-            returns, uses-trait, extends, implements.
+            returns, uses-trait, extends, implements, receiver-type, receiver-implements,
+            receiver-extends.
 
             Exit codes: 0 no new violations, 1 new violations, 2 error.
             HELP);
@@ -164,7 +165,7 @@ final class CheckCommand extends IndexedCommand
         $violations = [];
 
         foreach ($rules->rules as $rule) {
-            $engine = new QueryEngine($rule->predicates);
+            $engine = new QueryEngine($rule->predicates, $context->index()->graph());
             $paths = $this->candidatePaths($context, $rule->pattern, $rule->predicates);
 
             foreach ($paths as $path) {

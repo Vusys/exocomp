@@ -243,6 +243,7 @@ final class DeclarationCollector
             fullSignature: $this->signatures->method($node, true),
             modifiers: SignatureRenderer::modifiers($node->flags),
             hasBody: $node->stmts !== null,
+            typeFqn: self::classLikeTypeOf($node->returnType),
         );
 
         return [$method, ...$this->promotedMembers($node, $ownerFqn)];
@@ -285,6 +286,7 @@ final class DeclarationCollector
                 fullSignature: $this->signatures->promotedProperty($param, true),
                 modifiers: SignatureRenderer::modifiers($param->flags),
                 isPromoted: true,
+                typeFqn: self::classLikeTypeOf($param->type),
             );
         }
 
@@ -318,6 +320,7 @@ final class DeclarationCollector
                 fullSignature: $this->signatures->property($node, $item, true),
                 modifiers: SignatureRenderer::modifiers($node->flags),
                 hasBody: $node->hooks !== [],
+                typeFqn: self::classLikeTypeOf($node->type),
             );
         }
 
@@ -427,6 +430,23 @@ final class DeclarationCollector
             $node instanceof Stmt\Enum_ => $this->resolvedNames($node->implements),
             default => [],
         };
+    }
+
+    /**
+     * The resolved name of a type, when it is a single class-like one.
+     *
+     * A nullable class type still resolves — `?Repository` is a `Repository` wherever it is not
+     * null, and a receiver that might be null is still a receiver of that class. Unions and
+     * intersections deliberately do not: picking one member would be a guess, and not guessing
+     * is this engine's whole claim.
+     */
+    private static function classLikeTypeOf(?Node $type): ?string
+    {
+        if ($type instanceof Node\NullableType) {
+            return self::classLikeTypeOf($type->type);
+        }
+
+        return $type instanceof Node\Name ? Analyser::resolvedName($type) : null;
     }
 
     private function classLikeKind(Stmt\ClassLike $node): SymbolKind

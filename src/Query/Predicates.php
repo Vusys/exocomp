@@ -8,6 +8,8 @@ use PhpParser\Comment\Doc;
 use PhpParser\Node;
 use PhpParser\Node\ArrayItem;
 use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Inference\ResolvedType;
 use Vusys\Exocomp\Render\TypeRenderer;
 
 /**
@@ -30,6 +32,9 @@ final readonly class Predicates
      * @param  list<string>  $usesTrait  traits the enclosing class must use
      * @param  list<string>  $extends  classes it must extend
      * @param  list<string>  $implements  interfaces it must implement
+     * @param  list<string>  $receiverTypes  the matched call's receiver is exactly one of these
+     * @param  list<string>  $receiverImplements  its receiver implements one of these
+     * @param  list<string>  $receiverExtends  its receiver extends one of these
      */
     public function __construct(
         public array $in = [],
@@ -44,6 +49,9 @@ final readonly class Predicates
         public array $usesTrait = [],
         public array $extends = [],
         public array $implements = [],
+        public array $receiverTypes = [],
+        public array $receiverImplements = [],
+        public array $receiverExtends = [],
     ) {}
 
     public function accepts(QueryMatch $match): bool
@@ -53,7 +61,53 @@ final readonly class Predicates
             && $this->carriesAttributes($match)
             && $this->argumentsAreAsRequired($match)
             && $this->signatureMatches($match)
-            && $this->classMatches($match);
+            && $this->classMatches($match)
+            && $this->receiverMatches($match);
+    }
+
+    /**
+     * Whether any predicate here needs a receiver's type worked out. Resolving one walks the
+     * hierarchy, so a query that never asks should never pay for it.
+     */
+    public function needsReceiver(): bool
+    {
+        return $this->receiverTypes !== [] || $this->receiverImplements !== [] || $this->receiverExtends !== [];
+    }
+
+    /**
+     * The predicates that need inference, and therefore the only ones that can fail to have an
+     * answer. A receiver whose type could not be established does not match — silently letting
+     * it through would turn a scoped audit into an unscoped one without saying so.
+     */
+    private function receiverMatches(QueryMatch $match): bool
+    {
+        if (! $this->needsReceiver()) {
+            return true;
+        }
+
+        $type = $match->receiverType;
+
+        if (! $type instanceof ResolvedType || ! $type->isKnown() || ! $match->graph instanceof SymbolGraph) {
+            return false;
+        }
+
+        $fqn = (string) $type->fqn;
+
+        foreach ($this->receiverTypes as $wanted) {
+            if (strcasecmp(trim($fqn, '\\'), trim($wanted, '\\')) === 0) {
+                return true;
+            }
+        }
+
+        foreach ([...$this->receiverImplements, ...$this->receiverExtends] as $wanted) {
+            foreach (array_keys($match->graph->ancestorsOf($fqn)) as $ancestor) {
+                if (strcasecmp(trim($ancestor, '\\'), trim($wanted, '\\')) === 0) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

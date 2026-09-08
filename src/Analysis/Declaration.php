@@ -24,6 +24,11 @@ final readonly class Declaration
      * @param  list<string>  $implements  resolved FQNs
      * @param  list<string>  $traits  resolved FQNs of directly used traits
      * @param  list<string>  $modifiers  rendered in source order: final, abstract, static, readonly, visibility
+     * @param  ?string  $typeFqn  the resolved class-like type this declares — a property's type or
+     *                            a method's return type — where it is a single class name.
+     *                            Null for scalars, unions and anything else, because a receiver
+     *                            cannot be resolved through those and pretending otherwise is
+     *                            how a tool starts guessing.
      */
     public function __construct(
         public SymbolKind $kind,
@@ -45,6 +50,7 @@ final readonly class Declaration
         public array $traits = [],
         public bool $isPromoted = false,
         public bool $hasBody = false,
+        public ?string $typeFqn = null,
     ) {}
 
     public function isClassLike(): bool

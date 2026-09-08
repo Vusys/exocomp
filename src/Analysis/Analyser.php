@@ -39,6 +39,20 @@ final readonly class Analyser
 
     public function analyse(SourceFile $file): FileAnalysis
     {
+        return $this->analyseWithAst($file)[0];
+    }
+
+    /**
+     * The same analysis, keeping the resolved tree.
+     *
+     * Callers that go on to walk the AST themselves — reference finding, structural query —
+     * would otherwise parse the file a second time, which on a corpus-wide sweep doubles the
+     * only expensive part of the work.
+     *
+     * @return array{FileAnalysis, array<int, Node>}
+     */
+    public function analyseWithAst(SourceFile $file): array
+    {
         try {
             $statements = $this->parser->parse($file->contents);
         } catch (Error $error) {
@@ -59,14 +73,17 @@ final readonly class Analyser
         $collector = new DeclarationCollector($file);
         $collector->collect($statements);
 
-        return new FileAnalysis(
-            $file,
-            $collector->declarations(),
-            $collector->imports(),
-            $collector->namespaces(),
-            $anonymous->found(),
-            $references->names(),
-        );
+        return [
+            new FileAnalysis(
+                $file,
+                $collector->declarations(),
+                $collector->imports(),
+                $collector->namespaces(),
+                $anonymous->found(),
+                $references->names(),
+            ),
+            $statements,
+        ];
     }
 
     /**

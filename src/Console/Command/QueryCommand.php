@@ -51,6 +51,9 @@ final class QueryCommand extends IndexedCommand
             ->addOption('uses-trait', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Enclosing class uses this trait')
             ->addOption('extends', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Enclosing class extends this')
             ->addOption('implements', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Enclosing class implements this')
+            ->addOption('receiver-type', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'The call is made on a receiver of exactly this type')
+            ->addOption('receiver-implements', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Its receiver implements this interface')
+            ->addOption('receiver-extends', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Its receiver extends this class')
             ->setHelp(<<<'HELP'
             The pattern is PHP, and it has to parse. Three things in it are not literal:
 
@@ -68,6 +71,11 @@ final class QueryCommand extends IndexedCommand
               exocomp query 'function _M() {}' --annotated @deprecated --in 'App\Domain\**'
               exocomp query '$R->_M($UUID)' --in 'App\Repositories\**'
 
+            Three further predicates need type inference, and are the only ones that can fail
+            for want of it: --receiver-type, --receiver-implements and --receiver-extends. A
+            receiver whose type cannot be established does not match, because letting it through
+            would quietly turn a scoped audit into an unscoped one.
+
             Exit codes: 0 matched, 1 nothing matched, 2 error.
             HELP);
     }
@@ -75,7 +83,7 @@ final class QueryCommand extends IndexedCommand
     protected function answer(InputInterface $input, CommandContext $context): Result
     {
         $notes = [];
-        $this->graph($input, $context, $notes);
+        $graph = $this->graph($input, $context, $notes);
 
         // A structural query is corpus-wide by definition: it has no answer to validate and no
         // starting symbol to escalate from, so the index has to be complete before it starts.
@@ -85,7 +93,7 @@ final class QueryCommand extends IndexedCommand
 
         $pattern = Pattern::parse($this->stringArgument($input, 'pattern') ?? '');
         $predicates = $this->predicates($input);
-        $engine = new QueryEngine($predicates);
+        $engine = new QueryEngine($predicates, $graph);
 
         $paths = $this->candidatePaths($context, $pattern, $predicates);
         $matches = [];
@@ -181,6 +189,9 @@ final class QueryCommand extends IndexedCommand
             usesTrait: $this->arrayOption($input, 'uses-trait'),
             extends: $this->arrayOption($input, 'extends'),
             implements: $this->arrayOption($input, 'implements'),
+            receiverTypes: $this->arrayOption($input, 'receiver-type'),
+            receiverImplements: $this->arrayOption($input, 'receiver-implements'),
+            receiverExtends: $this->arrayOption($input, 'receiver-extends'),
         );
     }
 }

@@ -32,6 +32,9 @@ final class ApplicationTest extends TestCase
         $this->assertContains('implementors', $names);
         $this->assertContains('traits-users', $names);
         $this->assertContains('overrides', $names);
+        $this->assertContains('references-to', $names);
+        $this->assertContains('callers-of', $names);
+        $this->assertContains('calls-from', $names);
         $this->assertContains('query', $names);
         $this->assertContains('check', $names);
         $this->assertContains('index', $names);
@@ -68,6 +71,9 @@ final class ApplicationTest extends TestCase
         yield 'implementors' => ['implementors'];
         yield 'traits-users' => ['traits-users'];
         yield 'overrides' => ['overrides'];
+        yield 'references-to' => ['references-to'];
+        yield 'callers-of' => ['callers-of'];
+        yield 'calls-from' => ['calls-from'];
         yield 'query' => ['query'];
         yield 'check' => ['check'];
         yield 'index' => ['index'];

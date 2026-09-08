@@ -22,6 +22,19 @@ All notable changes to this project are documented here. The format follows
     tree. 193 measured commands piped `git show SHA:file` into grep, and no existing PHP
     intelligence tool addresses this at all.
   - `--stdin`, to analyse a buffer the caller already holds.
+- **Phase 3 — inference and references.**
+  - `references-to <symbol>` — every reference to a class or member, grouped `resolved` /
+    `inferred` / `textual`. A same-named member on an unrelated class is excluded; one on a
+    subclass is included; everything whose receiver cannot be established is reported with the
+    reason rather than dropped or claimed.
+  - `callers-of` and `calls-from` — the call graph in either direction, with edges that cannot
+    be resolved reported rather than omitted.
+  - `--receiver-type`, `--receiver-implements` and `--receiver-extends` on `query` and in rule
+    files. A receiver whose type cannot be established does not match, because letting it
+    through would quietly turn a scoped audit into an unscoped one.
+  - Inference scoped to what is written down: declared types, promoted properties,
+    `$this`/`self`/`static`/`parent`, `new X`, assignment from a resolved call, enum cases, and
+    docblocks via `phpstan/phpdoc-parser` — always `inferred`, never `resolved`.
 - **Phase 2 — structural query and the CI ratchet.**
   - `query <pattern>` — the code shape you are looking for, written as PHP. `$UPPERCASE` matches
     any node, `_UPPERCASE` any name, and `...` / `()` / `{}` any arguments, parameters or body.

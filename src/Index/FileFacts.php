@@ -74,6 +74,7 @@ final readonly class FileFacts
             'modifiers' => implode(' ', $declaration->modifiers),
             'promoted' => $declaration->isPromoted,
             'has_body' => $declaration->hasBody,
+            'type_fqn' => $declaration->typeFqn,
         ];
     }
 

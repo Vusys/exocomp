@@ -1,0 +1,8 @@
+The declarations that depend on a member
+-----
+callers-of Fixtures\TierA\Support\Repository::findByUuid
+-----
+2 callers of Fixtures\TierA\Support\Repository::findByUuid
+src/TierB/CallSites.php:36:46  Fixtures\TierB\CallSites::lookups
+src/TierB/CallSites.php:44:16  Fixtures\TierB\CallSites::oldLookup
+note: 1 file could not be parsed and is not in the index (see: exocomp index --status)
