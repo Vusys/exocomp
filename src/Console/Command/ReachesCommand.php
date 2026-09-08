@@ -89,7 +89,7 @@ final class ReachesCommand extends GraphCommand
             return new Result(
                 header: $this->arrival($start, $target, $reach),
                 sections: [new Section('', array_map(fn (Edge $edge): Row => $this->step($edge, $width), $reach->path))],
-                notes: [...$notes, ...$this->coverage($reach), ...$context->notes()],
+                notes: [...$notes, ...$this->coverage($reach), ...$this->walkNotes($walk), ...$context->notes()],
             );
         }
 
@@ -99,7 +99,7 @@ final class ReachesCommand extends GraphCommand
             header: $this->absence($start, $target, $reach),
             unresolvedTitle: 'not followed',
             unresolved: $shown,
-            notes: [...$notes, ...$hidden, ...$this->coverage($reach), ...$context->notes()],
+            notes: [...$notes, ...$hidden, ...$this->coverage($reach), ...$this->walkNotes($walk), ...$context->notes()],
             found: false,
         );
     }
@@ -136,6 +136,7 @@ final class ReachesCommand extends GraphCommand
             notes: [
                 ...$notes,
                 'a sweep reports the verdict per starting point; ask about one of them directly to see its path and what the walk could not follow',
+                ...$this->walkNotes($walk),
                 ...$context->notes(),
             ],
             found: $reached > 0,

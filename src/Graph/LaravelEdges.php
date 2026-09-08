@@ -52,7 +52,7 @@ final class LaravelEdges
      * turns a bounded question into a corpus sweep. The cap is disclosed when it bites, which
      * is the difference between a bounded answer and a wrong one.
      */
-    private const int IMPLEMENTATION_FANOUT = 12;
+    public const int IMPLEMENTATION_FANOUT = 12;
 
     /** @var array<string, list<DispatchEdge>> */
     private array $receivers = [];
@@ -80,6 +80,7 @@ final class LaravelEdges
         private readonly ClassSource $source,
         private readonly IndexStore $store,
         private readonly Closure $openContainer,
+        private readonly int $fanout = self::IMPLEMENTATION_FANOUT,
     ) {}
 
     /**
@@ -314,12 +315,12 @@ final class LaravelEdges
                 continue;
             }
 
-            if ($kept >= self::IMPLEMENTATION_FANOUT) {
+            if ($kept >= $this->fanout) {
                 $this->notes[] = sprintf(
                     '%s has %d implementations in the corpus; the walk followed %d of them and stopped. Ask about one directly to follow the rest.',
                     $class,
                     count($implementors),
-                    self::IMPLEMENTATION_FANOUT,
+                    $this->fanout,
                 );
 
                 break;

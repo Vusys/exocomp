@@ -39,12 +39,14 @@ abstract class GraphCommand extends IndexedFrameworkCommand
             ->addOption('through-vendor', null, InputOption::VALUE_NONE, 'Walk on through dependencies instead of stopping at them');
     }
 
+    private ?ClassSource $source = null;
+
     /**
      * @param  list<string>  $notes
      */
     protected function walk(InputInterface $input, CommandContext $context, SymbolGraph $graph, array &$notes): Walk
     {
-        $source = new ClassSource($context->project, $graph, $context->locator);
+        $source = $this->source = new ClassSource($context->project, $graph, $context->locator);
         $detection = new LaravelProfile()->detect($context->project);
         $framework = null;
 
@@ -67,6 +69,19 @@ abstract class GraphCommand extends IndexedFrameworkCommand
             maxNodes: max(1, $this->intOption($input, 'max-nodes', 1500)),
             throughDependencies: $this->boolOption($input, 'through-vendor'),
         );
+    }
+
+    /**
+     * Everything the walk and the source it read had to say about themselves.
+     *
+     * Gathered after the walk rather than before, because most of it is only known once the
+     * walk has run — which implementations fanned out, which class could not be opened.
+     *
+     * @return list<string>
+     */
+    protected function walkNotes(Walk $walk): array
+    {
+        return [...$walk->notes(), ...($this->source instanceof ClassSource ? $this->source->notes() : [])];
     }
 
     /**

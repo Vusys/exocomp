@@ -156,6 +156,21 @@ final class Walk
     }
 
     /**
+     * What the walk had to say about itself: which bounds it applied, and where.
+     *
+     * Distinct from the stops. A stop is a place in the code the walk did not go; a note is a
+     * decision the walk made — following twelve implementations of an interface and not the
+     * other seventy-eight. Both have to reach the answer, because a bound nobody is told about
+     * is indistinguishable from an absence.
+     *
+     * @return list<string>
+     */
+    public function notes(): array
+    {
+        return $this->framework instanceof LaravelEdges ? $this->framework->notes() : [];
+    }
+
+    /**
      * Every way out of one declaration: the calls it makes, plus the framework edges that
      * continue somewhere the call site does not name.
      *

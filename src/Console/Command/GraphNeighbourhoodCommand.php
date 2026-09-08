@@ -86,7 +86,7 @@ final class GraphNeighbourhoodCommand extends GraphCommand
             sections: $sections,
             unresolvedTitle: 'not followed',
             unresolved: $shown,
-            notes: [...$notes, ...$hidden, ...$context->notes()],
+            notes: [...$notes, ...$hidden, ...$this->walkNotes($walk), ...$context->notes()],
         );
     }
 

@@ -121,6 +121,25 @@ final class WalkTest extends TestCase
         $this->assertStringContainsString('nothing at the call site says which', $edges[0]->reason);
     }
 
+    public function test_the_fan_out_cap_is_disclosed_when_it_bites(): void
+    {
+        $walk = $this->walk(fanout: 1);
+        $walk->edgesFrom('App\Http\Controllers\OrderController::index');
+
+        // A bound that nobody is told about is indistinguishable from an absence: the answer
+        // would list one implementation and read as though there were one.
+        $this->assertStringContainsString('App\Contracts\ReportWriter has 3 implementations', implode("\n", $walk->notes()));
+        $this->assertStringContainsString('followed 1 of them and stopped', implode("\n", $walk->notes()));
+    }
+
+    public function test_nothing_is_said_when_the_cap_does_not_bite(): void
+    {
+        $walk = $this->walk();
+        $walk->edgesFrom('App\Http\Controllers\OrderController::index');
+
+        $this->assertSame([], $walk->notes());
+    }
+
     public function test_a_dependency_is_a_wall_the_walk_reports_rather_than_crosses(): void
     {
         $walk = $this->walk();
@@ -233,7 +252,7 @@ final class WalkTest extends TestCase
         $this->fail("no edge from {$from} to {$to}");
     }
 
-    private function walk(int $maxDepth = 6, bool $throughDependencies = false): Walk
+    private function walk(int $maxDepth = 6, bool $throughDependencies = false, int $fanout = 12): Walk
     {
         $project = Project::at(Cli::laravelRoot());
         $map = AutoloadMap::forProject($project);
@@ -260,6 +279,7 @@ final class WalkTest extends TestCase
                         static fn (string $key): array => $config->matching($key),
                     );
                 },
+                $fanout,
             ),
             maxDepth: $maxDepth,
             maxNodes: 1500,
