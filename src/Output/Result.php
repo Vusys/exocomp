@@ -31,6 +31,53 @@ final readonly class Result
     ) {}
 
     /**
+     * The same answer, with no more records in it than the caller asked for.
+     *
+     * Applied centrally rather than per command, because `--limit` is part of the output
+     * contract and a command that quietly ignores it is a command whose answers cannot be
+     * trusted to be complete. Commands that cap their own records still may — capping twice is
+     * a no-op — but nothing depends on their remembering to.
+     *
+     * The trailing block is deliberately not capped. It is the list of things the tool declined
+     * to answer, it is normally short, and dropping entries from it would silently remove the
+     * part of the output whose whole purpose is to say what was left out. `--max-tokens` still
+     * bounds it, and says so when it bites.
+     */
+    public function capped(OutputBudget $budget): self
+    {
+        $limit = $budget->limit;
+
+        if ($limit <= 0 || count($this->rows()) <= $limit) {
+            return $this;
+        }
+
+        $sections = [];
+        $remaining = $limit;
+        $dropped = 0;
+
+        foreach ($this->sections as $section) {
+            $kept = array_slice($section->rows, 0, max($remaining, 0));
+            $dropped += count($section->rows) - count($kept);
+            $remaining -= count($kept);
+
+            if ($kept !== []) {
+                $sections[] = new Section($section->title, $kept);
+            }
+        }
+
+        return new self(
+            header: $this->header,
+            body: $this->body,
+            sections: $sections,
+            unresolvedTitle: $this->unresolvedTitle,
+            unresolved: $this->unresolved,
+            elided: $this->elided + $dropped,
+            notes: $this->notes,
+            object: $this->object,
+        );
+    }
+
+    /**
      * @return list<Row>
      */
     public function rows(): array

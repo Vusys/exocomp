@@ -94,7 +94,9 @@ abstract class ExocompCommand extends Command
             return self::EXIT_ERROR;
         }
 
-        $rendered = $context->budget->capRendered($context->format->renderer()->render($result));
+        $rendered = $context->budget->capRendered(
+            $context->format->renderer()->render($result->capped($context->budget)),
+        );
 
         // Raw mode, always. The payload is PHP source and PHP source contains `<?php`, `<` in
         // comparisons and `<...>` in docblock generics — all of which Symfony's formatter would

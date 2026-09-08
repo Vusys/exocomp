@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Tests\Unit\Console;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Vusys\Exocomp\Tests\Support\Cli;
 
@@ -73,6 +74,40 @@ final class OutputContractTest extends TestCase
 
         $this->assertStringContainsString('… 6 more (use --limit)', $text->output);
         $this->assertStringContainsString('{"elided":6}', $json->output);
+    }
+
+    /**
+     * `--limit` is part of the output contract, so it is applied to the assembled answer rather
+     * than left to each command to remember. A command that quietly ignored it would produce an
+     * answer indistinguishable from a complete one — the failure the whole contract exists to
+     * prevent — and every new command would be a fresh chance to forget.
+     */
+    /**
+     * @param  list<string>  $arguments
+     */
+    #[DataProvider('cappableCommands')]
+    public function test_every_command_that_returns_records_honours_a_limit(array $arguments): void
+    {
+        $run = Cli::inLaravel([...$arguments, '--limit', '1']);
+
+        $this->assertSame(0, $run->exitCode, implode(' ', $arguments));
+        $this->assertStringContainsString('more (use --limit)', $run->output, implode(' ', $arguments));
+    }
+
+    /**
+     * @return iterable<string, array{list<string>}>
+     */
+    public static function cappableCommands(): iterable
+    {
+        yield 'model' => [['model', 'Order']];
+        yield 'schema' => [['schema', 'shop_orders']];
+        yield 'schema listing' => [['schema']];
+        yield 'config' => [['config', 'services.stripe']];
+        yield 'bindings' => [['bindings']];
+        yield 'routes' => [['routes']];
+        yield 'dispatches' => [['dispatches', 'OrderPlaced']];
+        yield 'morph-map' => [['morph-map']];
+        yield 'outline' => [['outline', 'App\\Models\\Order']];
     }
 
     public function test_a_token_ceiling_reports_the_lines_it_cut(): void
