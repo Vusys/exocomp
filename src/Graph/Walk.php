@@ -82,12 +82,10 @@ final class Walk
                 $key = Identifier::fold($edge->to);
 
                 if ($target->matches($edge->to)) {
-                    $arrivedBy[$key] = $edge;
-
                     return new Reachability(
                         start: $start,
                         found: true,
-                        path: $this->trace($arrivedBy, $start, $edge->to),
+                        path: [...$this->trace($arrivedBy, $edge->from), $edge],
                         expanded: $expanded,
                         exhausted: false,
                         stops: $this->stops,
@@ -265,28 +263,24 @@ final class Walk
     }
 
     /**
+     * How the walk got to a node, back to where it started.
+     *
+     * `$arrivedBy` is a tree and not a graph: a key is written exactly once, when the node it
+     * names is first enqueued, and a node already enqueued is never enqueued again. So walking
+     * the parent links terminates at the start without needing a guard against cycles — and the
+     * arriving edge is appended by the caller rather than recorded here, which is what keeps
+     * that invariant true where the destination is found.
+     *
      * @param  array<string, Edge>  $arrivedBy
      * @return list<Edge>
      */
-    private function trace(array $arrivedBy, string $start, string $end): array
+    private function trace(array $arrivedBy, string $node): array
     {
         $path = [];
-        $current = $end;
-        $guard = 0;
+        $current = $node;
 
-        while ($guard++ < $this->maxDepth + 2) {
-            $edge = $arrivedBy[Identifier::fold($current)] ?? null;
-
-            if (! $edge instanceof Edge) {
-                break;
-            }
-
+        while (($edge = $arrivedBy[Identifier::fold($current)] ?? null) instanceof Edge) {
             array_unshift($path, $edge);
-
-            if (Identifier::fold($edge->from) === Identifier::fold($start)) {
-                break;
-            }
-
             $current = $edge->from;
         }
 

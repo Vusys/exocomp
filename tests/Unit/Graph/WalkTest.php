@@ -248,6 +248,37 @@ final class WalkTest extends TestCase
         $this->assertSame([], $reach->path);
     }
 
+    public function test_a_static_dispatch_does_not_also_report_its_own_forward_as_a_gap(): void
+    {
+        $walk = $this->walk();
+        $walk->reach('App\Services\OrderService::place', Target::parse('Nothing\AtAll::ever'));
+
+        // `ProcessOrder::dispatch(…)` has no body — the method is on a framework trait — but the
+        // walk was already handed the edge to the job's `handle()` from that same call, so the
+        // forward is a gap that was filled rather than one that was found.
+        foreach ($walk->stops() as $stop) {
+            $this->assertNotSame('App\Jobs\ProcessOrder::dispatch', $stop->detail);
+        }
+    }
+
+    public function test_a_path_is_traced_back_through_the_edges_that_found_it(): void
+    {
+        $reach = $this->walk()->reach('App\Http\Controllers\OrderController::store', Target::parse('App\Models\Order::save'));
+
+        $this->assertTrue($reach->found);
+
+        // Every step begins where the one before it ended, and the first begins at the start.
+        $this->assertSame('App\Http\Controllers\OrderController::store', $reach->path[0]->from);
+
+        foreach ($reach->path as $index => $edge) {
+            if ($index > 0) {
+                $this->assertSame($reach->path[$index - 1]->to, $edge->from);
+            }
+        }
+
+        $this->assertSame('App\Models\Order::save', $reach->path[count($reach->path) - 1]->to);
+    }
+
     public function test_a_cycle_terminates_without_the_depth_limit_doing_the_work(): void
     {
         // Six steps of budget and two methods calling each other: the walk must end because it
