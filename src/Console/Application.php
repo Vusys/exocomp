@@ -17,6 +17,7 @@ use Vusys\Exocomp\Console\Command\OutlineCommand;
 use Vusys\Exocomp\Console\Command\OverridesCommand;
 use Vusys\Exocomp\Console\Command\QueryCommand;
 use Vusys\Exocomp\Console\Command\ReferencesToCommand;
+use Vusys\Exocomp\Console\Command\SchemaCommand;
 use Vusys\Exocomp\Console\Command\ShowCommand;
 use Vusys\Exocomp\Console\Command\SubclassesCommand;
 use Vusys\Exocomp\Console\Command\TraitsUsersCommand;
@@ -44,6 +45,7 @@ final class Application extends SymfonyApplication
             new CallsFromCommand,
             new QueryCommand,
             new CheckCommand,
+            new SchemaCommand,
             new IndexCommand,
         ]);
     }

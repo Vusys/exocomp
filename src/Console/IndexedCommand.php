@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Console;
 
-use InvalidArgumentException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Index\Index;
@@ -27,6 +26,8 @@ use Vusys\Exocomp\Symbol\Confidence;
  */
 abstract class IndexedCommand extends ExocompCommand
 {
+    use RefusesRevision;
+
     protected function configure(): void
     {
         parent::configure();
@@ -46,7 +47,7 @@ abstract class IndexedCommand extends ExocompCommand
      */
     protected function graph(InputInterface $input, CommandContext $context, array &$notes): SymbolGraph
     {
-        $this->refuseRevision($context);
+        $this->refuseRevision($context, 'the index describes the working tree');
 
         $index = $context->index();
         $vendor = $this->boolOption($input, 'vendor');
@@ -96,28 +97,6 @@ abstract class IndexedCommand extends ExocompCommand
     protected function indexOf(CommandContext $context): Index
     {
         return $context->index();
-    }
-
-    /**
-     * The index reflects the working tree and nothing else, so a corpus-wide question cannot be
-     * asked about a past revision — and accepting the flag while ignoring it would answer about
-     * today while claiming to answer about then. That is the confidently-wrong failure in its
-     * purest form: `locate` would report a class as existing at a commit that predates it.
-     *
-     * Refusing is the honest option. The commands that read one file at a time do support
-     * `--rev`, because there the parser can simply be handed different bytes.
-     */
-    private function refuseRevision(CommandContext $context): void
-    {
-        if ($context->revision === null) {
-            return;
-        }
-
-        throw new InvalidArgumentException(sprintf(
-            '--rev is not available for %s, because the index describes the working tree. '
-            .'show, outline and imports read a revision directly and do support it.',
-            $this->getName() ?? 'this command',
-        ));
     }
 
     /**

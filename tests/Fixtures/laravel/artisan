@@ -1,0 +1,5 @@
+#!/usr/bin/env php
+<?php
+
+// A stub. The tool must never run this, and a profile that needed to would be unusable
+// in the disposable worktrees it is built for.

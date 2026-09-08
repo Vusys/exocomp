@@ -74,6 +74,23 @@ final class Cli
         return self::run([...$arguments, '--project', $project->root]);
     }
 
+    /**
+     * Runs against the Tier E fixture — a Laravel-shaped application that is never installed
+     * and never booted, so the framework profile is exercised the only way it will ever run in
+     * anger: by reading files.
+     *
+     * @param  list<string>  $arguments
+     */
+    public static function inLaravel(array $arguments): Run
+    {
+        return self::run([...$arguments, '--project', self::laravelRoot()]);
+    }
+
+    public static function laravelRoot(): string
+    {
+        return dirname(__DIR__).'/Fixtures/laravel';
+    }
+
     public static function corpusRoot(): string
     {
         return dirname(__DIR__).'/Fixtures/corpus';
