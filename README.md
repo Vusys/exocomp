@@ -286,10 +286,10 @@ The destination is a shape rather than an address, because the question is rarel
 method:
 
 ```
-App\Models\Order::save     that member of that class
-App\Models\Order           anything on that class
-::save                      that member on any class
-App\Models\*::delete*      globs in either half
+App\Models\Order::save      that member of that class
+App\Models\Order            anything on that class
+::save                       that member on any class
+App\Models\*::delete*       globs in either half
 ```
 
 **The sweep is one call.** `route:<pattern>` starts from every matching endpoint, so an audit
@@ -305,9 +305,10 @@ routes/web.php:18:1  POST /orders                reached in 3 steps
 ```
 
 Measured on a 950,000-line application: a hundred endpoints swept in 22 seconds. One symbol's
-path in about four, and a negative one that exhausts a small subgraph in a quarter of a second. These are far above the sub-200 ms the index answers in, for the same
-reason the other framework commands are — a walk parses files by convention rather than reading
-rows, and nothing about a walk is cached between runs yet.
+path in about four, and a negative one that exhausts a small subgraph in a quarter of a second.
+These are far above the sub-200 ms the index answers in, for the same reason the other framework
+commands are — a walk parses files by convention rather than reading rows, and nothing about a
+walk is cached between runs yet.
 
 ### The negative answer
 
