@@ -51,6 +51,26 @@ All nineteen were explained, and **none was a genuine miss**:
 
 The first group prompted a change (below). The second is the tool doing its job.
 
+## Does the JSON contract hold on real source?
+
+Every declaration in both corpora was rendered as JSONL and decoded again — 33,087 records over
+application code and 242,900 over vendor.
+
+Application code was clean. Vendor produced **eleven records that encoded to an empty JSON
+object**, which is the worst available outcome: a consumer reading the stream to completion
+cannot tell an empty record from a record that was dropped.
+
+The cause was two faults meeting. A dense signature caps a long default value at a byte count,
+and a byte cut through non-Latin text splits a multi-byte character in half, leaving a dangling
+continuation byte; the record is then not valid UTF-8. `json_encode()` returns `false` on that,
+and the encoder fell back to `{}`. Both are fixed: values are cut on character boundaries, and
+an unencodable record now declares the substitution instead of vanishing. The sweep is clean.
+
+This is the single most valuable thing the exercise found, and it is worth noting how: not by a
+fixture, and not by any test that could plausibly have been imagined in advance, but by pushing
+a few hundred thousand real declarations through the renderer and checking the output was still
+there.
+
 ## Is the tool's name-to-file resolution well founded?
 
 Phase 0 resolves a name with no index, so how a real project is actually laid out decides
@@ -155,6 +175,9 @@ their line and member count. Hiding them meant a file outline could show a class
 quietly drop an anonymous sibling's — incomplete in exactly the way the output contract
 forbids. Finding them was folded into the existing traversal after a separate pass measured 14%
 slower across the corpus.
+
+**Values are capped on character boundaries, and the JSON encoder no longer fails silently**
+(see above).
 
 **Dense property signatures carry scalar defaults** (from the earlier pass over the same
 corpus). Several of the sixty commands search for a table name, a connection or a lookback

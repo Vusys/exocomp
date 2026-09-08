@@ -310,6 +310,12 @@ final readonly class SignatureRenderer
      * Constant and default values are rendered from the original bytes, then collapsed onto
      * one line and capped. The cap is visible (`…`) because a value that silently lost its
      * tail would read as the whole value.
+     *
+     * The cut is on a character boundary, not a byte one. `substr()` here would split a
+     * multi-byte character in half and leave a dangling continuation byte — which is not a
+     * cosmetic problem: the result is no longer valid UTF-8, and `--json` cannot encode it.
+     * Found by rendering every declaration in a 3.9M-line vendor tree, where a handful of
+     * localisation fixtures have long non-Latin string defaults.
      */
     private function value(Node $node): string
     {
@@ -320,7 +326,7 @@ final readonly class SignatureRenderer
             return $text;
         }
 
-        return substr($text, 0, self::VALUE_BUDGET).'…';
+        return mb_strcut($text, 0, self::VALUE_BUDGET, 'UTF-8').'…';
     }
 
     private function rawSlice(Node $node): ?string

@@ -54,10 +54,38 @@ final class JsonRenderer implements Renderer
     }
 
     /**
+     * Encodes one record, and never gives up quietly.
+     *
+     * `json_encode()` returns `false` on bytes that are not valid UTF-8, and PHP source really
+     * does contain them — a string literal in another encoding is legal PHP. Falling back to
+     * `{}` would put an empty object into the stream, indistinguishable from a record that
+     * genuinely had nothing in it, and a consumer reading to end-of-stream would never know
+     * something had been dropped. So the undecodable bytes are replaced and the substitution
+     * is declared in the record itself.
+     *
      * @param  array<string, string|int|bool|null>  $record
      */
     private function encode(array $record): string
     {
-        return json_encode($record, self::FLAGS) ?: '{}';
+        $encoded = json_encode($record, self::FLAGS);
+
+        if ($encoded !== false) {
+            return $encoded;
+        }
+
+        $record['encoding'] = 'invalid UTF-8 in the source was replaced to make this record encodable';
+        $substituted = json_encode($record, self::FLAGS | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        if ($substituted !== false) {
+            return $substituted;
+        }
+
+        // Nothing else survived. Keep the address, which is the part a caller can still act on.
+        return (string) json_encode([
+            'file' => $record['file'] ?? null,
+            'line' => $record['line'] ?? null,
+            'col' => $record['col'] ?? null,
+            'error' => 'this record could not be encoded as JSON',
+        ], self::FLAGS);
     }
 }

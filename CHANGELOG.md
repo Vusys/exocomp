@@ -41,3 +41,11 @@ All notable changes to this project are documented here. The format follows
   omitting them entirely meant an outline could silently drop several methods.
 - Dense property signatures carry scalar, `true`/`false`/`null` and constant defaults, because
   for a table name or a lookback window the value is the answer.
+
+### Fixed
+
+- A capped default value is cut on a character boundary rather than a byte one. Cutting by
+  bytes split multi-byte characters in half, leaving output that was not valid UTF-8.
+- `--json` no longer emits an empty object when a record cannot be encoded. It substitutes the
+  offending bytes and says so, falling back to an address-plus-error record — an empty record
+  in a stream is indistinguishable from one that was dropped.
