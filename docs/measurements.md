@@ -290,6 +290,86 @@ database:
 Reference finding remains the most expensive thing the tool does, which is expected: it is the
 only operation that must parse every file that could possibly mention a name.
 
+A third fix came from running a broad scoped query over 1,659 test files: it exhausted the
+default memory limit. A match holds AST nodes, so accumulating matches across a sweep pins every
+tree that produced one. Matches are now reduced to plain values before the next file is opened.
+
+### The gate
+
+REPORT.md §5 makes this phase's exit criterion a hard one: **recall validated against grep over
+the corpus — every textual hit grep finds must be either classified or explained.** Nothing on
+the write side may start until it passes.
+
+Twenty-five methods were sampled at random from the index, and for each, a word-boundary grep
+over the whole application corpus was compared against what the tool reports:
+
+| | | |
+| --- | ---: | ---: |
+| grep hits | 372 | |
+| matched by a reference | 74 | 19.9% |
+| explained: a comment | 31 | 8.3% |
+| explained: not a member position at all | 140 | 37.6% |
+| explained: a same-named member on another class | 126 | 33.9% |
+| **unexplained** | **1** | **0.27%** |
+
+The single unexplained hit was inspected: `$this->abilities` inside a service class, where the
+target was a property of the same name on an unrelated model. It is a correct exclusion — the
+oracle failed to classify it because that check only looked at methods, not properties. So the
+genuine unexplained count is **zero**.
+
+Getting to a defensible number took two corrections to the *oracle*, both worth recording
+because both would have been easy to publish as tool failures:
+
+- Dropping grep's word boundary made it match `getMembersInTeams` when looking for `getMembers`,
+  and reported **53% unexplained** for hits that were never references.
+- Counting every textual occurrence, rather than only those in a member position, made a
+  method name that is also a common English word — `abilities` — match local variables,
+  parameters, array keys and URL fragments. That reported **23% unexplained**, again for hits
+  that were never references.
+
+That is worth stating plainly: a word-boundary grep is not by itself a usable oracle for this,
+and the two-thirds of hits it produces that are not references are exactly the noise the tool
+exists to remove.
+
+### Resolution and honesty
+
+§6.0 asks for two numbers rather than one, and only the second is a correctness property:
+
+| | |
+| --- | ---: |
+| **Resolution rate** — of all references, how many are `resolved` | **54.1%** |
+| **Honesty rate** — of everything claimed `resolved`, how many are | must be ~100% |
+
+54% is the coverage figure, and it is expected to start there and climb; the framework profile
+is where most of the remainder lives, since a receiver arriving through a container binding or a
+facade is not resolvable from the language alone. Every one of the other 46% carries a reason,
+which is the property that makes the number safe to publish rather than embarrassing.
+
+## The 60 commands, after three phases
+
+The §9 classification, revisited now that the index, the query language and reference resolution
+exist:
+
+| Bucket | Phase 0 | Now |
+| --- | ---: | ---: |
+| Answered in one call | 9 (15%) | **45 (75%)** |
+| Needs the framework profile (Phase 4) | 6 (10%) | 6 (10%) |
+| Anti-scope — stays with grep | 9 (15%) | 9 (15%) |
+
+Spot-checks against the real corpus rather than by reading:
+
+- A search for a method declaration across the corpus (`grep -rn 'function importLedger' app/`)
+  returns nothing, and so does `locate importLedger --kind method` — the original command was
+  itself a fruitless search, and the tool agreeing is the right answer rather than a miss.
+- `grep -rl 'schedule-first-run\|scheduleFirstRun\|ScheduleFirstRun' app` becomes
+  `locate scheduleFirstRun`, which resolves the name to a fully-qualified one and a file.
+- Counting repository lookup methods across the corpus becomes three `locate` calls reporting
+  137, 32 and 0 declarations.
+
+The 15% that stays with grep has not moved and should not: those are keyword hunts through prose
+and string literals, and searches spanning `.vue` and `.js`. A PHP-aware engine has nothing to
+add to them.
+
 ## Re-running this
 
 Point a checkout the corpus matches at the tool, then per command compare call count and output

@@ -96,7 +96,8 @@ final class QueryCommand extends IndexedCommand
         $engine = new QueryEngine($predicates, $graph);
 
         $paths = $this->candidatePaths($context, $pattern, $predicates);
-        $matches = [];
+        $wanted = $this->arrayOption($input, 'capture');
+        $found = [];
         $scanned = 0;
 
         foreach ($paths as $path) {
@@ -107,17 +108,21 @@ final class QueryCommand extends IndexedCommand
             }
 
             $scanned++;
-            $matches = [...$matches, ...$engine->runOn($pattern, SourceFile::fromPath($absolute, $path))];
+
+            // Reduced to plain values before moving on to the next file. A `QueryMatch` holds
+            // AST nodes, so accumulating them across a corpus-wide sweep pins every tree that
+            // produced one — which exhausted the default memory limit on a large scoped query.
+            foreach ($engine->runOn($pattern, SourceFile::fromPath($absolute, $path)) as $match) {
+                $found[] = $this->summarise($match, $wanted);
+            }
         }
 
-        $wanted = $this->arrayOption($input, 'capture');
-        $addresses = array_map(
-            static fn (QueryMatch $match): string => Address::of($match->file->displayPath, $match->line(), $match->column()),
-            $matches,
-        );
-        $width = Address::width($addresses);
+        $width = Address::width(array_map(
+            static fn (array $match): string => $match['address'],
+            $found,
+        ));
 
-        [$kept, $elided] = $context->budget->apply($matches);
+        [$kept, $elided] = $context->budget->apply($found);
 
         return new Result(
             // The file count is worth reporting because it is the difference between a scoped
@@ -125,14 +130,14 @@ final class QueryCommand extends IndexedCommand
             // index did the work rather than the parser.
             header: sprintf(
                 '%d match%s for %s  (%d file%s scanned)',
-                count($matches),
-                count($matches) === 1 ? '' : 'es',
+                count($found),
+                count($found) === 1 ? '' : 'es',
                 $pattern->source,
                 $scanned,
                 $scanned === 1 ? '' : 's',
             ),
             sections: [new Section('', array_map(
-                fn (QueryMatch $match): Row => $this->row($match, $width, $wanted),
+                fn (array $match): Row => $this->row($match, $width),
                 $kept,
             ))],
             elided: $elided,
@@ -141,12 +146,12 @@ final class QueryCommand extends IndexedCommand
     }
 
     /**
-     * A match renders as its address plus whatever it bound. With nothing bound there is
-     * nothing better to show than the code itself, flattened to a line.
+     * Everything the output needs from a match, with no reference back to the tree it came from.
      *
      * @param  list<string>  $wanted
+     * @return array{address: string, file: string, line: int, column: int, context: string, display: string, source: string, captures: array<string, string>}
      */
-    private function row(QueryMatch $match, int $width, array $wanted): Row
+    private function summarise(QueryMatch $match, array $wanted): array
     {
         $captures = $match->captures->text($match->file);
 
@@ -160,16 +165,32 @@ final class QueryCommand extends IndexedCommand
             $rendered[] = $name.'='.$value;
         }
 
-        $address = Address::of($match->file->displayPath, $match->line(), $match->column());
+        return [
+            'address' => Address::of($match->file->displayPath, $match->line(), $match->column()),
+            'file' => $match->file->displayPath,
+            'line' => $match->line(),
+            'column' => $match->column(),
+            'context' => $match->context(),
+            // With nothing bound there is nothing better to show than the code itself.
+            'display' => $rendered === [] ? $match->snippet() : implode('  ', $rendered),
+            'source' => $match->snippet(240),
+            'captures' => $match->captures->raw($match->file),
+        ];
+    }
 
+    /**
+     * @param  array{address: string, file: string, line: int, column: int, context: string, display: string, source: string, captures: array<string, string>}  $match
+     */
+    private function row(array $match, int $width): Row
+    {
         return new Row(
-            file: $match->file->displayPath,
-            line: $match->line(),
-            column: $match->column(),
-            fqn: $match->context(),
+            file: $match['file'],
+            line: $match['line'],
+            column: $match['column'],
+            fqn: $match['context'],
             kind: 'match',
-            text: rtrim(str_pad($address, $width).'  '.($rendered === [] ? $match->snippet() : implode('  ', $rendered))),
-            extra: ['context' => $match->context(), 'source' => $match->snippet(240)] + $match->captures->raw($match->file),
+            text: rtrim(str_pad($match['address'], $width).'  '.$match['display']),
+            extra: ['context' => $match['context'], 'source' => $match['source']] + $match['captures'],
             carriesAddress: true,
         );
     }
