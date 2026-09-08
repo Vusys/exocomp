@@ -29,12 +29,12 @@ final readonly class Analyser
 {
     private Parser $parser;
 
-    private NodeTraverser $traverser;
+    private NameResolver $nameResolver;
 
     public function __construct()
     {
         $this->parser = (new ParserFactory)->createForNewestSupportedVersion();
-        $this->traverser = new NodeTraverser(new NameResolver(null, ['replaceNodes' => false]));
+        $this->nameResolver = new NameResolver(null, ['replaceNodes' => false]);
     }
 
     public function analyse(SourceFile $file): FileAnalysis
@@ -49,12 +49,22 @@ final readonly class Analyser
             throw new ParseFailure($file->displayPath, 1, 'the parser produced no statements');
         }
 
-        $statements = $this->traverser->traverse($statements);
+        // Both visitors ride the one traversal: names must be resolved before anything can be
+        // read off the tree, and anonymous classes are found on the same walk rather than a
+        // second one.
+        $anonymous = new AnonymousClassCollector($file);
+        $statements = new NodeTraverser($this->nameResolver, $anonymous)->traverse($statements);
 
         $collector = new DeclarationCollector($file);
         $collector->collect($statements);
 
-        return new FileAnalysis($file, $collector->declarations(), $collector->imports(), $collector->namespaces());
+        return new FileAnalysis(
+            $file,
+            $collector->declarations(),
+            $collector->imports(),
+            $collector->namespaces(),
+            $anonymous->found(),
+        );
     }
 
     /**

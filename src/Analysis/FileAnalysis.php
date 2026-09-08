@@ -16,12 +16,14 @@ final readonly class FileAnalysis
      * @param  list<Declaration>  $declarations  top-level declarations, in source order
      * @param  list<Import>  $imports
      * @param  list<string>  $namespaces  declared namespaces, in source order; "" is the global one
+     * @param  list<AnonymousClass>  $anonymousClasses  present but unaddressable, reported rather than hidden
      */
     public function __construct(
         public SourceFile $file,
         public array $declarations,
         public array $imports,
         public array $namespaces = [],
+        public array $anonymousClasses = [],
     ) {}
 
     /**

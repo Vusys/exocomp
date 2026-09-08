@@ -50,6 +50,8 @@ final class FixtureIntegrityTest extends TestCase
         yield 'brace-syntax namespace' => ['src/TierB/Braces.php', 'namespace Fixtures\TierB\First {'];
         yield 'conditionally declared class' => ['src/TierB/Conditional.php', 'if (! class_exists('];
         yield 'relative namespace reference' => ['src/TierB/Relative.php', 'extends Deep\Alpha'];
+        yield 'anonymous class' => ['src/TierB/Anonymous.php', 'return new class extends AbstractBase'];
+        yield 'commented-out declaration' => ['src/TierB/Anonymous.php', 'public function commentedOut(): void'];
         yield 'deliberately unparseable' => ['src/TierF/Unparseable.php', '$this->'];
     }
 

@@ -16,24 +16,25 @@ namespace Vusys\Exocomp\Project;
  * installed (it covers vendor packages too), and the root `composer.json` otherwise, so a
  * fresh checkout with no `vendor/` still resolves its own application classes.
  */
-final readonly class AutoloadMap
+final class AutoloadMap
 {
+    /** @var array<string, string>|null FQN => absolute path; null until the map is needed */
+    private ?array $classMap = null;
+
     /**
-     * @param  array<string, string>  $classMap  FQN (as written by Composer) => absolute path
      * @param  array<string, list<string>>  $psr4  namespace prefix => absolute directories
      * @param  array<string, list<string>>  $psr0  namespace prefix => absolute directories
      * @param  list<string>  $ownRoots  directories declared by the project itself, for fallback scanning
      */
     private function __construct(
-        private array $classMap,
-        private array $psr4,
-        private array $psr0,
-        private array $ownRoots,
+        private readonly string $classMapPath,
+        private readonly array $psr4,
+        private readonly array $psr0,
+        private readonly array $ownRoots,
     ) {}
 
     public static function forProject(Project $project): self
     {
-        $classMap = self::includeMap($project->path('vendor/composer/autoload_classmap.php'));
         $psr4 = self::includeDirectoryMap($project->path('vendor/composer/autoload_psr4.php'));
         $psr0 = self::includeDirectoryMap($project->path('vendor/composer/autoload_namespaces.php'));
 
@@ -46,13 +47,29 @@ final readonly class AutoloadMap
             $psr4[$prefix] = [...($psr4[$prefix] ?? []), ...$directories];
         }
 
-        return new self($classMap, $psr4, $psr0, array_values(array_unique(array_merge(...array_values($declared)))));
+        return new self(
+            $project->path('vendor/composer/autoload_classmap.php'),
+            $psr4,
+            $psr0,
+            array_values(array_unique(array_merge(...array_values($declared)))),
+        );
     }
 
     /**
-     * Every file that could declare this name, most authoritative first. These are candidates,
-     * not answers: the caller parses each and confirms the declaration is really there, so a
-     * stale classmap entry produces a miss rather than a confident lie.
+     * Every file that could declare this name, cheapest first. These are candidates, not
+     * answers: the caller parses each and confirms the declaration is really there, so a stale
+     * entry produces a miss rather than a confident lie.
+     *
+     * PSR-4 arithmetic comes before the classmap, which inverts Composer's own precedence, and
+     * the reason is measured. Composer generates classmap entries for a project's own classes
+     * only under `dump-autoload -o`; without it the map holds vendor classes exclusively, so
+     * loading it to answer a question about application code is pure cost — and it is not a
+     * small one, since the file is a single PHP array of tens of thousands of entries.
+     *
+     * The two can only disagree when a second file declares the same fully-qualified name,
+     * which is a duplicate-class bug in the project rather than an ambiguity to arbitrate.
+     * Because every candidate is verified against the parsed declaration, the answer is a file
+     * that genuinely declares the name either way.
      *
      * @return list<string>
      */
@@ -60,12 +77,6 @@ final readonly class AutoloadMap
     {
         $fqn = ltrim($fqn, '\\');
         $paths = [];
-
-        foreach ($this->classMap as $mapped => $path) {
-            if (strcasecmp($mapped, $fqn) === 0) {
-                $paths[] = $path;
-            }
-        }
 
         foreach ($this->psr4 as $prefix => $directories) {
             if ($prefix !== '' && ! str_starts_with($fqn, $prefix)) {
@@ -76,6 +87,12 @@ final readonly class AutoloadMap
 
             foreach ($directories as $directory) {
                 $paths[] = rtrim($directory, '/').'/'.$relative;
+            }
+        }
+
+        foreach ($this->classMap() as $mapped => $path) {
+            if (strcasecmp($mapped, $fqn) === 0) {
+                $paths[] = $path;
             }
         }
 
@@ -105,6 +122,23 @@ final readonly class AutoloadMap
     public function ownRoots(): array
     {
         return $this->ownRoots;
+    }
+
+    /**
+     * Whether Composer has dumped a classmap at all. Its absence means dependencies are not
+     * installed, which changes what the locator can lean on.
+     */
+    public function hasClassMap(): bool
+    {
+        return is_file($this->classMapPath);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function classMap(): array
+    {
+        return $this->classMap ??= $this->includeMap($this->classMapPath);
     }
 
     /**
@@ -162,7 +196,7 @@ final readonly class AutoloadMap
     /**
      * @return array<string, string>
      */
-    private static function includeMap(string $path): array
+    private function includeMap(string $path): array
     {
         $map = self::includeFile($path);
         $result = [];

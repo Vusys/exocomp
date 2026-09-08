@@ -44,6 +44,7 @@ abstract class ExocompCommand extends Command
             ->addOption('project', null, InputOption::VALUE_REQUIRED, 'Project root (defaults to the nearest ancestor with a composer.json)')
             ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text, json, paths', OutputFormat::Text->value)
             ->addOption('json', null, InputOption::VALUE_NONE, 'Shorthand for --format=json')
+            ->addOption('scan', null, InputOption::VALUE_NONE, 'If the name cannot be placed, read every file under the source roots to find it (slow; needed only for a class sharing a file with a differently-named sibling)')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Maximum records to emit; the remainder is reported, never dropped silently', '0')
             ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, 'Approximate ceiling on output size; any cut is reported', '0');
     }
@@ -133,7 +134,7 @@ abstract class ExocompCommand extends Command
 
         return new CommandContext(
             project: $project,
-            locator: SymbolLocator::forProject($project),
+            locator: SymbolLocator::forProject($project, $this->boolOption($input, 'scan')),
             budget: new OutputBudget(
                 limit: $this->intOption($input, 'limit', 0),
                 maxTokens: $this->intOption($input, 'max-tokens', 0),

@@ -1,0 +1,9 @@
+{
+    "name": "fixtures/installed",
+    "description": "A corpus that has been through `composer install`, so a dumped classmap exists. Its only purpose is to exercise the locator's behaviour when one is present.",
+    "autoload": {
+        "psr-4": {
+            "Installed\\": "src/"
+        }
+    }
+}

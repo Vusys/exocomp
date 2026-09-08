@@ -7,12 +7,14 @@ namespace Vusys\Exocomp\Console\Command;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Vusys\Exocomp\Analysis\AnonymousClass;
 use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\ExocompCommand;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
+use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -70,9 +72,34 @@ final class OutlineCommand extends ExocompCommand
         return new Result(
             header: $this->header($file->displayPath, $declarations),
             sections: [new Section('', $kept)],
+            unresolvedTitle: 'not addressable',
+            unresolved: $this->anonymous($file->displayPath, $analysis->anonymousClasses),
             elided: $elided,
             notes: $context->locator->notes(),
         );
+    }
+
+    /**
+     * Anonymous classes are reported but not described. Omitting them would leave a reader
+     * looking at a file's shape with methods missing and nothing to say so; listing them as
+     * though they were addressable would invite a `show` call that cannot succeed, because
+     * there is no name to address.
+     *
+     * @param  list<AnonymousClass>  $anonymousClasses
+     * @return list<Row>
+     */
+    private function anonymous(string $path, array $anonymousClasses): array
+    {
+        return array_map(static fn (AnonymousClass $class): Row => new Row(
+            file: $path,
+            line: $class->line,
+            column: $class->column,
+            fqn: null,
+            kind: 'anonymous-class',
+            text: $class->extends === null ? 'new class' : 'new class extends '.$class->extends,
+            confidence: Confidence::Textual,
+            note: sprintf('%d members — anonymous, so there is no name to address it by', $class->memberCount),
+        ), $anonymousClasses);
     }
 
     /**

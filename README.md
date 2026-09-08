@@ -92,7 +92,15 @@ These hold across every command, and they are the interface as much as the comma
   always captured; format-switching on TTY detection would hand it something other than what is
   documented here.
 
-Shared options: `--project`, `--format=text|json|paths`, `--json`, `--limit`, `--max-tokens`.
+Shared options: `--project`, `--format=text|json|paths`, `--json`, `--limit`, `--max-tokens`,
+`--scan`.
+
+Names are resolved with no index: PSR-4 arithmetic first, then Composer's classmap, then a
+filename match. On a 950k-line Laravel application that places 99.9% of application classes, and
+every candidate is verified against the parsed declaration before it is returned, so a stale
+classmap produces a miss rather than a wrong answer. The last resort — reading every file to
+find a class that shares one with a differently-named sibling — costs over a second, so it is
+behind `--scan`, and the tool says when it declined to take it.
 
 ## What it does not do
 

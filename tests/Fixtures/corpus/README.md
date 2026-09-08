@@ -16,6 +16,11 @@ awkward ones, are what is under test.
 Tiers C (member ownership through inheritance and traits), D (dynamic PHP that must *not*
 resolve), E (framework dynamism) and G (scale) arrive with the phases that can act on them.
 
+`tests/Fixtures/installed` is a second, much smaller corpus. This one has a dumped
+`vendor/composer/autoload_classmap.php`, because the locator behaves differently depending on
+whether Composer has been run: with a classmap it declines the expensive content scan and says
+so, without one it has nothing else left to try and scans unasked.
+
 ## Do not tidy these files
 
 Pint, Rector and PHPStan are all configured to skip `tests/Fixtures`. If that ever lapses, a
