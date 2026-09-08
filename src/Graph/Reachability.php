@@ -26,7 +26,6 @@ final readonly class Reachability
         public bool $found,
         public array $path,
         public int $expanded,
-        public int $deepest,
         public bool $exhausted,
         public array $stops,
     ) {}

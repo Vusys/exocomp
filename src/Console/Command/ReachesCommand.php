@@ -144,9 +144,12 @@ final class ReachesCommand extends GraphCommand
 
     private function verdict(Start $start, Reachability $reach, int $addressWidth, int $labelWidth): Row
     {
-        $summary = $reach->found
-            ? sprintf('reached in %d step%s', count($reach->path), count($reach->path) === 1 ? '' : 's')
-            : ($reach->exhausted ? 'not reached within the budget' : 'not reached');
+        $summary = match (true) {
+            $reach->found && $reach->path === [] => 'is the destination',
+            $reach->found => sprintf('reached in %d step%s', count($reach->path), count($reach->path) === 1 ? '' : 's'),
+            $reach->exhausted => 'not reached within the budget',
+            default => 'not reached',
+        };
 
         return new Row(
             file: $start->path,
@@ -163,6 +166,13 @@ final class ReachesCommand extends GraphCommand
 
     private function arrival(Start $start, Target $target, Reachability $reach): string
     {
+        // Asking whether something reaches itself is a legitimate question with a degenerate
+        // answer, and reporting it as "reaches it in 0 steps, weakest step resolved" invents a
+        // step and a confidence for a walk that never happened.
+        if ($reach->path === []) {
+            return sprintf('%s is itself %s; no walk was needed', $start->label, (string) $target);
+        }
+
         return sprintf(
             '%s reaches %s in %d step%s; the weakest step is %s',
             $start->label,

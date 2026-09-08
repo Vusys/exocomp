@@ -76,6 +76,39 @@ final class WalkTest extends TestCase
         $this->assertStringContainsString('bound to it', $edge->reason);
     }
 
+    public function test_a_resolution_that_is_called_immediately_is_one_edge_and_not_two(): void
+    {
+        $bindings = array_values(array_filter(
+            $this->walk()->edgesFrom('App\Services\ReportDispatcher::run'),
+            static fn (Edge $edge): bool => $edge->kind === 'binding',
+        ));
+
+        // The method called on the resolved instance, not that *and* its constructor: the
+        // container hands back an object and the call lands on it, which is one step.
+        $this->assertCount(1, $bindings);
+        $this->assertSame('App\Services\CsvReportWriter::write', $bindings[0]->to);
+    }
+
+    public function test_a_filled_edge_does_not_hide_an_unfilled_one_on_the_same_line(): void
+    {
+        $walk = $this->walk();
+        $edges = $walk->edgesFrom('App\Services\ReportDispatcher::queue');
+        $walk->reach('App\Services\ReportDispatcher::queue', Target::parse('Nothing\AtAll::ever'));
+
+        // The dispatch on that line is resolved and reported as an edge...
+        $this->assertContains('App\Jobs\ProcessOrder::handle', array_map(static fn (Edge $edge): string => $edge->to, $edges));
+
+        // ...and the unresolvable call written inside its argument is still a gap. Matching a
+        // framework edge to a call by line alone would have swallowed it.
+        $unresolved = array_values(array_filter(
+            $walk->stops(),
+            static fn (Stop $stop): bool => $stop->kind === Stop::UNRESOLVED,
+        ));
+
+        $this->assertCount(1, $unresolved);
+        $this->assertSame('$unknown->order()', $unresolved[0]->detail);
+    }
+
     public function test_a_call_on_an_interface_fans_out_to_its_implementations(): void
     {
         $edges = array_values(array_filter(

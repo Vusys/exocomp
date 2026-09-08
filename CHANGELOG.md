@@ -8,6 +8,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Phase 5 — reachability.** The query the read engine was built to make possible.
+  - `reaches <from> <to>` — whether a call path exists, with the path itself and the confidence
+    of its weakest step. The destination is a shape rather than an address: `Order::save` for
+    that member, `Order` for anything on the class, `::save` for any class's, with globs in
+    either half.
+  - `route:<pattern>` as a starting point sweeps every matching endpoint in one call. Measured
+    on a 950,000-line application: a hundred endpoints checked for a model write in 22 seconds,
+    twenty-five of them reaching it.
+  - A negative answer prints its evidence and exits 1 — how far the walk got, whether a budget
+    cut it short, and every edge it could not follow. When nothing was skipped it says so, which
+    is the strongest thing a "no" can say and is only printed when it is true.
+  - `graph <symbol> --depth N` — the bounded outward neighbourhood, grouped by step, with the
+    same trailing block. Outgoing only: `callers-of` already answers the inverse by searching
+    the corpus rather than expanding every declaration in it.
+  - Six kinds of framework edge close the joints a language-only graph is missing: a dispatched
+    job to its own `handle()`, an event to its registered and discovered listeners, a facade to
+    the class the container resolves, an interface to its binding and to its implementations,
+    and a class pulled out of the container to the method called on it.
+  - Dependencies are a wall by default. The edge into one is recorded and checked against the
+    destination, so a path ending at a framework method is found; `--through-vendor` walks on.
+
 - **Phase 4 — the Laravel framework profile.** Everything it knows is derived by parsing
   ordinary PHP and SQL. Nothing boots the application: the disposable worktrees this tool is
   built for routinely lack a working `.env` and a reachable database, and a profile that needs
@@ -100,6 +121,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `routes` reads the index, so a string-named controller can be given the root namespace it is
+  relative to. That root is read off the application's own route provider rather than assumed:
+  it is a per-application decision and recent framework versions default it to nothing. Costs
+  about a third of a second on a thousand-route table, which is the right trade for class names
+  a reader can paste into another command.
+- `calls-from` runs on the graph layer's lookup rather than its own copy. A graph that
+  disagreed with the command used to check it would be worse than no graph.
+- `$this->dispatch(new X)` is read as a dispatch, `inferred` rather than `resolved` because the
+  receiver's type is not checked.
 - Mutation-testing thresholds re-set from 78% to 71%, below the 73.3% a clean run over Phases
   0-3 measures. The source grew roughly fivefold since 78% was measured, so the old figure was
   failing the build against a codebase it was never measured on. This is a drop, not a ratchet,
@@ -121,6 +151,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A string controller name beginning with a backslash is absolute, and is no longer given the
+  route namespace as well. Prefixing regardless produced a name with the root written twice —
+  which resolves to nothing, was reported as `inferred` rather than as the resolved fact it is,
+  and looked authoritative while being useless.
+- "Method not found on X" no longer covers two different statements. A class whose ancestry runs
+  off the end of the indexed source has an API far larger than its own declarations — an
+  Eloquent model's whole query interface arrives through a magic `__call` on a base class in
+  `vendor/` — and reporting an undeclared method there as "not found" read as "this call is
+  broken". The answer now names the class the ancestry stops at.
+- Negative lookups are cached. `??=` re-ran whenever the cached answer was null, and null is the
+  common answer when walking a framework application: every retry was an index lookup, an
+  autoload-map lookup and a stat. A nineteen-endpoint sweep went from 26 seconds to 13, with
+  system time falling from 17 seconds to 6.
+- The locator says each note once. A command that locates one name per node repeated the same
+  remark once per node.
 - `--limit` applies to the whole answer rather than to whichever list each command remembered
   to pass through the budget. `model` capped only its trailing block, `config` only the reads,
   `dispatches` only the dispatch sites — so a capped answer could be indistinguishable from a

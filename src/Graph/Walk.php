@@ -51,7 +51,7 @@ final class Walk
         $this->stopKeys = [];
 
         if ($target->matches($start)) {
-            return new Reachability($start, true, [], 0, 0, false, []);
+            return new Reachability($start, true, [], 0, false, []);
         }
 
         /** @var array<string, Edge> $arrivedBy */
@@ -59,7 +59,6 @@ final class Walk
         $seen = [Identifier::fold($start) => true];
         $queue = [[$start, 0]];
         $expanded = 0;
-        $deepest = 0;
         $exhausted = false;
 
         while ($queue !== []) {
@@ -78,7 +77,6 @@ final class Walk
             }
 
             $expanded++;
-            $deepest = max($deepest, $depth);
 
             foreach ($this->edgesFrom($node) as $edge) {
                 $key = Identifier::fold($edge->to);
@@ -91,7 +89,6 @@ final class Walk
                         found: true,
                         path: $this->trace($arrivedBy, $start, $edge->to),
                         expanded: $expanded,
-                        deepest: $depth + 1,
                         exhausted: false,
                         stops: $this->stops,
                     );
@@ -107,7 +104,7 @@ final class Walk
             }
         }
 
-        return new Reachability($start, false, [], $expanded, $deepest, $exhausted, $this->stops);
+        return new Reachability($start, false, [], $expanded, $exhausted, $this->stops);
     }
 
     /**
@@ -192,10 +189,13 @@ final class Walk
             ? [...$this->framework->dispatches($node, $body), ...$this->framework->resolutions($node, $body)]
             : [];
 
+        // Keyed by the exact call each framework edge came from, not by its line: two calls on
+        // one line are two different facts, and a dispatch does not vouch for an unresolvable
+        // receiver written inside its own argument.
         $covered = [];
 
         foreach ($framework as $edge) {
-            $covered[$edge->path.':'.$edge->line] = true;
+            $covered[$edge->path.':'.$edge->line.':'.$edge->column] = true;
         }
 
         $edges = [];
@@ -205,7 +205,7 @@ final class Walk
                 // Unless the framework layer already supplied an edge from this very line: a
                 // call on `app(Reader::class)` has no declared type and never will, and the
                 // binding edge beside it is the answer rather than a consolation.
-                if (! isset($covered[$call->path.':'.$call->line])) {
+                if (! isset($covered[$call->path.':'.$call->line.':'.$call->column])) {
                     $this->stop(new Stop($node, Stop::UNRESOLVED, $call->path, $call->line, $call->column, $call->reason, $call->snippet));
                 }
 
@@ -215,7 +215,7 @@ final class Walk
             $edges[] = $this->edgeFor($node, $call);
             $indirections = $this->framework instanceof LaravelEdges ? $this->framework->indirections($node, $call) : [];
 
-            if ($indirections !== [] || isset($covered[$call->path.':'.$call->line])) {
+            if ($indirections !== [] || isset($covered[$call->path.':'.$call->line.':'.$call->column])) {
                 $this->rerouted[Identifier::fold($call->target)] = true;
             }
 

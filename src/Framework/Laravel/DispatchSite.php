@@ -11,10 +11,16 @@ use Vusys\Exocomp\Symbol\Confidence;
  */
 final readonly class DispatchSite
 {
+    /**
+     * @param  int  $position  the byte offset the sending expression starts at, so the edge can
+     *                         be matched back to the exact call rather than to its line — two
+     *                         calls on one line are two different facts
+     */
     public function __construct(
         public string $class,
         public string $sender,
         public int $line,
+        public int $position = -1,
         public Confidence $confidence = Confidence::Resolved,
         public ?string $note = null,
     ) {}

@@ -80,7 +80,7 @@ final class Dispatched
                 $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
 
                 if ($sent !== null) {
-                    $sites[] = new DispatchSite($sent, $sender.'()', $call->getStartLine());
+                    $sites[] = new DispatchSite($sent, $sender.'()', $call->getStartLine(), $call->getStartFilePos());
                 }
             }
         }
@@ -107,7 +107,7 @@ final class Dispatched
 
             // `ProcessOrder::dispatch(…)` sends the class it was called on.
             if (in_array($method, self::STATIC_SENDERS, true)) {
-                $sites[] = new DispatchSite($class, $spelling, $call->getStartLine());
+                $sites[] = new DispatchSite($class, $spelling, $call->getStartLine(), $call->getStartFilePos());
             }
 
             // `Bus::dispatch(new ProcessOrder)` and `Event::dispatch(new OrderPlaced)` send the
@@ -121,7 +121,7 @@ final class Dispatched
             $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
 
             if ($sent !== null) {
-                $sites[] = new DispatchSite($sent, $spelling, $call->getStartLine());
+                $sites[] = new DispatchSite($sent, $spelling, $call->getStartLine(), $call->getStartFilePos());
             }
         }
 
@@ -156,6 +156,7 @@ final class Dispatched
                     $sent,
                     '->'.$call->name->toString().'()',
                     $call->getStartLine(),
+                    $call->getStartFilePos(),
                     Confidence::Inferred,
                     'sent through a method call, whose receiver type is not checked',
                 );

@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Contracts\ReportWriter;
 use App\Facades\Reporting;
+use App\Jobs\ProcessOrder;
 
 /**
  * Two joints in one method, and the language sees neither.
@@ -22,5 +23,15 @@ final class ReportDispatcher
         $built = Reporting::build();
 
         return $built.app(ReportWriter::class)->write('summary.csv');
+    }
+
+    /**
+     * The dispatch is resolvable and the expression inside its argument is not. They sit on one
+     * line and are two different facts: an edge that was filled must not hide a gap that was
+     * not, which is what matching a framework edge to a call by line alone would do.
+     */
+    public function queue(object $unknown): void
+    {
+        dispatch(new ProcessOrder($unknown->order()));
     }
 }

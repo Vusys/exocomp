@@ -105,7 +105,7 @@ final class LaravelEdges
                     kind: $receiver->kind === 'handler' ? 'dispatch' : 'listens',
                     path: $body->path,
                     line: $site->line,
-                    column: 1,
+                    column: $this->columnAt($body, $site->position),
                     confidence: Confidence::weakest($site->confidence, $receiver->confidence),
                     reason: trim(sprintf('%s sends %s; %s', $site->sender, Dispatched::shortName($site->class), $receiver->note ?? 'received here')),
                 );
@@ -139,12 +139,12 @@ final class LaravelEdges
             }
 
             $called[$id] = true;
-            $edges[] = $this->resolution($from, $body, $resolutions[$id], $call->name->toString(), $call->getStartLine());
+            $edges[] = $this->resolution($from, $body, $resolutions[$id], $call->name->toString(), $call->getStartLine(), $call->getStartFilePos());
         }
 
         foreach ($resolutions as $id => $abstract) {
             if (! isset($called[$id])) {
-                $edges[] = $this->resolution($from, $body, $abstract, '__construct', $abstract[1]);
+                $edges[] = $this->resolution($from, $body, $abstract, '__construct', $abstract[1], $abstract[2]);
             }
         }
 
@@ -152,9 +152,9 @@ final class LaravelEdges
     }
 
     /**
-     * @param  array{string, int}  $abstract
+     * @param  array{string, int, int}  $abstract
      */
-    private function resolution(string $from, Body $body, array $abstract, string $member, int $line): Edge
+    private function resolution(string $from, Body $body, array $abstract, string $member, int $line, int $position): Edge
     {
         [$name] = $abstract;
         $concrete = $this->boundConcrete($name);
@@ -165,7 +165,7 @@ final class LaravelEdges
             kind: 'binding',
             path: $body->path,
             line: $line,
-            column: 1,
+            column: $this->columnAt($body, $position),
             confidence: $concrete === null ? Confidence::Resolved : Confidence::Inferred,
             reason: $concrete === null
                 ? 'resolved out of the container by class name'
@@ -479,7 +479,7 @@ final class LaravelEdges
      * Every expression in a body that pulls something out of the container, keyed by the node
      * it is, so a `->method()` written straight onto one can be matched back to it.
      *
-     * @return array<int, array{string, int}>
+     * @return array<int, array{string, int, int}>
      */
     private function containerArguments(Body $body): array
     {
@@ -497,7 +497,7 @@ final class LaravelEdges
             $class = $this->firstClassArgument($call);
 
             if ($class !== null) {
-                $found[spl_object_id($call)] = [$class, $call->getStartLine()];
+                $found[spl_object_id($call)] = [$class, $call->getStartLine(), $call->getStartFilePos()];
             }
         }
 
@@ -509,7 +509,7 @@ final class LaravelEdges
             $class = $this->firstClassArgument($call);
 
             if ($class !== null) {
-                $found[spl_object_id($call)] = [$class, $call->getStartLine()];
+                $found[spl_object_id($call)] = [$class, $call->getStartLine(), $call->getStartFilePos()];
             }
         }
 
@@ -525,5 +525,15 @@ final class LaravelEdges
         $class = $argument instanceof Node\Expr ? LiteralValue::className($argument) : null;
 
         return $class !== null && str_contains($class, '\\') ? $class : null;
+    }
+
+    /**
+     * The column a byte offset sits at, so a framework edge can be matched back to the exact
+     * call it came from. Two calls on one line are two different facts, and matching by line
+     * alone would let an edge that was filled hide a gap that was not.
+     */
+    private function columnAt(Body $body, int $position): int
+    {
+        return $position < 0 ? 1 : $body->analysis->file->columnAt($position);
     }
 }

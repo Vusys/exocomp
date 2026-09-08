@@ -65,6 +65,8 @@ before it answers — in particular it never boots your application.
 | `overrides <symbol>` | Every declaration of one member across its hierarchy, up and down. |
 | `references-to <symbol>` | Every reference to a class or member, grouped by how certain each one is. |
 | `callers-of` / `calls-from` | The call graph in either direction, with unresolvable edges reported rather than dropped. |
+| `reaches <from> <to>` | Whether a call path exists — from a method, or from every matching endpoint at once. Exits 1 when there is none. |
+| `graph <symbol>` | Everything within N steps outward, and every edge that could not be followed. |
 | `query <pattern>` | Structural search: the code shape you are looking for, written as PHP. |
 | `check [rules.json]` | Run saved rules against a baseline and fail on anything new. |
 | `index --status` / `--warm` | Maintenance. Nothing else requires it. |
@@ -259,6 +261,91 @@ app/Models/Comment.php:16  commentable  morphTo   polymorphic — what it points
 - A **morph map**'s keys live in your database, in the `*_type` column of every polymorphic
   relation. `morph-map` says so on every answer, because a rename that updates the code and
   stays silent about `commentable_type` has made the application worse.
+
+## Reachability, and what a "no" is worth
+
+`reaches` answers the question the rest of the engine was built for: is there a call path from
+here to there. A tenant-scoping audit, a cascade-deletion audit, "does anything under this
+prefix write to that table" — each is that question asked once per endpoint, and by hand it is
+a day of opening files.
+
+```console
+$ exocomp reaches 'App\Http\Controllers\OrderController::store' 'App\Models\Order::save'
+App\Http\Controllers\OrderController::store reaches App\Models\Order::save in 3 steps; the weakest step is resolved
+app/Http/Controllers/OrderController.php:34:9  method call  →  App\Services\OrderService::place
+app/Services/OrderService.php:15:1             dispatch     →  App\Jobs\ProcessOrder::handle
+app/Jobs/ProcessOrder.php:19:9                 method call  →  App\Models\Order::save
+```
+
+Three hops, one of them across a queue boundary that no call site names. Every step carries its
+own confidence, and the path is worth its weakest one — a route that arrives through four
+resolved calls and one container binding is a different claim from one that arrives through
+five resolved calls, and collapsing them would hide exactly the step worth checking.
+
+The destination is a shape rather than an address, because the question is rarely about one
+method:
+
+```
+App\Models\Order::save     that member of that class
+App\Models\Order           anything on that class
+::save                      that member on any class
+App\Models\*::delete*      globs in either half
+```
+
+**The sweep is one call.** `route:<pattern>` starts from every matching endpoint, so an audit
+that was one invocation per route is one invocation:
+
+```console
+$ exocomp reaches 'route:*/admin/*' 'App\Models\Order::save'
+4 of 19 starting points reach App\Models\Order::save
+routes/web.php:9:1   GET /admin/orders             not reached
+routes/web.php:14:1  POST /admin/orders            reached in 3 steps
+…
+```
+
+Measured on a 950,000-line application: a hundred endpoints swept in 22 seconds. One symbol's
+path in about four. These are far above the sub-200 ms the index answers in, for the same
+reason the other framework commands are — a walk parses files by convention rather than reading
+rows, and nothing about a walk is cached between runs yet.
+
+### The negative answer
+
+A "no" is a claim about a whole graph, and a graph of a language with dynamic dispatch is never
+complete. An unqualified "no path" would be the confidently-wrong answer this tool exists not
+to give, so every negative says how much it is worth:
+
+```console
+$ exocomp reaches 'App\Services\ReportBuilder::build' 'App\Models\Order::save'; echo "exit $?"
+no path from App\Services\ReportBuilder::build to App\Models\Order::save; 12 declarations were walked
+note: the walk ran out of graph rather than out of budget, and every edge it met was followed —
+      so within the edges this tool models, there is no path
+exit 1
+```
+
+That note is the strongest thing a negative can say, and it is only printed when it is true.
+When it is not, the answer says which of these applied instead: a `--depth` or `--max-nodes`
+budget cut the search short, some edges led into a dependency and were not walked past
+(`--through-vendor` follows them), or some calls could not be resolved at all — each listed
+with its address and reason.
+
+Dead ends that are not gaps are deliberately left out of that list. A walk that stops at
+`str_ends_with` has lost nothing; a walk that stops because a receiver's type is unknown has
+lost a subtree of unknown size. Listing both would bury the second among the first.
+
+### What it still declines
+
+- **Eloquent's magic forwarding.** `Order::where(...)->update(...)` runs on a query builder
+  reached through `__call` on a framework base class. The walk reports the call and stops, and
+  says the ancestry left the readable source rather than claiming the method does not exist.
+- **`__call` and `__callStatic` generally**, string callables, and anything whose target is
+  computed at runtime.
+- **Middleware, observers and policies.** Their registration sites are readable and their edges
+  are not modelled yet; §3.4 lists them and they are not built.
+- **Dependencies**, by default. The edge into one is recorded and checked against the
+  destination, so a path that *ends* at a framework method is found; walking onwards from there
+  is `--through-vendor`.
+- **A widely implemented interface** fans out rather than leads somewhere. The walk follows
+  twelve implementations and says so when it stops.
 
 ## What it does not do
 

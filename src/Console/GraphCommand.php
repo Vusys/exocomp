@@ -72,7 +72,7 @@ abstract class GraphCommand extends IndexedFrameworkCommand
     /**
      * One step, rendered: where the step was written, then where it goes.
      */
-    protected function step(Edge $edge, int $width, ?string $prefix = null): Row
+    protected function step(Edge $edge, int $width): Row
     {
         $address = Address::of($edge->path, $edge->line, $edge->column);
 
@@ -82,7 +82,7 @@ abstract class GraphCommand extends IndexedFrameworkCommand
             column: $edge->column,
             fqn: $edge->to,
             kind: $edge->kind,
-            text: rtrim(str_pad($address, $width).'  '.($prefix ?? '').$edge->kind.'  →  '.$edge->to),
+            text: rtrim(str_pad($address, $width).'  '.$edge->kind.'  →  '.$edge->to),
             confidence: $edge->confidence,
             note: $edge->reason,
             extra: ['from' => $edge->from, 'reason' => $edge->reason],
