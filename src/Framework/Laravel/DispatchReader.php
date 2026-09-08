@@ -32,22 +32,6 @@ use Vusys\Exocomp\Symbol\Identifier;
  */
 final class DispatchReader
 {
-    /**
-     * Free functions that send something. Each takes the thing itself, so what is dispatched is
-     * the argument rather than the receiver.
-     *
-     * @var list<string>
-     */
-    private const array SENDERS = ['dispatch', 'dispatch_sync', 'event', 'defer'];
-
-    /**
-     * Static spellings of the same thing: `ProcessOrder::dispatch(…)` sends the class it is
-     * called on, so here the receiver is the subject and the arguments are its constructor's.
-     *
-     * @var list<string>
-     */
-    private const array STATIC_SENDERS = ['dispatch', 'dispatchsync', 'dispatchif', 'dispatchunless', 'dispatchafterresponse', 'dispatchnow'];
-
     /** @var list<DispatchEdge> */
     private array $sites = [];
 
@@ -142,52 +126,12 @@ final class DispatchReader
      */
     private function scanForSends(array $statements, string $subject, string $path): void
     {
-        foreach (new NodeFinder()->findInstanceOf($statements, Node\Expr\FuncCall::class) as $call) {
-            if (! $call->name instanceof Node\Name) {
+        foreach (Dispatched::in($statements) as $site) {
+            if (Identifier::fold($site->class) !== Identifier::fold($subject)) {
                 continue;
             }
 
-            foreach (self::SENDERS as $sender) {
-                if (! Analyser::isGlobalFunction($call->name, $sender)) {
-                    continue;
-                }
-
-                $argument = $call->getArgs()[0]->value ?? null;
-                $sent = $argument === null ? null : $this->constructedClass($argument);
-
-                if ($sent !== null && Identifier::fold($sent) === Identifier::fold($subject)) {
-                    $this->sites[] = new DispatchEdge('sent', $subject, $sender.'()', $path, $call->getStartLine(), Confidence::Resolved);
-                }
-            }
-        }
-
-        foreach (new NodeFinder()->findInstanceOf($statements, Node\Expr\StaticCall::class) as $call) {
-            if (! $call->class instanceof Node\Name || ! $call->name instanceof Node\Identifier) {
-                continue;
-            }
-
-            $class = Analyser::resolvedName($call->class);
-            $method = strtolower($call->name->toString());
-
-            // `ProcessOrder::dispatch(…)`
-            if (Identifier::fold($class) === Identifier::fold($subject) && in_array($method, self::STATIC_SENDERS, true)) {
-                $this->sites[] = new DispatchEdge('sent', $subject, $this->shortName($class).'::'.$call->name->toString().'()', $path, $call->getStartLine(), Confidence::Resolved);
-
-                continue;
-            }
-
-            // `Bus::dispatch(new ProcessOrder)` and `Event::dispatch(new OrderPlaced)`
-            if (! in_array($method, ['dispatch', 'dispatchsync', 'dispatchnow'], true)) {
-                continue;
-            }
-
-            $argument = $call->getArgs()[0]->value ?? null;
-            $sent = $argument === null ? null : $this->constructedClass($argument);
-
-            if ($sent !== null && Identifier::fold($sent) === Identifier::fold($subject)) {
-                $short = $this->shortName($class);
-                $this->sites[] = new DispatchEdge('sent', $subject, $short.'::'.$call->name->toString().'()', $path, $call->getStartLine(), Confidence::Resolved);
-            }
+            $this->sites[] = new DispatchEdge('sent', $subject, $site->sender, $path, $site->line, $site->confidence, $site->note);
         }
     }
 
@@ -307,15 +251,6 @@ final class DispatchReader
         }
     }
 
-    private function constructedClass(Node\Expr $expression): ?string
-    {
-        if ($expression instanceof Node\Expr\New_ && $expression->class instanceof Node\Name) {
-            return Analyser::resolvedName($expression->class);
-        }
-
-        return LiteralValue::className($expression);
-    }
-
     /**
      * @return list<string>
      */
@@ -346,8 +281,6 @@ final class DispatchReader
 
     private function shortName(string $fqn): string
     {
-        $position = strrpos($fqn, '\\');
-
-        return $position === false ? $fqn : substr($fqn, $position + 1);
+        return Dispatched::shortName($fqn);
     }
 }
