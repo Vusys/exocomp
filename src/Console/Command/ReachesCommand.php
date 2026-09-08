@@ -175,8 +175,9 @@ final class ReachesCommand extends GraphCommand
         }
 
         return sprintf(
-            '%s reaches %s in %d step%s; the weakest step is %s',
+            '%s%s reaches %s in %d step%s; the weakest step is %s',
             $start->label,
+            $this->entry($start),
             (string) $target,
             count($reach->path),
             count($reach->path) === 1 ? '' : 's',
@@ -184,11 +185,24 @@ final class ReachesCommand extends GraphCommand
         );
     }
 
+    /**
+     * The declaration a route actually starts at, named once in the header.
+     *
+     * A path from an endpoint begins somewhere inside a controller, and the rows show the file
+     * but never the address the walk was given. Saying it here is the difference between an
+     * answer a reader can re-ask about and one they have to reconstruct.
+     */
+    private function entry(Start $start): string
+    {
+        return $start->label === $start->node ? '' : sprintf(' (%s)', $start->node);
+    }
+
     private function absence(Start $start, Target $target, Reachability $reach): string
     {
         return sprintf(
-            'no path from %s to %s%s; %s walked',
+            'no path from %s%s to %s%s; %s walked',
             $start->label,
+            $this->entry($start),
             (string) $target,
             $reach->exhausted ? ', within the depth and node budget' : '',
             $reach->expanded === 1 ? '1 declaration was' : sprintf('%d declarations were', $reach->expanded),

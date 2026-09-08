@@ -64,6 +64,21 @@ final class ReachesCommandTest extends TestCase
         $this->assertStringContainsString('not reached', $run->output);
     }
 
+    public function test_a_route_start_names_the_declaration_the_walk_began_at(): void
+    {
+        $run = Cli::inLaravel(['reaches', 'route:POST /orders', 'App\Models\Order::save']);
+
+        $this->assertSame(0, $run->exitCode);
+        $this->assertStringContainsString('POST /orders (App\Http\Controllers\OrderController::store) reaches', $run->output);
+    }
+
+    public function test_a_symbol_start_is_not_annotated_with_itself(): void
+    {
+        $output = Cli::inLaravel(['reaches', 'App\Services\OrderService::place', 'App\Models\Order::save'])->output;
+
+        $this->assertStringNotContainsString('(App\Services\OrderService::place)', $output);
+    }
+
     public function test_a_route_answered_by_a_closure_is_reported_rather_than_dropped(): void
     {
         $output = Cli::inLaravel(['reaches', 'route:*', 'App\Models\Order::save'])->output;

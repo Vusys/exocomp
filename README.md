@@ -292,8 +292,19 @@ App\Models\Order            anything on that class
 App\Models\*::delete*       globs in either half
 ```
 
-**The sweep is one call.** `route:<pattern>` starts from every matching endpoint, so an audit
-that was one invocation per route is one invocation:
+**A route is a starting point.** `route:<pattern>` walks from whatever answers the matching
+endpoints, so the question can be asked in the terms it was thought in:
+
+```console
+$ exocomp reaches 'route:POST /orders' 'App\Models\Order::save'
+POST /orders (App\Http\Controllers\OrderController::store) reaches App\Models\Order::save in 3 steps; the weakest step is resolved
+app/Http/Controllers/OrderController.php:35:9  method call  →  App\Services\OrderService::place
+app/Services/OrderService.php:15:9             dispatch  →  App\Jobs\ProcessOrder::handle
+app/Jobs/ProcessOrder.php:19:9                 method call  →  App\Models\Order::save
+```
+
+A pattern matching several endpoints sweeps them instead, one verdict each — so an audit that
+was one invocation per route is one invocation:
 
 ```console
 $ exocomp reaches 'route:*' 'App\Models\Order::save'
