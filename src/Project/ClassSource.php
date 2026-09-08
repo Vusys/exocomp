@@ -13,6 +13,7 @@ use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Source\ParseFailure;
 use Vusys\Exocomp\Source\SourceFile;
 use Vusys\Exocomp\Symbol\Identifier;
+use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
  * Loads a class's parsed body, by fully-qualified name, using the index only to find the file.
@@ -34,6 +35,7 @@ final class ClassSource
     public function __construct(
         private readonly Project $project,
         private readonly SymbolGraph $graph,
+        private readonly ?SymbolLocator $locator = null,
         private readonly Analyser $analyser = new Analyser,
     ) {}
 
@@ -80,33 +82,64 @@ final class ClassSource
 
     private function read(string $fqn): ?LoadedClass
     {
-        $record = $this->graph->classLike($fqn);
+        [$path, $fqn] = $this->locate($fqn);
 
-        if (! $record instanceof SymbolRecord) {
+        if ($path === null) {
             return null;
         }
 
-        $absolute = $this->project->path($record->path);
+        $absolute = $this->project->path($path);
 
         if (! is_file($absolute)) {
-            $this->notes[] = sprintf('%s is indexed at %s, which is no longer there', $record->fqn, $record->path);
+            $this->notes[] = sprintf('%s was placed at %s, which is not there', $fqn, $path);
 
             return null;
         }
 
         try {
-            [$analysis, $statements] = $this->analyser->analyseWithAst(SourceFile::fromPath($absolute, $record->path));
+            [$analysis, $statements] = $this->analyser->analyseWithAst(SourceFile::fromPath($absolute, $path));
         } catch (ParseFailure $failure) {
             $this->notes[] = sprintf('%s:%d could not be parsed: %s', $failure->path, $failure->startLine, $failure->getMessage());
 
             return null;
         }
 
-        $node = $this->findClassLike($statements, $record->fqn);
+        $node = $this->findClassLike($statements, $fqn);
 
         return $node instanceof ClassLike
-            ? new LoadedClass($record->fqn, $record->path, $analysis, $node)
+            ? new LoadedClass($fqn, $path, $analysis, $node)
             : null;
+    }
+
+    /**
+     * The file a class lives in: the index first, then the autoload map.
+     *
+     * The fallback is what makes framework classes readable at all. `Model`, `Facade` and the
+     * container itself live in `vendor/`, which is not indexed by default and should not have
+     * to be — but Composer's autoload map places them exactly, so one file can be read without
+     * paying to index sixty thousand.
+     *
+     * @return array{?string, string}
+     */
+    private function locate(string $fqn): array
+    {
+        $record = $this->graph->classLike($fqn);
+
+        if ($record instanceof SymbolRecord) {
+            return [$record->path, $record->fqn];
+        }
+
+        if (! $this->locator instanceof SymbolLocator) {
+            return [null, $fqn];
+        }
+
+        try {
+            $located = $this->locator->locateOwner(SymbolRef::parse($fqn));
+        } catch (SymbolNotFound) {
+            return [null, $fqn];
+        }
+
+        return [$located->analysis->file->displayPath, $located->declaration->fqn];
     }
 
     /**

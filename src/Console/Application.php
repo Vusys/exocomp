@@ -5,16 +5,19 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Console;
 
 use Symfony\Component\Console\Application as SymfonyApplication;
+use Vusys\Exocomp\Console\Command\BindingsCommand;
 use Vusys\Exocomp\Console\Command\CallersOfCommand;
 use Vusys\Exocomp\Console\Command\CallsFromCommand;
 use Vusys\Exocomp\Console\Command\CheckCommand;
 use Vusys\Exocomp\Console\Command\ConfigCommand;
+use Vusys\Exocomp\Console\Command\FacadeCommand;
 use Vusys\Exocomp\Console\Command\ImplementorsCommand;
 use Vusys\Exocomp\Console\Command\ImportsCommand;
 use Vusys\Exocomp\Console\Command\IndexCommand;
 use Vusys\Exocomp\Console\Command\LocateCommand;
 use Vusys\Exocomp\Console\Command\MembersCommand;
 use Vusys\Exocomp\Console\Command\ModelCommand;
+use Vusys\Exocomp\Console\Command\MorphMapCommand;
 use Vusys\Exocomp\Console\Command\OutlineCommand;
 use Vusys\Exocomp\Console\Command\OverridesCommand;
 use Vusys\Exocomp\Console\Command\QueryCommand;
@@ -49,6 +52,9 @@ final class Application extends SymfonyApplication
             new CheckCommand,
             new ModelCommand,
             new ConfigCommand,
+            new FacadeCommand,
+            new BindingsCommand,
+            new MorphMapCommand,
             new SchemaCommand,
             new IndexCommand,
         ]);
