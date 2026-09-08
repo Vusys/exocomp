@@ -1,0 +1,9 @@
+A capture, bound and rendered inline
+-----
+query $this->repository->_M($A) --capture M
+-----
+3 matches for $this->repository->_M($A)  (3 files scanned)
+src/TierB/CallSites.php:36:16  M=find
+src/TierB/CallSites.php:36:46  M=findByUuid
+src/TierB/CallSites.php:44:16  M=findByUuid
+note: 1 file could not be parsed and is not in the index (see: exocomp index --status)

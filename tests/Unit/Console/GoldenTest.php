@@ -35,7 +35,7 @@ final class GoldenTest extends TestCase
             GoldenFixture::catalogue(),
         );
 
-        foreach (['show', 'outline', 'members', 'imports', 'locate', 'subclasses', 'implementors', 'overrides'] as $command) {
+        foreach (['show', 'outline', 'members', 'imports', 'locate', 'subclasses', 'implementors', 'overrides', 'query'] as $command) {
             $this->assertContains($command, $commands, "no golden fixture exercises `{$command}`");
         }
     }

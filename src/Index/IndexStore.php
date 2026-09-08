@@ -99,6 +99,20 @@ final class IndexStore
             ]);
         }
 
+        $name = $this->prepare('put_name', 'INSERT INTO names (hash, lower_name) VALUES (?, ?)');
+        $seen = [];
+
+        foreach ($facts->referencedNames as $referenced) {
+            $lower = mb_strtolower($referenced);
+
+            if (isset($seen[$lower])) {
+                continue;
+            }
+
+            $seen[$lower] = true;
+            $name->execute([$hash, $lower]);
+        }
+
         $edge = $this->prepare('put_edge', 'INSERT INTO edges (hash, from_fqn, lower_from, kind, to_fqn, lower_to) VALUES (?, ?, ?, ?, ?, ?)');
 
         foreach ($facts->edges as $row) {
@@ -209,6 +223,99 @@ final class IndexStore
         }
 
         return $stamps;
+    }
+
+    /**
+     * Every indexed path for a root, optionally narrowed to files declaring a symbol under one
+     * of a set of namespace prefixes.
+     *
+     * The narrowing is what makes `--in` a way of making a corpus-wide query cheap rather than
+     * merely of filtering its results: on a large codebase, most of the cost of a structural
+     * query is opening and parsing files, and a scoped query should not pay for the ones it
+     * could never match.
+     *
+     * @param  list<string>  $namespacePrefixes
+     * @return list<string>
+     */
+    public function paths(string $root, array $namespacePrefixes = []): array
+    {
+        $sql = 'SELECT DISTINCT f.path FROM files f';
+        $parameters = [$root];
+
+        if ($namespacePrefixes !== []) {
+            $clauses = [];
+
+            foreach ($namespacePrefixes as $index => $prefix) {
+                $clauses[] = "s.fqn LIKE :prefix{$index}";
+                $parameters['prefix'.$index] = $prefix.'%';
+            }
+
+            $sql .= ' JOIN symbols s ON s.hash = f.hash AND ('.implode(' OR ', $clauses).')';
+        }
+
+        $sql .= ' WHERE f.root = ? ORDER BY f.path';
+
+        // Positional and named parameters cannot be mixed, so the root is bound by name too
+        // once prefixes are in play.
+        if ($namespacePrefixes !== []) {
+            $sql = str_replace('f.root = ?', 'f.root = :root', $sql);
+            $parameters['root'] = $root;
+            unset($parameters[0]);
+        }
+
+        $statement = $this->connection->prepare($sql);
+        $statement->execute($parameters);
+
+        $paths = [];
+
+        foreach ($statement->fetchAll() as $row) {
+            if (is_array($row)) {
+                $paths[] = self::text($row['path']);
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Paths whose contents mention every one of these names.
+     *
+     * This is the filter that makes a structural query affordable. A pattern naming a method
+     * cannot match in a file that never mentions it, so the corpus shrinks to the handful of
+     * files worth parsing before a parser is started at all — six and a half thousand files
+     * down to three, in the case that motivated building this.
+     *
+     * @param  list<string>  $names
+     * @return list<string>
+     */
+    public function pathsMentioning(string $root, array $names): array
+    {
+        if ($names === []) {
+            return $this->paths($root);
+        }
+
+        $sql = 'SELECT DISTINCT f.path FROM files f';
+        $parameters = ['root' => $root];
+
+        foreach ($names as $index => $name) {
+            $sql .= " JOIN names n{$index} ON n{$index}.hash = f.hash AND n{$index}.lower_name = :name{$index}";
+            $parameters['name'.$index] = mb_strtolower($name);
+        }
+
+        $sql .= ' WHERE f.root = :root ORDER BY f.path';
+
+        $statement = $this->connection->prepare($sql);
+        $statement->execute($parameters);
+
+        $paths = [];
+
+        foreach ($statement->fetchAll() as $row) {
+            if (is_array($row)) {
+                $paths[] = self::text($row['path']);
+            }
+        }
+
+        return $paths;
     }
 
     public function forgetFile(string $root, string $path): void

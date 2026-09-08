@@ -24,11 +24,13 @@ final readonly class FileFacts
      * @param  list<array<string, string|int|bool|null>>  $symbols
      * @param  list<array{from: string, kind: string, to: string}>  $edges
      * @param  list<string>  $namespaces
+     * @param  list<string>  $referencedNames  every name the file mentions, for narrowing searches
      */
     public function __construct(
         public array $symbols,
         public array $edges,
         public array $namespaces,
+        public array $referencedNames = [],
     ) {}
 
     public static function from(FileAnalysis $analysis): self
@@ -50,7 +52,7 @@ final readonly class FileFacts
             }
         }
 
-        return new self($symbols, $edges, $analysis->namespaces);
+        return new self($symbols, $edges, $analysis->namespaces, $analysis->referencedNames);
     }
 
     /**

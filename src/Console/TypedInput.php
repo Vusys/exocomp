@@ -36,6 +36,16 @@ trait TypedInput
         return is_numeric($value) ? (int) $value : $default;
     }
 
+    /**
+     * @return list<string>
+     */
+    protected function arrayOption(InputInterface $input, string $name): array
+    {
+        $value = $input->getOption($name);
+
+        return is_array($value) ? array_values(array_filter($value, is_string(...))) : [];
+    }
+
     protected function boolOption(InputInterface $input, string $name): bool
     {
         return $input->getOption($name) === true;

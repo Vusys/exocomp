@@ -71,7 +71,13 @@ final readonly class GoldenFixture
 
         return new self(
             name: trim($name),
-            arguments: array_values(array_filter(preg_split('/\s+/', trim($command)) ?: [])),
+            // Filtered on emptiness rather than truthiness: `array_filter()` with no callback
+            // would drop the argument "0", which is exactly the value a predicate like
+            // `--arg-is-not-literal 0` needs.
+            arguments: array_values(array_filter(
+                preg_split('/\s+/', trim($command)) ?: [],
+                static fn (string $part): bool => $part !== '',
+            )),
             expectedExitCode: $exitCode,
             expected: rtrim($expected, "\n"),
         );

@@ -17,6 +17,7 @@ final readonly class FileAnalysis
      * @param  list<Import>  $imports
      * @param  list<string>  $namespaces  declared namespaces, in source order; "" is the global one
      * @param  list<AnonymousClass>  $anonymousClasses  present but unaddressable, reported rather than hidden
+     * @param  list<string>  $referencedNames  every name the file mentions, for narrowing corpus-wide searches
      */
     public function __construct(
         public SourceFile $file,
@@ -24,6 +25,7 @@ final readonly class FileAnalysis
         public array $imports,
         public array $namespaces = [],
         public array $anonymousClasses = [],
+        public array $referencedNames = [],
     ) {}
 
     /**

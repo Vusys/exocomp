@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Console;
 
 use Symfony\Component\Console\Application as SymfonyApplication;
+use Vusys\Exocomp\Console\Command\CheckCommand;
 use Vusys\Exocomp\Console\Command\ImplementorsCommand;
 use Vusys\Exocomp\Console\Command\ImportsCommand;
 use Vusys\Exocomp\Console\Command\IndexCommand;
@@ -12,6 +13,7 @@ use Vusys\Exocomp\Console\Command\LocateCommand;
 use Vusys\Exocomp\Console\Command\MembersCommand;
 use Vusys\Exocomp\Console\Command\OutlineCommand;
 use Vusys\Exocomp\Console\Command\OverridesCommand;
+use Vusys\Exocomp\Console\Command\QueryCommand;
 use Vusys\Exocomp\Console\Command\ShowCommand;
 use Vusys\Exocomp\Console\Command\SubclassesCommand;
 use Vusys\Exocomp\Console\Command\TraitsUsersCommand;
@@ -34,6 +36,8 @@ final class Application extends SymfonyApplication
             new ImplementorsCommand,
             new TraitsUsersCommand,
             new OverridesCommand,
+            new QueryCommand,
+            new CheckCommand,
             new IndexCommand,
         ]);
     }

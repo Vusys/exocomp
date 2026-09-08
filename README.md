@@ -57,6 +57,8 @@ and asks nothing of you before it answers.
 | `locate <name>` | Where a short name or a fully-qualified one is declared. |
 | `subclasses` / `implementors` / `traits-users` | The inheritance graph, transitively. |
 | `overrides <symbol>` | Every declaration of one member across its hierarchy, up and down. |
+| `query <pattern>` | Structural search: the code shape you are looking for, written as PHP. |
+| `check [rules.json]` | Run saved rules against a baseline and fail on anything new. |
 | `index --status` / `--warm` | Maintenance. Nothing else requires it. |
 
 Every read command also takes `--rev <SHA>`, to answer about a past revision rather than the
@@ -107,6 +109,32 @@ every candidate is verified against the parsed declaration before it is returned
 classmap produces a miss rather than a wrong answer. The last resort — reading every file to
 find a class that shares one with a differently-named sibling — costs over a second, so it is
 behind `--scan`, and the tool says when it declined to take it.
+
+## Structural query
+
+`query` takes the code you are looking for, written as PHP, with three things that are not
+literal: `$UPPERCASE` for any node, `_UPPERCASE` for any name, and `...` / `()` / `{}` for any
+arguments, parameters or body.
+
+```console
+$ exocomp query '$X->recordUsage(...)' --arg-is-not-literal 0
+```
+
+That is the audit's own worked example. Written as text it was four chained filters —
+`grep -rn 'recordUsage(' | grep -v "recordUsage('" | grep -v 'recordUsage("' | grep -v
+'function recordUsage'` — trying to express "call sites where the first argument is not a
+literal string". On a 950k-line codebase that returns 12 lines, **of which two thirds are
+comments mentioning the method**, because a text filter cannot tell a docblock from a call. The
+structural form returns the 3 real call sites, in 83% fewer bytes, with nothing to eyeball.
+
+Predicates: `--in` / `--not-in`, `--annotated`, `--has-attribute`, `--arg-is-literal` /
+`--arg-is-not-literal`, `--param-count`, `--visibility`, `--returns`, `--uses-trait`,
+`--extends`, `--implements`. All syntactic — nothing is inferred, so nothing is guessed.
+
+**`check` turns a sweep into a guard.** Save rules as JSON, record a baseline of what already
+fails, and only new violations fail the build. Baseline entries are keyed by rule, file,
+enclosing declaration and the matched code — never by line number, so an unrelated edit above a
+waived violation does not cry wolf, and a guard that cries wolf gets switched off.
 
 ## The index
 

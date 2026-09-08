@@ -18,7 +18,7 @@ use PDO;
  */
 final class IndexSchema
 {
-    public const int VERSION = 1;
+    public const int VERSION = 2;
 
     public static function apply(PDO $connection): void
     {
@@ -41,6 +41,14 @@ final class IndexSchema
             );
 
             CREATE INDEX IF NOT EXISTS files_hash ON files (hash);
+
+            CREATE TABLE IF NOT EXISTS names (
+                hash TEXT NOT NULL,
+                lower_name TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS names_lower ON names (lower_name);
+            CREATE INDEX IF NOT EXISTS names_hash ON names (hash);
 
             CREATE TABLE IF NOT EXISTS failures (
                 root TEXT NOT NULL,

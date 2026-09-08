@@ -22,6 +22,18 @@ All notable changes to this project are documented here. The format follows
     tree. 193 measured commands piped `git show SHA:file` into grep, and no existing PHP
     intelligence tool addresses this at all.
   - `--stdin`, to analyse a buffer the caller already holds.
+- **Phase 2 — structural query and the CI ratchet.**
+  - `query <pattern>` — the code shape you are looking for, written as PHP. `$UPPERCASE` matches
+    any node, `_UPPERCASE` any name, and `...` / `()` / `{}` any arguments, parameters or body.
+    Predicates: `--in`, `--not-in`, `--annotated`, `--has-attribute`, `--arg-is-literal`,
+    `--arg-is-not-literal`, `--param-count`, `--visibility`, `--returns`, `--uses-trait`,
+    `--extends`, `--implements` — all syntactic, so nothing is guessed.
+  - `check [rules.json]` — run a saved rule set against a baseline, exit non-zero on anything
+    new. Baseline entries are keyed by rule, file, enclosing declaration and matched code rather
+    than by line, so an unrelated edit above a waived violation does not fail the build.
+  - The index now records every name a file *mentions*, so a corpus-wide query opens only the
+    files that could possibly match. On a 950k-line codebase that took the audit's own worked
+    example from 12.6s to 280ms, scanning 12 files instead of 6,536, for an 11% larger index.
 - **A content-addressed SQLite cache, shared between checkouts.** Facts belong to a file's
   contents rather than its path, so a second worktree of the same commit costs a walk instead of
   a parse: measured on a 950k-line application, 14.0s to build and 1.3s for a second checkout

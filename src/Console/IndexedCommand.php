@@ -11,6 +11,8 @@ use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Row;
+use Vusys\Exocomp\Query\Pattern;
+use Vusys\Exocomp\Query\Predicates;
 use Vusys\Exocomp\Symbol\Confidence;
 
 /**
@@ -91,5 +93,35 @@ abstract class IndexedCommand extends ExocompCommand
     protected function indexOf(CommandContext $context): Index
     {
         return $context->index();
+    }
+
+    /**
+     * The files a pattern could possibly match, narrowed as far as the index allows.
+     *
+     * Two filters compose here, and both are exact rather than heuristic: `--in` restricts by
+     * the namespaces a file declares, and the pattern's own literal names restrict by what a
+     * file mentions. Neither can exclude a file that would have matched.
+     *
+     * @return list<string>
+     */
+    protected function candidatePaths(CommandContext $context, Pattern $pattern, Predicates $predicates): array
+    {
+        $store = $context->index()->store;
+        $root = $context->project->root;
+
+        $byNamespace = $store->paths($root, $predicates->namespacePrefixes());
+        $required = $pattern->requiredNames();
+
+        if ($required === []) {
+            return $byNamespace;
+        }
+
+        $byName = $store->pathsMentioning($root, $required);
+
+        if ($predicates->namespacePrefixes() === []) {
+            return $byName;
+        }
+
+        return array_values(array_intersect($byNamespace, $byName));
     }
 }
