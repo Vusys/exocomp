@@ -41,7 +41,17 @@ final class ClassSource
 
     public function load(string $fqn): ?LoadedClass
     {
-        return $this->loaded[Identifier::fold($fqn)] ??= $this->read($fqn);
+        $key = Identifier::fold($fqn);
+
+        // `??=` would re-run the read every time the answer was null, and null is the common
+        // answer: a walk through a framework application asks about hundreds of names that are
+        // not in the corpus, and each retry is an index lookup, an autoload-map lookup and a
+        // stat. "I already looked and there is nothing" is a cached result too.
+        if (! array_key_exists($key, $this->loaded)) {
+            $this->loaded[$key] = $this->read($fqn);
+        }
+
+        return $this->loaded[$key];
     }
 
     /**
@@ -121,9 +131,15 @@ final class ClassSource
     }
 
     /**
+     * What a class inherits from directly: its parents and the traits it uses.
+     *
+     * Public because a graph walk needs the same one-level step the ancestry walk takes, but
+     * lazily — materialising every ancestor of a framework-descended class to find out where
+     * one method is declared reads a great deal of source to answer a small question.
+     *
      * @return list<string>
      */
-    private function parentsOf(LoadedClass $class): array
+    public function parentsOf(LoadedClass $class): array
     {
         foreach ($class->analysis->declarations as $declaration) {
             if (Identifier::fold($declaration->fqn) === Identifier::fold($class->fqn)) {

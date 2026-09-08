@@ -141,11 +141,16 @@ final class SymbolLocator
      * that quietly skipped the file holding the answer would report "not found" when the
      * truth is "could not look".
      *
+     * Deduplicated, because the same remark reached twice is one fact and not two. A single
+     * command can locate hundreds of names — a graph walk locates one per node — and every one
+     * that falls back to the autoload map adds the same note. Repeated verbatim a hundred
+     * times it stops being a remark and starts being the output.
+     *
      * @return list<string>
      */
     public function notes(): array
     {
-        return $this->notes;
+        return array_values(array_unique($this->notes));
     }
 
     private function declarationIn(string $path, string $fqn): ?LocatedDeclaration
