@@ -22,4 +22,28 @@ enum Confidence: string
 
     /** Name match only — no type information stands behind it. */
     case Textual = 'textual';
+
+    /**
+     * How much a chain of steps is worth: the least of them.
+     *
+     * A conclusion reached through four certain steps and one guess is a guess, and reporting
+     * it at the strength of its strongest link is the confidently-wrong failure this whole
+     * enum exists to prevent.
+     */
+    public static function weakest(self ...$of): self
+    {
+        $weakest = self::Resolved;
+
+        foreach ($of as $one) {
+            if ($one === self::Textual) {
+                return self::Textual;
+            }
+
+            if ($one === self::Inferred) {
+                $weakest = self::Inferred;
+            }
+        }
+
+        return $weakest;
+    }
 }

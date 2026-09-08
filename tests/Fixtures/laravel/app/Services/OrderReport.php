@@ -24,4 +24,15 @@ final class OrderReport
 
         return $query->toSql().(string) $name;
     }
+
+    /**
+     * Neither the model nor anything readable declares `whereTenant()`. Eloquent forwards it to
+     * a query builder through a magic `__call` on a base class in `vendor/`, so the honest
+     * answer is "I cannot see that far" — and not "this method does not exist", which reads as
+     * a claim that the call is broken.
+     */
+    public function scopedCount(Order $order): int
+    {
+        return $order->whereTenant(1)->count();
+    }
 }

@@ -226,7 +226,7 @@ final readonly class TypeResolver
         $member = $this->member($ownerFqn, $method, SymbolKind::Method);
 
         if (! $member instanceof SymbolRecord) {
-            return ResolvedType::unknown('method not found on '.$ownerFqn);
+            return ResolvedType::unknown($this->whyNoMethod($ownerFqn, $method));
         }
 
         return $member->typeFqn === null
@@ -275,6 +275,31 @@ final readonly class TypeResolver
      * still the receiver's property — resolving only against a class's own declarations would
      * fail on the ordinary case of anything with a base class.
      */
+    /**
+     * "Method not found" is two different statements and only one of them is about the code.
+     *
+     * A class whose ancestry runs off the end of the indexed source has an API far larger than
+     * its own declarations — an Eloquent model's whole query interface arrives through a magic
+     * `__call` on a base class in `vendor/` — and reporting an undeclared method there as "not
+     * found" reads as "this call is broken". It is not: it is a call the tool cannot see the
+     * far end of, which is a fact about the tool.
+     */
+    private function whyNoMethod(string $ownerFqn, string $method): string
+    {
+        $unreachable = $this->graph->members($ownerFqn)['unreachable'];
+
+        if ($unreachable === []) {
+            return sprintf('%s declares no %s()', $ownerFqn, $method);
+        }
+
+        return sprintf(
+            '%s declares no %s(), and its ancestry leaves the indexed source at %s — the method may be declared there or forwarded by a magic __call',
+            $ownerFqn,
+            $method,
+            $unreachable[0]->fqn,
+        );
+    }
+
     private function member(string $ownerFqn, string $name, SymbolKind $kind): ?SymbolRecord
     {
         foreach ($this->graph->members($ownerFqn)['members'] as $member) {
