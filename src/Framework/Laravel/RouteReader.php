@@ -275,6 +275,14 @@ final class RouteReader
         }
 
         $action = $base['args'][$offset + 1]->value ?? null;
+
+        // The options-array form carries the name and the middleware alongside the action, so
+        // reading only `uses` loses the name a route is most often looked up by.
+        if ($action instanceof Expr\Array_) {
+            $name = $this->optionString($action, 'as') ?? $name;
+            $middleware = [...$middleware, ...$this->optionList($action, 'middleware')];
+        }
+
         [$controller, $callable, $confidence, $note] = $this->action($action, $context);
 
         $definition = new RouteDefinition(
@@ -501,6 +509,23 @@ final class RouteReader
         }
 
         return $values;
+    }
+
+    private function optionString(Expr $expression, string $key): ?string
+    {
+        if (! $expression instanceof Expr\Array_) {
+            return null;
+        }
+
+        foreach ($expression->items as $item) {
+            if ($item->key instanceof Expr && LiteralValue::scalar($item->key) === $key) {
+                $value = LiteralValue::scalar($item->value);
+
+                return is_string($value) ? $value : null;
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -25,7 +25,10 @@ final class SchemaDump
      */
     public static function read(string $absolute, string $path): array
     {
-        $contents = file_get_contents($absolute);
+        // Checked rather than caught: `file_get_contents` on a missing path emits a warning
+        // before returning false, and a tool that prints PHP warnings into its own output has
+        // corrupted the answer it was asked for.
+        $contents = is_file($absolute) ? file_get_contents($absolute) : false;
 
         if ($contents === false) {
             return [];

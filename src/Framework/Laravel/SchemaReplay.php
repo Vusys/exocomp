@@ -498,7 +498,8 @@ final class SchemaReplay
             return;
         }
 
-        $method = strtolower($base->name->toString());
+        $spelling = $base->name->toString();
+        $method = strtolower($spelling);
         $modifiers = [];
 
         foreach (array_slice($links, 1) as $link) {
@@ -507,13 +508,16 @@ final class SchemaReplay
             }
         }
 
-        $this->applyBlueprintMethod($table, $method, $base, $modifiers, $path);
+        $this->applyBlueprintMethod($table, $method, $spelling, $base, $modifiers, $path);
     }
 
     /**
+     * @param  string  $spelling  the method as the migration wrote it. Dispatch lowercases, but
+     *                            the column's type is what a reader would type into a migration,
+     *                            and `unsignedinteger` is not a method the framework has.
      * @param  list<string>  $modifiers
      */
-    private function applyBlueprintMethod(Table $table, string $method, Node\Expr\MethodCall $base, array $modifiers, string $path): void
+    private function applyBlueprintMethod(Table $table, string $method, string $spelling, Node\Expr\MethodCall $base, array $modifiers, string $path): void
     {
         $arguments = $base->getArgs();
         $line = $base->getStartLine();
@@ -544,7 +548,7 @@ final class SchemaReplay
 
         if (isset(self::EXPANSIONS[$method])) {
             foreach (self::EXPANSIONS[$method] as $name) {
-                $table->add(new Column($name, $method, [], $modifiers, $path, $line));
+                $table->add(new Column($name, $spelling, [], $modifiers, $path, $line));
             }
 
             return;
@@ -552,7 +556,7 @@ final class SchemaReplay
 
         if (in_array($method, self::SOFT_DELETES, true)) {
             $name = $this->firstName($arguments) ?? 'deleted_at';
-            $table->add(new Column($name, $method, [], $modifiers, $path, $line));
+            $table->add(new Column($name, $spelling, [], $modifiers, $path, $line));
 
             return;
         }
@@ -562,7 +566,7 @@ final class SchemaReplay
 
             if ($prefix !== null) {
                 foreach (explode(',', self::SUFFIXED[$method]) as $suffix) {
-                    $table->add(new Column($prefix.'_'.$suffix, $method, [], $modifiers, $path, $line));
+                    $table->add(new Column($prefix.'_'.$suffix, $spelling, [], $modifiers, $path, $line));
                 }
             }
 
@@ -582,7 +586,7 @@ final class SchemaReplay
         $name = $this->firstName($arguments);
 
         if ($name !== null) {
-            $table->add(new Column($name, $method, $this->extraArguments($arguments), $modifiers, $path, $line));
+            $table->add(new Column($name, $spelling, $this->extraArguments($arguments), $modifiers, $path, $line));
         }
     }
 
