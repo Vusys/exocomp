@@ -43,9 +43,10 @@ All notable changes to this project are documented here. The format follows
     each member came from, with anything the index could not reach reported rather than
     omitted. `--own` keeps the declared-only view, answered from the file with no index.
   - `index --status` / `--warm` — maintenance only; nothing else requires it.
-  - `--rev <SHA>` on every read command, answering about a git revision rather than the working
-    tree. 193 measured commands piped `git show SHA:file` into grep, and no existing PHP
-    intelligence tool addresses this at all.
+  - `--rev <SHA>` on the commands that read one file at a time, answering about a git revision
+    rather than the working tree. 193 measured commands piped `git show SHA:file` into grep,
+    and no existing PHP intelligence tool addresses this at all. The index-backed commands
+    refuse it rather than ignoring it, since the index describes the working tree.
   - `--stdin`, to analyse a buffer the caller already holds.
 
 - **A content-addressed SQLite cache, shared between checkouts.** Facts belong to a file's

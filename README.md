@@ -63,8 +63,10 @@ asks nothing of you before it answers.
 | `check [rules.json]` | Run saved rules against a baseline and fail on anything new. |
 | `index --status` / `--warm` | Maintenance. Nothing else requires it. |
 
-Every read command also takes `--rev <SHA>`, to answer about a past revision rather than the
-working tree, and `--stdin`, to analyse a buffer you already hold.
+`show`, `outline` and `imports` also take `--rev <SHA>`, to answer about a past revision rather
+than the working tree, and `--stdin`, to analyse a buffer you already hold. The corpus-wide
+commands refuse `--rev` rather than ignoring it: the index describes the working tree, so
+answering about today while claiming to answer about then would be worse than not answering.
 
 Symbols are addressed by name, never by cursor or byte offset:
 

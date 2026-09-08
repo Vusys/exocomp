@@ -79,6 +79,37 @@ final class HistoryAndBuffersTest extends TestCase
         $this->assertStringContainsString('OutputBudget::tokens', $run->output);
     }
 
+    /**
+     * The index describes the working tree, so a corpus-wide question cannot be asked about a
+     * past revision. Accepting the flag and ignoring it would answer about today while claiming
+     * to answer about then — `locate` would report a class as existing at a commit that
+     * predates it, which is the confidently-wrong failure in its purest form.
+     */
+    public function test_an_index_backed_command_refuses_a_revision_rather_than_ignoring_it(): void
+    {
+        $run = Cli::run(['locate', 'OutputBudget', '--rev', 'HEAD', '--project', Cli::corpusRoot()]);
+
+        $this->assertSame(2, $run->exitCode);
+        $this->assertStringContainsString('--rev is not available for locate', $run->errors);
+        $this->assertStringContainsString('show, outline and imports', $run->errors);
+    }
+
+    public function test_a_single_file_command_still_honours_a_revision(): void
+    {
+        $first = trim((string) shell_exec('git -C '.escapeshellarg(dirname(__DIR__, 3)).' rev-list --max-parents=0 HEAD 2>/dev/null'));
+
+        if ($first === '') {
+            $this->markTestSkipped('not a git checkout with history');
+        }
+
+        // `members --own` answers from the file rather than the index, so it can read a
+        // revision like `show` does.
+        $run = Cli::run(['members', 'Vusys\Exocomp\Output\OutputBudget', '--own', '--rev', $first]);
+
+        $this->assertSame(0, $run->exitCode, $run->errors);
+        $this->assertStringContainsString('own members', $run->output);
+    }
+
     public function test_an_unknown_revision_is_an_error_that_names_it(): void
     {
         $run = Cli::run(['show', 'Vusys\Exocomp\Output\OutputBudget', '--rev', 'no-such-ref-12345']);
