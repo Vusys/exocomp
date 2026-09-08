@@ -7,10 +7,10 @@ src/TierA/Baseline.php  Fixtures\TierA\Baseline  (10 own members)
 own (10)
    16  public const string DEFAULT_LABEL = 'baseline'
    18  protected const int RETRIES = 3
-   20  private static int $instances
+   20  private static int $instances = 0
    22  public function __construct(Repository, string=)
    23  private readonly Repository $repository  (promoted)
-   24  protected string $label  (promoted)
+   24  protected string $label = self::DEFAULT_LABEL  (promoted)
    30  public function greet(string, int=): string
    35  public function repository(): Repository
    40  protected function retries(): int

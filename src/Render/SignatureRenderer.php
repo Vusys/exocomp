@@ -97,7 +97,7 @@ final readonly class SignatureRenderer
 
         $parts[] = '$'.$item->name->toString();
 
-        if ($withValue && $item->default instanceof Node) {
+        if ($item->default instanceof Node && ($withValue || $this->isSimpleValue($item->default))) {
             $parts[] = '= '.$this->value($item->default);
         }
 
@@ -121,7 +121,7 @@ final readonly class SignatureRenderer
 
         $parts[] = $this->paramName($param);
 
-        if ($withValue && $param->default instanceof Node) {
+        if ($param->default instanceof Node && ($withValue || $this->isSimpleValue($param->default))) {
             $parts[] = '= '.$this->value($param->default);
         }
 
@@ -205,6 +205,24 @@ final readonly class SignatureRenderer
         }
 
         return $modifiers;
+    }
+
+    /**
+     * Whether a default value is worth carrying in a dense one-line record.
+     *
+     * For a great many properties the value *is* the answer — `$table`, `$connection`, a
+     * lookback window, a feature flag — and a signature that shows the type but hides the
+     * value sends the reader back to the file for one token's worth of information. Scalars,
+     * `true`/`false`/`null` and constant references are short and settle the question;
+     * arrays and expressions are neither, and belong to `show`.
+     */
+    private function isSimpleValue(Node $node): bool
+    {
+        return $node instanceof Node\Scalar\String_
+            || $node instanceof Node\Scalar\Int_
+            || $node instanceof Node\Scalar\Float_
+            || $node instanceof Node\Expr\ConstFetch
+            || $node instanceof Node\Expr\ClassConstFetch;
     }
 
     /**

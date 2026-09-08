@@ -5,9 +5,9 @@ outline src/TierA/Modern.php
 src/TierA/Modern.php  Fixtures\TierA\Modern
    15  final class Modern
    17  public string $shout { get; }
-   21  public private(set) int $version
-   23  protected protected(set) string $slug
+   21  public private(set) int $version = 1
+   23  protected protected(set) string $slug = ''
    25  public string $name { get; set; }
-   34  private string $storedName
+   34  private string $storedName = ''
    36  public function __construct(bool=)
-   36  public private(set) bool $sealed  (promoted)
+   36  public private(set) bool $sealed = false  (promoted)

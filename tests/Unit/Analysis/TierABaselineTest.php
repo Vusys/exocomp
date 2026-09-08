@@ -47,6 +47,23 @@ final class TierABaselineTest extends TestCase
         $this->assertLessThan($greet->startLine, $greet->spanStartLine);
     }
 
+    public function test_a_scalar_default_rides_along_in_the_dense_signature(): void
+    {
+        // For a great many properties the value *is* the answer — a table name, a connection,
+        // a lookback window. Showing the type and hiding the value would send the reader back
+        // to the file for one token's worth of information.
+        $label = $this->member('src/TierA/Baseline.php', 'Fixtures\TierA\Baseline', 'label', isProperty: true);
+
+        $this->assertSame('protected string $label = self::DEFAULT_LABEL', $label->signature);
+        $this->assertSame('private static int $instances = 0', $this->member('src/TierA/Baseline.php', 'Fixtures\TierA\Baseline', 'instances', isProperty: true)->signature);
+    }
+
+    public function test_a_complex_default_is_left_to_show_rather_than_flattened_onto_one_line(): void
+    {
+        // An array default would blow the line budget that makes `outline` worth using.
+        $this->assertSame('protected array $log', $this->member('src/TierA/Loggable.php', 'Fixtures\TierA\Loggable', 'log', isProperty: true)->signature);
+    }
+
     public function test_constructor_promoted_parameters_are_reported_as_properties(): void
     {
         $repository = $this->member('src/TierA/Baseline.php', 'Fixtures\TierA\Baseline', 'repository', isProperty: true);

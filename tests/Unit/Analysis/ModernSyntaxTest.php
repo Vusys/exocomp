@@ -45,7 +45,7 @@ final class ModernSyntaxTest extends TestCase
         // `public private(set)` and `public` are different APIs. Flattening them would report
         // a read-only property as writable.
         $this->assertSame(['public', 'private(set)'], $version->modifiers);
-        $this->assertSame('public private(set) int $version', $version->signature);
+        $this->assertSame('public private(set) int $version = 1', $version->signature);
     }
 
     public function test_it_reads_asymmetric_visibility_on_a_protected_property(): void
@@ -58,7 +58,7 @@ final class ModernSyntaxTest extends TestCase
         $sealed = $this->property('sealed');
 
         $this->assertTrue($sealed->isPromoted);
-        $this->assertSame('public private(set) bool $sealed', $sealed->signature);
+        $this->assertSame('public private(set) bool $sealed = false', $sealed->signature);
     }
 
     private function property(string $name): Declaration
