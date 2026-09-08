@@ -45,8 +45,8 @@ writes `builds/exocomp.phar`, which runs anywhere with PHP 8.4 and no other setu
 
 ## Commands
 
-No framework profile yet, and no write side. It works on a fresh checkout with no `vendor/` and
-asks nothing of you before it answers.
+No write side yet. It works on a fresh checkout with no `vendor/`, and asks nothing of you
+before it answers — in particular it never boots your application.
 
 | Command | Answers |
 | --- | --- |
@@ -62,6 +62,23 @@ asks nothing of you before it answers.
 | `query <pattern>` | Structural search: the code shape you are looking for, written as PHP. |
 | `check [rules.json]` | Run saved rules against a baseline and fail on anything new. |
 | `index --status` / `--warm` | Maintenance. Nothing else requires it. |
+
+And, for a Laravel application, a framework profile — everything below is derived by parsing
+ordinary PHP and SQL, never by booting anything:
+
+| Command | Answers |
+| --- | --- |
+| `model <class>` | An Eloquent model's table, attributes, casts, relations **and their target classes**, global scopes and traits — resolved through parents and traits, each fact saying which class it came from. |
+| `facade <Facade[::method]>` | The class a facade actually resolves to, through its accessor and the container, and where the method is declared on it. |
+| `schema [table]` | A table's columns and indexes, reconstructed from the squashed schema dump and every migration since. |
+| `config <key>` | Where a config key is defined and everywhere it is read. |
+| `bindings [filter]` | Container bindings, interface to concrete, including contextual ones. |
+| `routes [filter]` | The route table, with URIs resolved through every enclosing group prefix. |
+| `dispatches <class>` | Where a job or event is dispatched, and what receives it. |
+| `morph-map [name]` | The polymorphic alias map — the strings stored in your `*_type` columns. |
+
+The profile applies when `composer.json` requires `laravel/framework`, or when `artisan` sits
+beside an `app/` directory. On anything else these commands say so rather than guessing.
 
 `show`, `outline` and `imports` also take `--rev <SHA>`, to answer about a past revision rather
 than the working tree, and `--stdin`, to analyse a buffer you already hold. The corpus-wide
@@ -190,11 +207,59 @@ pass, because a newly written class and a class that does not exist look identic
 index. Walking the whole tree first would be the obvious alternative and it costs 83 ms on that
 project — most of a latency budget spent proving that files nobody asked about have not moved.
 
+## Framework answers, and what they decline
+
+The Laravel profile reads files. It never boots the application, because the disposable
+worktrees this tool is built for routinely have no working `.env` and no reachable database —
+and a profile that only works in a fully provisioned checkout is unavailable exactly when
+someone is spelunking an unfamiliar branch.
+
+Reading rather than booting has limits, and every one of them is stated in the answer rather
+than papered over:
+
+```console
+$ exocomp model Comment
+App\Models\Comment   app/Models/Comment.php:10
+
+attributes (1)
+app/Models/Comment.php:10  table    comments   derived from the class name, and the migrations do create this table
+
+── 1 not read from the source ──
+app/Models/Comment.php:16  commentable  morphTo   polymorphic — what it points at is decided by the morph map, not by this file
+```
+
+- A **table name** that is declared is `resolved`. One derived from the class name is `inferred`
+  and is then checked against the tables the migrations actually create, so "the convention says
+  `people` and a table called `people` exists" does not read the same as the convention alone.
+  The derivation uses `doctrine/inflector`, the library the framework itself uses, because a
+  hand-rolled pluraliser measured 92.5% agreement against 306 real model names — and the names
+  it got wrong are exactly the ones nobody can guess.
+- A **relation** whose target is `X::class` is `resolved`; one named by a string is `inferred`;
+  a `morphTo` names no class at all and is declined.
+- A **binding** whose concrete side is a closure is followed exactly one step — a closure
+  returning a single `new X` is that X. Anything more involved is declined, because evaluating a
+  factory is where a static reader starts inventing answers.
+- A **facade**'s core alias table is parsed out of `registerCoreContainerAliases()` in the
+  framework you have installed, located through Composer's autoload map. Nothing is hardcoded: a
+  baked-in "Storage means FilesystemManager" would be right until the framework changed and
+  would then be wrong without saying so.
+- A **schema** is reconstructed from the squashed dump plus every migration since, in that
+  order. It is the source's account of the schema, never the database's, so every row is
+  `inferred`; a table whose history includes raw SQL is reported as incomplete rather than
+  quietly short a column.
+- A **listener** discovered by the type of its `handle()` parameter is `inferred`, because
+  whether discovery is switched on is not something the source says. One declared in `$listen`
+  is `resolved`.
+- A **morph map**'s keys live in your database, in the `*_type` column of every polymorphic
+  relation. `morph-map` says so on every answer, because a rename that updates the code and
+  stays silent about `commentable_type` has made the application worse.
+
 ## What it does not do
 
 Not an LSP — no completion, hover or signature help, and no cursor addressing. Not a static
 analyser; PHPStan and Psalm are better and already exist. Not a formatter, not Rector, not a
-test runner. It emits joinable output and lets the shell compose.
+test runner. It does not boot your application, run migrations, or talk to your database. It
+emits joinable output and lets the shell compose.
 
 ## Development
 

@@ -116,6 +116,26 @@ final class ModelTest extends TestCase
         $this->assertStringContainsString('exocomp members', $run->errors);
     }
 
+    public function test_a_model_extending_a_framework_class_is_still_a_model(): void
+    {
+        // Account extends a class that lives outside the indexed source roots, which is the
+        // ordinary shape for anything authenticatable. Walking only the index's edge table stops
+        // one hop short of Model and answers "not an Eloquent model" — for a great many models.
+        $run = Cli::inLaravel(['model', 'Account']);
+
+        $this->assertSame(0, $run->exitCode);
+        $this->assertStringContainsString('accounts', $run->output);
+    }
+
+    public function test_a_named_closure_scope_is_reported_by_its_name(): void
+    {
+        $output = Cli::inLaravel(['model', 'Account', '--only', 'scope'])->output;
+
+        $this->assertStringContainsString('App\\Scopes\\TenantScope', $output);
+        $this->assertStringContainsString('ordered', $output);
+        $this->assertStringContainsString('applied by a closure', $output);
+    }
+
     public function test_an_unknown_name_is_not_found(): void
     {
         $this->assertSame(1, Cli::inLaravel(['model', 'NoSuchModel'])->exitCode);

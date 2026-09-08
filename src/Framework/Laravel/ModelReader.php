@@ -65,9 +65,20 @@ final class ModelReader
         private readonly ClassSource $source,
     ) {}
 
+    /**
+     * The index knows the hierarchy only as far as the corpus goes. A model extending a
+     * framework base class — the ordinary shape for anything authenticatable — has that parent
+     * recorded as an edge to a class `vendor/` holds and the index does not, so the graph walk
+     * halts one hop short and answers "not a model" for a great many models. The `extends` chain
+     * is therefore followed through the source as a fallback.
+     */
     public function isModel(string $fqn): bool
     {
-        return array_any(array_keys($this->graph->ancestorsOf($fqn)), fn (string $ancestor): bool => strcasecmp($ancestor, LaravelProfile::MODEL) === 0);
+        if (array_any(array_keys($this->graph->ancestorsOf($fqn)), fn (string $ancestor): bool => strcasecmp($ancestor, LaravelProfile::MODEL) === 0)) {
+            return true;
+        }
+
+        return $this->source->descendsFrom($fqn, LaravelProfile::MODEL);
     }
 
     /**
@@ -81,7 +92,7 @@ final class ModelReader
      */
     public function read(string $fqn, ?callable $schema = null): ?EloquentModel
     {
-        $chain = $this->source->withAncestors($fqn);
+        $chain = $this->source->withAncestors($fqn, stopAt: LaravelProfile::MODEL);
 
         if ($chain === []) {
             return null;
@@ -372,7 +383,21 @@ final class ModelReader
             : LiteralValue::className($first);
 
         if ($target === null) {
-            $this->declined[] = new ModelFact('scope', 'addGlobalScope', null, Confidence::Textual, $class->path, $line, 'the scope is a closure or is built at runtime', $class->fqn);
+            // `addGlobalScope('order', fn (Builder $q) => …)` — a named closure. The name is
+            // worth reporting even though the closure is not readable: a scope silently absent
+            // from the answer is how a cross-tenant audit comes back clean.
+            $named = LiteralValue::scalar($first);
+
+            $this->declined[] = new ModelFact(
+                'scope',
+                is_string($named) && $named !== '' ? $named : 'addGlobalScope',
+                null,
+                Confidence::Textual,
+                $class->path,
+                $line,
+                'applied by a closure, so what it does is not readable from here',
+                $class->fqn,
+            );
 
             return;
         }

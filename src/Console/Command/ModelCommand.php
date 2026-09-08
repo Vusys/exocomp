@@ -77,7 +77,7 @@ final class ModelCommand extends IndexedFrameworkCommand
         $name = trim($this->stringArgument($input, 'model') ?? '', '\\');
         $record = $this->resolveClass($graph->byName($name), $name, $notes);
 
-        $reader = new ModelReader($graph, new ClassSource($context->project, $graph));
+        $reader = new ModelReader($graph, new ClassSource($context->project, $graph, $context->locator));
 
         if (! $reader->isModel($record->fqn)) {
             throw new SymbolNotFound($record->fqn, sprintf(
@@ -133,26 +133,33 @@ final class ModelCommand extends IndexedFrameworkCommand
             $shown += count($facts);
         }
 
-        if ($only !== null && $sections === []) {
-            throw new SymbolNotFound($only, sprintf('%s has nothing in the "%s" group', $model->fqn, $only));
-        }
-
         $declinedWidth = Address::width(array_map(
             static fn (ModelFact $fact): string => Address::of($fact->path, $fact->line),
             $model->declined,
         ));
 
+        // `--only` narrows the sections, and it has to narrow the trailing block the same way
+        // rather than suppressing it: a scope that could not be read is the most important thing
+        // `--only scope` has to say.
+        $declined = $only === null
+            ? $model->declined
+            : array_values(array_filter($model->declined, static fn (ModelFact $fact): bool => $fact->group === $only));
+
+        if ($only !== null && $sections === [] && $declined === []) {
+            throw new SymbolNotFound($only, sprintf('%s has nothing in the "%s" group', $model->fqn, $only));
+        }
+
         [$kept, $elided] = $context->budget->apply(array_map(
             fn (ModelFact $fact): Row => $this->row($fact, $declinedWidth, withNote: false),
-            $model->declined,
+            $declined,
         ));
 
         return new Result(
             header: sprintf('%s   %s', $model->fqn, Address::of($model->path, $model->line)),
             sections: $sections,
             unresolvedTitle: 'not read from the source',
-            unresolved: $only === null ? $kept : [],
-            elided: $only === null ? $elided : 0,
+            unresolved: $kept,
+            elided: $elided,
             notes: [...$notes, ...$model->notes, ...$context->notes()],
         );
     }

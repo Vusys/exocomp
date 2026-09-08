@@ -75,7 +75,7 @@ abstract class IndexedFrameworkCommand extends IndexedCommand
             static fn (string $absolute): string => $context->project->displayPath($absolute),
         );
 
-        return new ContainerReader($graph, new ClassSource($context->project, $graph))->read(
+        return new ContainerReader($graph, new ClassSource($context->project, $graph, $context->locator))->read(
             /** @return list<ConfigEntry> */
             static fn (string $key): array => $config->matching($key),
         );

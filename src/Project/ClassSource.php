@@ -45,31 +45,107 @@ final class ClassSource
     }
 
     /**
-     * The class and everything it inherits from, nearest first, stopping at the first ancestor
-     * that cannot be read.
+     * The class and everything it inherits from, nearest first.
+     *
+     * The walk reads each class's own `extends` and `use` clauses rather than the index's edge
+     * table, because the edge table stops wherever the corpus does. A model extending a
+     * framework base class — the ordinary shape for anything authenticatable — has its parent
+     * recorded as an edge to a class that is not indexed, and a graph walk halts there with no
+     * sign that it did.
+     *
+     * `$stopAt` is where the walk should stop descending, and it earns its place twice over: it
+     * keeps the read out of the framework's own base class, whose empty `$casts` and fourteen
+     * traits are noise rather than facts about the model, and it keeps the cost bounded.
      *
      * @return list<LoadedClass>
      */
-    public function withAncestors(string $fqn): array
+    public function withAncestors(string $fqn, ?string $stopAt = null): array
     {
-        $chain = [];
         $own = $this->load($fqn);
 
         if (! $own instanceof LoadedClass) {
             return [];
         }
 
-        $chain[] = $own;
+        $chain = [$own];
+        $seen = [Identifier::fold($own->fqn) => true];
+        $queue = [$own];
 
-        foreach (array_keys($this->graph->ancestorsOf($own->fqn)) as $ancestor) {
-            $loaded = $this->load($ancestor);
+        while ($queue !== []) {
+            $current = array_shift($queue);
 
-            if ($loaded instanceof LoadedClass) {
-                $chain[] = $loaded;
+            foreach ($this->parentsOf($current) as $parent) {
+                $key = Identifier::fold($parent);
+
+                if (isset($seen[$key]) || ($stopAt !== null && $key === Identifier::fold($stopAt))) {
+                    continue;
+                }
+
+                $seen[$key] = true;
+                $loaded = $this->load($parent);
+
+                if ($loaded instanceof LoadedClass) {
+                    $chain[] = $loaded;
+                    $queue[] = $loaded;
+                }
             }
         }
 
         return $chain;
+    }
+
+    /**
+     * Whether a class has this ancestor, following only `extends`.
+     *
+     * Traits are deliberately not followed: "is this a Model" is a question about the class
+     * hierarchy, and following every trait would parse a great deal of framework source to
+     * answer it.
+     */
+    public function descendsFrom(string $fqn, string $ancestor, int $depth = 0): bool
+    {
+        if (Identifier::fold($fqn) === Identifier::fold($ancestor)) {
+            return true;
+        }
+
+        if ($depth > 16) {
+            return false;
+        }
+
+        $class = $this->load($fqn);
+
+        if (! $class instanceof LoadedClass) {
+            return false;
+        }
+
+        return array_any($this->extendsOf($class), fn (string $parent): bool => $this->descendsFrom($parent, $ancestor, $depth + 1));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function parentsOf(LoadedClass $class): array
+    {
+        foreach ($class->analysis->declarations as $declaration) {
+            if (Identifier::fold($declaration->fqn) === Identifier::fold($class->fqn)) {
+                return [...$declaration->traits, ...$declaration->extends];
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function extendsOf(LoadedClass $class): array
+    {
+        foreach ($class->analysis->declarations as $declaration) {
+            if (Identifier::fold($declaration->fqn) === Identifier::fold($class->fqn)) {
+                return $declaration->extends;
+            }
+        }
+
+        return [];
     }
 
     /**
