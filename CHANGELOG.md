@@ -121,6 +121,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `--limit` applies to the whole answer rather than to whichever list each command remembered
+  to pass through the budget. `model` capped only its trailing block, `config` only the reads,
+  `dispatches` only the dispatch sites — so a capped answer could be indistinguishable from a
+  complete one, which is the failure the contract exists to prevent.
+- A property fetch naming a method is `inferred` rather than `resolved`, and says why:
+  `$order->customer` reaches the relation method through `__get`, which is a real reference and
+  not a fact the engine can see.
+- The inheritance walk follows a class's own `extends` clause through Composer's autoload map
+  when the index runs out, so a model extending a framework base class is still recognised as
+  one, and `subclasses Illuminate\Database\Eloquent\Model` answers instead of refusing.
 - Identifiers are folded by ASCII rules, as PHP folds them. `mb_strtolower` merged names the
   engine keeps apart — `Étage` and `étage` are two different classes, and `locate` reported the
   same line for both. The index schema version goes with it, since a cache built under the old
