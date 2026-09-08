@@ -10,6 +10,7 @@ use Vusys\Exocomp\Console\Command\CallersOfCommand;
 use Vusys\Exocomp\Console\Command\CallsFromCommand;
 use Vusys\Exocomp\Console\Command\CheckCommand;
 use Vusys\Exocomp\Console\Command\ConfigCommand;
+use Vusys\Exocomp\Console\Command\DispatchesCommand;
 use Vusys\Exocomp\Console\Command\FacadeCommand;
 use Vusys\Exocomp\Console\Command\ImplementorsCommand;
 use Vusys\Exocomp\Console\Command\ImportsCommand;
@@ -22,6 +23,7 @@ use Vusys\Exocomp\Console\Command\OutlineCommand;
 use Vusys\Exocomp\Console\Command\OverridesCommand;
 use Vusys\Exocomp\Console\Command\QueryCommand;
 use Vusys\Exocomp\Console\Command\ReferencesToCommand;
+use Vusys\Exocomp\Console\Command\RoutesCommand;
 use Vusys\Exocomp\Console\Command\SchemaCommand;
 use Vusys\Exocomp\Console\Command\ShowCommand;
 use Vusys\Exocomp\Console\Command\SubclassesCommand;
@@ -55,6 +57,8 @@ final class Application extends SymfonyApplication
             new FacadeCommand,
             new BindingsCommand,
             new MorphMapCommand,
+            new DispatchesCommand,
+            new RoutesCommand,
             new SchemaCommand,
             new IndexCommand,
         ]);

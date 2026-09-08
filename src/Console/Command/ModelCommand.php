@@ -14,7 +14,6 @@ use Vusys\Exocomp\Framework\Laravel\EloquentModel;
 use Vusys\Exocomp\Framework\Laravel\LaravelProfile;
 use Vusys\Exocomp\Framework\Laravel\ModelFact;
 use Vusys\Exocomp\Framework\Laravel\ModelReader;
-use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
@@ -76,7 +75,7 @@ final class ModelCommand extends IndexedFrameworkCommand
         $profile = $this->laravel($context);
 
         $name = trim($this->stringArgument($input, 'model') ?? '', '\\');
-        $record = $this->resolve($graph->byName($name), $name);
+        $record = $this->resolveClass($graph->byName($name), $name, $notes);
 
         $reader = new ModelReader($graph, new ClassSource($context->project, $graph));
 
@@ -99,20 +98,6 @@ final class ModelCommand extends IndexedFrameworkCommand
         }
 
         return $this->present($model, $input, $context, $notes);
-    }
-
-    /**
-     * @param  list<SymbolRecord>  $records
-     */
-    private function resolve(array $records, string $name): SymbolRecord
-    {
-        foreach ($records as $record) {
-            if ($record->isClassLike()) {
-                return $record;
-            }
-        }
-
-        throw new SymbolNotFound($name, sprintf('nothing named "%s" is declared in the indexed source roots', $name));
     }
 
     /**

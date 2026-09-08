@@ -9,7 +9,9 @@ use Vusys\Exocomp\Framework\Laravel\ConfigEntry;
 use Vusys\Exocomp\Framework\Laravel\ConfigReader;
 use Vusys\Exocomp\Framework\Laravel\ContainerReader;
 use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\SymbolNotFound;
 
 /**
  * The base for framework answers that also need the corpus — a model's ancestry, a facade's
@@ -18,6 +20,39 @@ use Vusys\Exocomp\Project\ClassSource;
 abstract class IndexedFrameworkCommand extends IndexedCommand
 {
     use DetectsFramework;
+
+    /**
+     * The class a name refers to, saying so when the name refers to more than one.
+     *
+     * Short names collide, and in a large application they collide a lot: one measured corpus
+     * has five distinct classes called `CreateExportJob`. Picking the first and answering about
+     * it is correct as far as it goes, and silently picking the first is how someone reads an
+     * answer about a class they were not asking about. The others are named so the caller can
+     * ask again with the one they meant.
+     *
+     * @param  list<SymbolRecord>  $records
+     * @param  list<string>  $notes
+     */
+    protected function resolveClass(array $records, string $name, array &$notes): SymbolRecord
+    {
+        $classes = array_values(array_filter($records, static fn (SymbolRecord $record): bool => $record->isClassLike()));
+
+        if ($classes === []) {
+            throw new SymbolNotFound($name, sprintf('nothing named "%s" is declared in the indexed source roots', $name));
+        }
+
+        if (count($classes) > 1) {
+            $notes[] = sprintf(
+                '%d classes are named "%s"; this answers about %s. The others: %s',
+                count($classes),
+                $name,
+                $classes[0]->fqn,
+                implode(', ', array_map(static fn (SymbolRecord $record): string => $record->fqn, array_slice($classes, 1))),
+            );
+        }
+
+        return $classes[0];
+    }
 
     /**
      * The container, read out of every service provider in the corpus.
