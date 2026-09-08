@@ -1,0 +1,27 @@
+Members resolved through traits, parents and interfaces
+-----
+members Fixtures\TierA\Baseline
+-----
+src/TierA/Baseline.php  Fixtures\TierA\Baseline  (14 members)
+
+own (10)
+src/TierA/Baseline.php:16:5      public const string DEFAULT_LABEL = 'baseline'
+src/TierA/Baseline.php:18:5      protected const int RETRIES = 3
+src/TierA/Baseline.php:20:5      private static int $instances = 0
+src/TierA/Baseline.php:22:5      public function __construct(Repository, string=)
+src/TierA/Baseline.php:23:9      private readonly Repository $repository  (promoted)
+src/TierA/Baseline.php:24:9      protected string $label = self::DEFAULT_LABEL  (promoted)
+src/TierA/Baseline.php:30:5      public function greet(string, int=): string
+src/TierA/Baseline.php:35:5      public function repository(): Repository
+src/TierA/Baseline.php:40:5      protected function retries(): int
+src/TierA/Baseline.php:45:5      private function reset(): void
+
+from trait Fixtures\TierA\Loggable (2)
+src/TierA/Loggable.php:9:5       protected array $log
+src/TierA/Loggable.php:11:5      public function log(string): void
+
+inherited from Fixtures\TierA\AbstractBase (1)
+src/TierA/AbstractBase.php:11:5  public function describe(): string
+
+required by Fixtures\TierA\Contract (1)
+src/TierA/Contract.php:9:5       public const string VERSION = '1.0'

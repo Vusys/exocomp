@@ -27,6 +27,12 @@ final class ApplicationTest extends TestCase
         $this->assertContains('outline', $names);
         $this->assertContains('members', $names);
         $this->assertContains('imports', $names);
+        $this->assertContains('locate', $names);
+        $this->assertContains('subclasses', $names);
+        $this->assertContains('implementors', $names);
+        $this->assertContains('traits-users', $names);
+        $this->assertContains('overrides', $names);
+        $this->assertContains('index', $names);
     }
 
     /**
@@ -41,7 +47,7 @@ final class ApplicationTest extends TestCase
 
         $this->assertSame(0, $run->exitCode);
 
-        foreach (['--project', '--format', '--json', '--limit', '--max-tokens'] as $option) {
+        foreach (['--project', '--format', '--json', '--limit', '--max-tokens', '--rev', '--stdin'] as $option) {
             $this->assertStringContainsString($option, $run->output, "{$command} --help omits {$option}");
         }
     }
@@ -55,5 +61,11 @@ final class ApplicationTest extends TestCase
         yield 'outline' => ['outline'];
         yield 'members' => ['members'];
         yield 'imports' => ['imports'];
+        yield 'locate' => ['locate'];
+        yield 'subclasses' => ['subclasses'];
+        yield 'implementors' => ['implementors'];
+        yield 'traits-users' => ['traits-users'];
+        yield 'overrides' => ['overrides'];
+        yield 'index' => ['index'];
     }
 }

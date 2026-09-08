@@ -45,16 +45,22 @@ writes `builds/exocomp.phar`, which runs anywhere with PHP 8.4 and no other setu
 
 ## Commands
 
-This is Phase 0: a parser and nothing else. No index, no daemon, no type inference, no
-framework profile. It works on a fresh checkout with no `vendor/` and asks nothing of you
-before it answers.
+No type inference and no framework profile yet. It works on a fresh checkout with no `vendor/`
+and asks nothing of you before it answers.
 
 | Command | Answers |
 | --- | --- |
 | `show <symbol>` | The exact source of a named class, method, property or constant, docblock included. `--without-bodies` for the skeleton. |
 | `outline <file\|class>` | Every declaration in a file: signatures, visibility, return types, line numbers. No bodies. |
-| `members <class>` | The members a class declares, with the line each is on. |
+| `members <class>` | A class's whole API, resolved through its traits, parents and interfaces, each entry saying where it came from. `--own` for declarations only. |
 | `imports <file\|class>` | The `use` map, with aliases resolved. |
+| `locate <name>` | Where a short name or a fully-qualified one is declared. |
+| `subclasses` / `implementors` / `traits-users` | The inheritance graph, transitively. |
+| `overrides <symbol>` | Every declaration of one member across its hierarchy, up and down. |
+| `index --status` / `--warm` | Maintenance. Nothing else requires it. |
+
+Every read command also takes `--rev <SHA>`, to answer about a past revision rather than the
+working tree, and `--stdin`, to analyse a buffer you already hold.
 
 Symbols are addressed by name, never by cursor or byte offset:
 
@@ -101,6 +107,24 @@ every candidate is verified against the parsed declaration before it is returned
 classmap produces a miss rather than a wrong answer. The last resort — reading every file to
 find a class that shares one with a differently-named sibling — costs over a second, so it is
 behind `--scan`, and the tool says when it declined to take it.
+
+## The index
+
+There is a symbol cache, and it is never a precondition. Commands that can answer from the
+parser alone do; the ones that need the corpus bring the cache up to date themselves rather than
+telling you to run a build step first. That refusal is the specific thing that stopped the
+obvious prior art from ever being reached for.
+
+It is **content-addressed and shared between checkouts**. Facts belong to a file's contents
+rather than to its path, so a second worktree of the same commit costs a directory walk instead
+of a parse. Measured on a 950k-line Laravel application: **14.0 s to build the first time, 1.3 s
+for a second checkout of the same content** — 6,536 files, none of them re-parsed.
+
+Freshness is checked against the answer, not the corpus. Whatever files a result came from are
+stat-ed and re-read if they have moved on; a query that finds *nothing* escalates to one full
+pass, because a newly written class and a class that does not exist look identical from a stale
+index. Walking the whole tree first would be the obvious alternative and it costs 83 ms on that
+project — most of a latency budget spent proving that files nobody asked about have not moved.
 
 ## What it does not do
 

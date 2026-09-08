@@ -14,10 +14,12 @@ use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Output\OutputBudget;
 use Vusys\Exocomp\Output\OutputFormat;
 use Vusys\Exocomp\Output\Result;
+use Vusys\Exocomp\Project\AutoloadMap;
 use Vusys\Exocomp\Project\Project;
 use Vusys\Exocomp\Project\SymbolLocator;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Source\ParseFailure;
+use Vusys\Exocomp\Source\Revision;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -44,6 +46,9 @@ abstract class ExocompCommand extends Command
             ->addOption('project', null, InputOption::VALUE_REQUIRED, 'Project root (defaults to the nearest ancestor with a composer.json)')
             ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text, json, paths', OutputFormat::Text->value)
             ->addOption('json', null, InputOption::VALUE_NONE, 'Shorthand for --format=json')
+            ->addOption('rev', null, InputOption::VALUE_REQUIRED, 'Read the source at a git revision instead of the working tree')
+            ->addOption('stdin', null, InputOption::VALUE_NONE, 'Read the file to analyse from standard input')
+            ->addOption('as', null, InputOption::VALUE_REQUIRED, 'The path to report for --stdin input', '(stdin)')
             ->addOption('scan', null, InputOption::VALUE_NONE, 'If the name cannot be placed, read every file under the source roots to find it (slow; needed only for a class sharing a file with a differently-named sibling)')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Maximum records to emit; the remainder is reported, never dropped silently', '0')
             ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, 'Approximate ceiling on output size; any cut is reported', '0');
@@ -72,10 +77,9 @@ abstract class ExocompCommand extends Command
         } catch (SymbolNotFound $notFound) {
             $this->fail($output, $notFound->getMessage());
 
-            // A scan that could not parse a file must say so here too. "Not found" and "could
-            // not look" are different answers, and reporting the first when the second is true
-            // is how a search gets wrongly believed.
-            foreach ($context->locator->notes() as $note) {
+            // A scan that could not parse a file, or an index that dropped one, must say so
+            // here too. "Not found" and "could not look" are different answers.
+            foreach ($context->notes() as $note) {
                 $this->fail($output, 'note: '.$note);
             }
 
@@ -121,6 +125,34 @@ abstract class ExocompCommand extends Command
         return $context->locator->locateOwner(SymbolRef::parse($target))->analysis;
     }
 
+    /**
+     * The buffer on standard input, analysed as though it were a file.
+     */
+    /**
+     * The stream `--stdin` reads from. A test has to be able to supply one; a fork per case
+     * would make exercising the flag cost more than the flag.
+     *
+     * @var resource|null
+     */
+    public static $standardInput;
+
+    protected function stdinFile(InputInterface $input, CommandContext $context): FileAnalysis
+    {
+        $stream = self::$standardInput ?? STDIN;
+        $contents = stream_get_contents($stream);
+
+        if ($contents === false || $contents === '') {
+            throw new RuntimeException('--stdin was given but nothing arrived on standard input');
+        }
+
+        return $context->locator->analyseString($contents, $this->stringOption($input, 'as') ?? '(stdin)');
+    }
+
+    protected function readingStdin(InputInterface $input): bool
+    {
+        return $this->boolOption($input, 'stdin');
+    }
+
     private function context(InputInterface $input): CommandContext
     {
         $root = $this->stringOption($input, 'project');
@@ -128,18 +160,26 @@ abstract class ExocompCommand extends Command
             ? Project::discover((string) getcwd())
             : Project::at($root);
 
+        $reference = $this->stringOption($input, 'rev');
+        $revision = $reference === null ? null : new Revision($project->root, $reference);
+        $revision?->resolve();
+
         $format = $this->boolOption($input, 'json')
             ? OutputFormat::Json
             : OutputFormat::parse($this->stringOption($input, 'format') ?? OutputFormat::Text->value);
 
+        $map = AutoloadMap::forProject($project);
+
         return new CommandContext(
             project: $project,
-            locator: SymbolLocator::forProject($project, $this->boolOption($input, 'scan')),
+            map: $map,
+            locator: new SymbolLocator($project, $map, $this->boolOption($input, 'scan'), $revision),
             budget: new OutputBudget(
                 limit: $this->intOption($input, 'limit', 0),
                 maxTokens: $this->intOption($input, 'max-tokens', 0),
             ),
             format: $format,
+            revision: $reference,
         );
     }
 }

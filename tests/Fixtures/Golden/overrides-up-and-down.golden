@@ -1,0 +1,8 @@
+Every declaration of a member around its hierarchy
+-----
+overrides Fixtures\TierA\Baseline::greet
+-----
+3 declarations of "greet" around Fixtures\TierA\Baseline
+src/TierA/Baseline.php:30:5     public function greet(string, int=): string   declared here
+src/TierA/AbstractBase.php:9:5  abstract public function greet(string, int=): string   inherited from Fixtures\TierA\AbstractBase
+src/TierA/Contract.php:11:5     public function greet(string, int=): string   required by Fixtures\TierA\Contract

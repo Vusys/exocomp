@@ -6,6 +6,7 @@ namespace Vusys\Exocomp\Tests\Support;
 
 use Symfony\Component\Console\Input\ArgvInput;
 use Vusys\Exocomp\Console\Application;
+use Vusys\Exocomp\Console\ExocompCommand;
 
 /**
  * Runs the real application the way a shell would, so the tests exercise argument parsing,
@@ -44,6 +45,33 @@ final class Cli
         );
 
         return self::run([...$arguments, '--project', $corpus]);
+    }
+
+    /**
+     * Runs with a buffer standing in for standard input.
+     *
+     * @param  resource  $stdin
+     * @param  list<string>  $arguments
+     */
+    public static function runWithInput($stdin, array $arguments): Run
+    {
+        ExocompCommand::$standardInput = $stdin;
+
+        try {
+            return self::run($arguments);
+        } finally {
+            ExocompCommand::$standardInput = null;
+        }
+    }
+
+    /**
+     * Runs against a throwaway project rather than the shared corpus.
+     *
+     * @param  list<string>  $arguments
+     */
+    public static function inProject(TemporaryProject $project, array $arguments): Run
+    {
+        return self::run([...$arguments, '--project', $project->root]);
     }
 
     public static function corpusRoot(): string

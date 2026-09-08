@@ -1,6 +1,6 @@
 Enum cases, constants and methods
 -----
-members Fixtures\TierA\Colour
+members Fixtures\TierA\Colour --own
 -----
 src/TierA/Colour.php  Fixtures\TierA\Colour  (4 own members)
 
@@ -11,4 +11,4 @@ own (4)
    15  public function describe(): string
 
 ── 1 not listed ──
-implements Fixtures\TierA\Describable   members not listed here — try: exocomp members Fixtures\TierA\Describable
+implements Fixtures\TierA\Describable   members not listed with --own — drop the flag to resolve them

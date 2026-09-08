@@ -84,9 +84,21 @@ final class OutputContractTest extends TestCase
 
     public function test_paths_format_emits_deduplicated_file_paths(): void
     {
-        $run = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--format', 'paths']);
+        $run = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--own', '--format', 'paths']);
 
         $this->assertSame(['src/TierA/Baseline.php'], $run->lines());
+    }
+
+    public function test_paths_format_deduplicates_across_files(): void
+    {
+        // A resolved member list spans the class, its traits and its parents, so this is the
+        // case the format exists for: the set of files a change would have to touch.
+        $paths = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--format', 'paths'])->lines();
+
+        $this->assertSame(array_unique($paths), $paths);
+        $this->assertContains('src/TierA/Baseline.php', $paths);
+        $this->assertContains('src/TierA/Loggable.php', $paths);
+        $this->assertContains('src/TierA/AbstractBase.php', $paths);
     }
 
     public function test_paths_format_works_for_show_too(): void
@@ -110,21 +122,23 @@ final class OutputContractTest extends TestCase
         }
     }
 
-    public function test_members_hands_back_what_it_will_not_answer_with_the_command_that_would(): void
+    public function test_members_resolves_through_parents_and_traits_and_says_where_each_came_from(): void
     {
         $run = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline']);
 
-        $this->assertStringContainsString('── 3 not listed ──', $run->output);
-        $this->assertStringContainsString('exocomp members Fixtures\TierA\AbstractBase', $run->output);
-        $this->assertStringContainsString('exocomp members Fixtures\TierA\Contract', $run->output);
-        $this->assertStringContainsString('exocomp members Fixtures\TierA\Loggable', $run->output);
+        $this->assertStringContainsString('own (10)', $run->output);
+        $this->assertStringContainsString('from trait Fixtures\TierA\Loggable (2)', $run->output);
+        $this->assertStringContainsString('inherited from Fixtures\TierA\AbstractBase (1)', $run->output);
+        $this->assertStringContainsString('required by Fixtures\TierA\Contract (1)', $run->output);
     }
 
-    public function test_the_own_flag_suppresses_that_block(): void
+    public function test_the_own_flag_lists_only_declarations_and_names_what_it_skipped(): void
     {
         $run = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--own']);
 
-        $this->assertStringNotContainsString('not listed', $run->output);
+        $this->assertStringContainsString('(10 own members)', $run->output);
+        $this->assertStringContainsString('── 3 not listed ──', $run->output);
+        $this->assertStringContainsString('drop the flag to resolve them', $run->output);
     }
 
     public function test_outline_and_imports_accept_a_class_name_as_well_as_a_path(): void

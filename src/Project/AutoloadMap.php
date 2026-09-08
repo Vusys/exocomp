@@ -71,9 +71,12 @@ final class AutoloadMap
      * Because every candidate is verified against the parsed declaration, the answer is a file
      * that genuinely declares the name either way.
      *
+     * @param  (callable(string): bool)|null  $exists  what counts as a file that is there;
+     *                                                 defaults to the working tree, and a
+     *                                                 revision supplies its own
      * @return list<string>
      */
-    public function candidates(string $fqn): array
+    public function candidates(string $fqn, ?callable $exists = null): array
     {
         $fqn = ltrim($fqn, '\\');
         $paths = [];
@@ -113,7 +116,7 @@ final class AutoloadMap
             }
         }
 
-        return array_values(array_unique(array_filter($paths, is_file(...))));
+        return array_values(array_unique(array_filter($paths, $exists ?? is_file(...))));
     }
 
     /**

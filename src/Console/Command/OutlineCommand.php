@@ -32,14 +32,17 @@ final class OutlineCommand extends ExocompCommand
     {
         parent::configure();
 
-        $this->addArgument('target', InputArgument::REQUIRED, 'A file path, or the name of a class, interface, trait or enum');
+        $this->addArgument('target', InputArgument::OPTIONAL, 'A file path, or the name of a class, interface, trait or enum (omit with --stdin)');
     }
 
     protected function answer(InputInterface $input, CommandContext $context): Result
     {
         $target = $this->stringArgument($input, 'target') ?? '';
 
-        if (is_file($target)) {
+        if ($this->readingStdin($input)) {
+            $analysis = $this->stdinFile($input, $context);
+            $declarations = $analysis->declarations;
+        } elseif (is_file($target)) {
             $analysis = $context->locator->analyse($target);
             $declarations = $analysis->declarations;
         } else {

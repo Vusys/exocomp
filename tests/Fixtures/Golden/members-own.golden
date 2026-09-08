@@ -1,6 +1,6 @@
-Declared members, with what is not listed handed back
+Declared members only, with what was skipped named
 -----
-members Fixtures\TierA\Baseline
+members Fixtures\TierA\Baseline --own
 -----
 src/TierA/Baseline.php  Fixtures\TierA\Baseline  (10 own members)
 
@@ -17,6 +17,6 @@ own (10)
    45  private function reset(): void
 
 ── 3 not listed ──
-extends Fixtures\TierA\AbstractBase   members not listed here — try: exocomp members Fixtures\TierA\AbstractBase
-implements Fixtures\TierA\Contract    members not listed here — try: exocomp members Fixtures\TierA\Contract
-use Fixtures\TierA\Loggable           members not listed here — try: exocomp members Fixtures\TierA\Loggable
+extends Fixtures\TierA\AbstractBase   members not listed with --own — drop the flag to resolve them
+implements Fixtures\TierA\Contract    members not listed with --own — drop the flag to resolve them
+use Fixtures\TierA\Loggable           members not listed with --own — drop the flag to resolve them

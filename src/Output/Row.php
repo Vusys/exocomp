@@ -16,6 +16,10 @@ final readonly class Row
 {
     /**
      * @param  array<string, string|int|bool|null>  $extra  command-specific fields, emitted after the shared ones in `--json`
+     * @param  bool  $carriesAddress  the text already begins with `path:line:col`, so a result
+     *                                spanning several files does not also get a line gutter.
+     *                                The structured fields are unaffected: `--json` reports the
+     *                                same `file`, `line` and `col` either way.
      */
     public function __construct(
         public string $file,
@@ -27,6 +31,7 @@ final readonly class Row
         public Confidence $confidence = Confidence::Resolved,
         public ?string $note = null,
         public array $extra = [],
+        public bool $carriesAddress = false,
     ) {}
 
     /**

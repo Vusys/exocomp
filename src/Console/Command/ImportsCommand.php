@@ -30,13 +30,15 @@ final class ImportsCommand extends ExocompCommand
     {
         parent::configure();
 
-        $this->addArgument('target', InputArgument::REQUIRED, 'A file path, or the name of a class declared in the file');
+        $this->addArgument('target', InputArgument::OPTIONAL, 'A file path, or the name of a class declared in the file (omit with --stdin)');
     }
 
     protected function answer(InputInterface $input, CommandContext $context): Result
     {
         $target = $this->stringArgument($input, 'target') ?? '';
-        $analysis = $this->targetFile($target, $context);
+        $analysis = $this->readingStdin($input)
+            ? $this->stdinFile($input, $context)
+            : $this->targetFile($target, $context);
         $path = $analysis->file->displayPath;
 
         $rows = array_map(

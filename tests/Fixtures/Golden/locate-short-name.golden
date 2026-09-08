@@ -1,0 +1,9 @@
+A short name resolved to every declaration of it
+-----
+locate greet
+-----
+4 declarations of "greet"
+src/TierA/AbstractBase.php:9:5  Fixtures\TierA\AbstractBase::greet   method
+src/TierA/Baseline.php:30:5     Fixtures\TierA\Baseline::greet   method
+src/TierA/Contract.php:11:5     Fixtures\TierA\Contract::greet   method
+src/TierB/Relative.php:18:5     Fixtures\TierB\Relative::greet   method

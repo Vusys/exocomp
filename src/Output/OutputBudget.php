@@ -22,8 +22,13 @@ final readonly class OutputBudget
     ) {}
 
     /**
-     * @param  list<Row>  $rows
-     * @return array{list<Row>, int} the kept rows and the number dropped
+     * Caps a list of records, whatever they are — the budget is about how many things come
+     * back, not about what a thing is.
+     *
+     * @template TRecord
+     *
+     * @param  list<TRecord>  $rows
+     * @return array{list<TRecord>, int} the kept records and the number dropped
      */
     public function apply(array $rows): array
     {

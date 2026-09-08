@@ -13,6 +13,7 @@ use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Source\ParseFailure;
+use Vusys\Exocomp\Source\Revision;
 use Vusys\Exocomp\Source\SourceFile;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
@@ -42,6 +43,7 @@ final class SymbolLocator
         private readonly Project $project,
         private readonly AutoloadMap $map,
         private readonly bool $deepScan = false,
+        private readonly ?Revision $revision = null,
         private readonly Analyser $analyser = new Analyser,
     ) {}
 
@@ -51,10 +53,27 @@ final class SymbolLocator
     }
 
     /**
+     * Parses a buffer the caller already holds, rather than anything on disk. An agent editing
+     * a file has its contents in hand; making it write them out first to ask a question about
+     * them would be an absurd round trip.
+     */
+    public function analyseString(string $contents, string $displayPath): FileAnalysis
+    {
+        return $this->analyser->analyse(SourceFile::fromString($contents, $displayPath));
+    }
+
+    /**
      * Parses a file by path, memoised for the life of the command.
      */
     public function analyse(string $path): FileAnalysis
     {
+        if ($this->revision instanceof Revision) {
+            $relative = $this->project->displayPath(realpath($path) ?: $path);
+
+            return $this->analysed[$this->revision->reference.':'.$relative]
+                ??= $this->analyser->analyse($this->revision->source($relative));
+        }
+
         $absolute = realpath($path);
 
         if ($absolute === false) {
@@ -77,7 +96,7 @@ final class SymbolLocator
      */
     public function locateOwner(SymbolRef $ref): LocatedDeclaration
     {
-        foreach ($this->map->candidates($ref->owner) as $candidate) {
+        foreach ($this->map->candidates($ref->owner, $this->existenceOracle()) as $candidate) {
             $located = $this->declarationIn($candidate, $ref->owner);
 
             if ($located instanceof LocatedDeclaration) {
@@ -96,6 +115,25 @@ final class SymbolLocator
             $ref->owner,
             $this->describeRoots(),
         ));
+    }
+
+    /**
+     * At a revision, "the file is there" is a question about the tree at that commit, not about
+     * the working directory — a file deleted since is still resolvable, and one added since is
+     * correctly not.
+     *
+     * @return (callable(string): bool)|null
+     */
+    private function existenceOracle(): ?callable
+    {
+        if (! $this->revision instanceof Revision) {
+            return null;
+        }
+
+        $revision = $this->revision;
+        $project = $this->project;
+
+        return static fn (string $path): bool => $revision->has($project->displayPath($path));
     }
 
     /**

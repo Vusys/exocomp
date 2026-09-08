@@ -1,0 +1,6 @@
+Subclasses, transitively
+-----
+subclasses Fixtures\TierA\AbstractBase
+-----
+1 subclass of Fixtures\TierA\AbstractBase
+src/TierA/Baseline.php:12:1  Fixtures\TierA\Baseline   class

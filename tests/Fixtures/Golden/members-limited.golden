@@ -1,6 +1,6 @@
 A capped result says how much it dropped
 -----
-members Fixtures\TierA\Types --limit 3
+members Fixtures\TierA\Types --limit 3 --own
 -----
 src/TierA/Types.php  Fixtures\TierA\Types  (8 own members)
 

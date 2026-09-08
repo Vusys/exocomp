@@ -1,0 +1,387 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vusys\Exocomp\Index;
+
+use PDO;
+use PDOStatement;
+use RuntimeException;
+use Vusys\Exocomp\Symbol\SymbolKind;
+
+/**
+ * The SQLite cache: what is stored, and how it is asked.
+ *
+ * Rows are keyed by content hash rather than by path (see {@see FileFacts}), and every read
+ * joins through the `files` table for one project root — so the store holds facts about bytes
+ * and the join decides which of those bytes are currently checked out where.
+ */
+final class IndexStore
+{
+    private readonly PDO $connection;
+
+    /** @var array<string, PDOStatement> */
+    private array $prepared = [];
+
+    public function __construct(public readonly string $path)
+    {
+        $directory = dirname($path);
+
+        if (! is_dir($directory) && ! @mkdir($directory, 0o777, true) && ! is_dir($directory)) {
+            throw new RuntimeException("could not create the cache directory \"{$directory}\"");
+        }
+
+        $this->connection = new PDO('sqlite:'.$path, options: [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+
+        IndexSchema::apply($this->connection);
+    }
+
+    public function beginBatch(): void
+    {
+        $this->connection->beginTransaction();
+    }
+
+    public function commitBatch(): void
+    {
+        if ($this->connection->inTransaction()) {
+            $this->connection->commit();
+        }
+    }
+
+    public function hasBlob(string $hash): bool
+    {
+        $statement = $this->prepare('has_blob', 'SELECT 1 FROM blobs WHERE hash = ? LIMIT 1');
+        $statement->execute([$hash]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    public function putBlob(string $hash, FileFacts $facts): void
+    {
+        $this->prepare('put_blob', 'INSERT OR IGNORE INTO blobs (hash, namespaces) VALUES (?, ?)')
+            ->execute([$hash, implode("\n", $facts->namespaces)]);
+
+        $symbol = $this->prepare('put_symbol', <<<'SQL'
+            INSERT INTO symbols (hash, fqn, lower_fqn, name, lower_name, kind, owner, lower_owner,
+                                 line, end_line, col, span_line, signature, full_signature,
+                                 modifiers, promoted, has_body)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            SQL);
+
+        foreach ($facts->symbols as $row) {
+            $kind = $this->text($row['kind']);
+            $fqn = $this->text($row['fqn']);
+            $name = $this->text($row['name']);
+            $owner = isset($row['owner']) && is_string($row['owner']) ? $row['owner'] : null;
+            $foldable = FileFacts::caseInsensitive($kind);
+
+            $symbol->execute([
+                $hash,
+                $fqn,
+                $foldable ? mb_strtolower($fqn) : null,
+                $name,
+                $foldable ? mb_strtolower($name) : null,
+                $kind,
+                $owner,
+                $owner === null ? null : mb_strtolower($owner),
+                $this->number($row['line']),
+                $this->number($row['end_line']),
+                $this->number($row['col']),
+                $this->number($row['span_line']),
+                $this->text($row['signature']),
+                $this->text($row['full_signature']),
+                $this->text($row['modifiers']),
+                ($row['promoted'] ?? false) === true ? 1 : 0,
+                ($row['has_body'] ?? false) === true ? 1 : 0,
+            ]);
+        }
+
+        $edge = $this->prepare('put_edge', 'INSERT INTO edges (hash, from_fqn, lower_from, kind, to_fqn, lower_to) VALUES (?, ?, ?, ?, ?, ?)');
+
+        foreach ($facts->edges as $row) {
+            $edge->execute([$hash, $row['from'], mb_strtolower($row['from']), $row['kind'], $row['to'], mb_strtolower($row['to'])]);
+        }
+    }
+
+    public function putFile(string $root, string $path, string $hash, int $mtime, int $size): void
+    {
+        $this->prepare('put_file', 'INSERT OR REPLACE INTO files (root, path, hash, mtime, size) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$root, $path, $hash, $mtime, $size]);
+    }
+
+    /**
+     * @return array<string, array{hash: string, mtime: int, size: int}>
+     */
+    public function filesIn(string $root): array
+    {
+        $statement = $this->prepare('files_in', 'SELECT path, hash, mtime, size FROM files WHERE root = ?');
+        $statement->execute([$root]);
+
+        $files = [];
+
+        foreach ($statement->fetchAll() as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $files[$this->text($row['path'])] = [
+                'hash' => $this->text($row['hash']),
+                'mtime' => $this->number($row['mtime']),
+                'size' => $this->number($row['size']),
+            ];
+        }
+
+        return $files;
+    }
+
+    /**
+     * A file that will not parse is remembered along with the stamp it failed at, so the next
+     * run neither re-parses it nor re-announces it. It is retried the moment its bytes change,
+     * which is the only thing that could alter the outcome.
+     *
+     * @return array<string, array{mtime: int, size: int, line: int, message: string}>
+     */
+    public function failuresIn(string $root): array
+    {
+        $statement = $this->prepare('failures_in', 'SELECT path, mtime, size, line, message FROM failures WHERE root = ?');
+        $statement->execute([$root]);
+
+        $failures = [];
+
+        foreach ($statement->fetchAll() as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $failures[$this->text($row['path'])] = [
+                'mtime' => $this->number($row['mtime']),
+                'size' => $this->number($row['size']),
+                'line' => $this->number($row['line']),
+                'message' => $this->text($row['message']),
+            ];
+        }
+
+        return $failures;
+    }
+
+    public function putFailure(string $root, string $path, int $mtime, int $size, int $line, string $message): void
+    {
+        $this->prepare('put_failure', 'INSERT OR REPLACE INTO failures (root, path, mtime, size, line, message) VALUES (?, ?, ?, ?, ?, ?)')
+            ->execute([$root, $path, $mtime, $size, $line, $message]);
+    }
+
+    public function forgetFailure(string $root, string $path): void
+    {
+        $this->prepare('forget_failure', 'DELETE FROM failures WHERE root = ? AND path = ?')->execute([$root, $path]);
+    }
+
+    /**
+     * The recorded size and mtime for a handful of paths — the cheap half of validating an
+     * answer without touching the rest of the corpus.
+     *
+     * @param  list<string>  $paths
+     * @return array<string, array{mtime: int, size: int}>
+     */
+    public function stampsFor(string $root, array $paths): array
+    {
+        if ($paths === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($paths), '?'));
+        $statement = $this->connection->prepare(
+            "SELECT path, mtime, size FROM files WHERE root = ? AND path IN ({$placeholders})",
+        );
+        $statement->execute([$root, ...$paths]);
+
+        $stamps = [];
+
+        foreach ($statement->fetchAll() as $row) {
+            if (is_array($row)) {
+                $stamps[$this->text($row['path'])] = [
+                    'mtime' => $this->number($row['mtime']),
+                    'size' => $this->number($row['size']),
+                ];
+            }
+        }
+
+        return $stamps;
+    }
+
+    public function forgetFile(string $root, string $path): void
+    {
+        $this->prepare('forget_file', 'DELETE FROM files WHERE root = ? AND path = ?')->execute([$root, $path]);
+    }
+
+    /**
+     * Class-like and function names fold case, because PHP does; everything else matches
+     * exactly, because PHP does not.
+     *
+     * @return list<SymbolRecord>
+     */
+    public function byName(string $root, string $name, ?SymbolKind $kind = null): array
+    {
+        $sql = $this->selection().' AND (s.lower_name = :folded OR s.name = :exact)';
+        $parameters = ['root' => $root, 'folded' => mb_strtolower($name), 'exact' => $name];
+
+        if ($kind instanceof SymbolKind) {
+            $sql .= ' AND s.kind = :kind';
+            $parameters['kind'] = $kind->value;
+        }
+
+        return $this->records($sql.' ORDER BY f.path, s.line', $parameters);
+    }
+
+    /**
+     * @return list<SymbolRecord>
+     */
+    public function byFqn(string $root, string $fqn): array
+    {
+        return $this->records(
+            $this->selection().' AND (s.lower_fqn = :folded OR s.fqn = :exact) ORDER BY f.path, s.line',
+            ['root' => $root, 'folded' => mb_strtolower($fqn), 'exact' => $fqn],
+        );
+    }
+
+    /**
+     * @return list<SymbolRecord>
+     */
+    public function membersOf(string $root, string $ownerFqn): array
+    {
+        return $this->records(
+            $this->selection().' AND s.lower_owner = :owner ORDER BY s.line',
+            ['root' => $root, 'owner' => mb_strtolower($ownerFqn)],
+        );
+    }
+
+    /**
+     * Names that declare an edge of this kind pointing at the given target — the subclasses of
+     * a class, the implementors of an interface, the users of a trait.
+     *
+     * @return list<SymbolRecord>
+     */
+    public function edgesTo(string $root, string $kind, string $target): array
+    {
+        return $this->records(
+            'SELECT f.path, s.* FROM edges e'
+            .' JOIN files f ON f.hash = e.hash AND f.root = :root'
+            .' JOIN symbols s ON s.hash = e.hash AND s.lower_fqn = e.lower_from'
+            .' WHERE e.kind = :kind AND e.lower_to = :target'
+            .' ORDER BY f.path, s.line',
+            ['root' => $root, 'kind' => $kind, 'target' => mb_strtolower($target)],
+        );
+    }
+
+    /**
+     * @return list<array{kind: string, to: string}>
+     */
+    public function edgesFrom(string $root, string $fqn): array
+    {
+        $statement = $this->prepare('edges_from',
+            'SELECT DISTINCT e.kind, e.to_fqn FROM edges e'
+            .' JOIN files f ON f.hash = e.hash AND f.root = ?'
+            .' WHERE e.lower_from = ?');
+        $statement->execute([$root, mb_strtolower($fqn)]);
+
+        $edges = [];
+
+        foreach ($statement->fetchAll() as $row) {
+            if (is_array($row)) {
+                $edges[] = ['kind' => $this->text($row['kind']), 'to' => $this->text($row['to_fqn'])];
+            }
+        }
+
+        return $edges;
+    }
+
+    /**
+     * @return array{files: int, symbols: int, edges: int, blobs: int, failures: int, shared: int}
+     */
+    public function statistics(string $root): array
+    {
+        return [
+            'files' => $this->count('SELECT COUNT(*) FROM files WHERE root = ?', [$root]),
+            'symbols' => $this->count('SELECT COUNT(*) FROM symbols s JOIN files f ON f.hash = s.hash WHERE f.root = ?', [$root]),
+            'edges' => $this->count('SELECT COUNT(*) FROM edges e JOIN files f ON f.hash = e.hash WHERE f.root = ?', [$root]),
+            'blobs' => $this->count('SELECT COUNT(*) FROM blobs', []),
+            // Content this root shares with at least one other checkout — the measure of
+            // whether the content-addressed design is actually paying for itself.
+            'failures' => $this->count('SELECT COUNT(*) FROM failures WHERE root = ?', [$root]),
+            'shared' => $this->count(
+                'SELECT COUNT(*) FROM files f WHERE f.root = ? AND EXISTS ('
+                .'SELECT 1 FROM files o WHERE o.hash = f.hash AND o.root <> f.root)',
+                [$root],
+            ),
+        ];
+    }
+
+    private function selection(): string
+    {
+        return 'SELECT f.path, s.* FROM symbols s JOIN files f ON f.hash = s.hash AND f.root = :root WHERE 1 = 1';
+    }
+
+    /**
+     * @param  array<string, string>  $parameters
+     * @return list<SymbolRecord>
+     */
+    private function records(string $sql, array $parameters): array
+    {
+        $statement = $this->connection->prepare($sql);
+        $statement->execute($parameters);
+
+        $records = [];
+
+        foreach ($statement->fetchAll() as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $records[] = new SymbolRecord(
+                path: $this->text($row['path']),
+                fqn: $this->text($row['fqn']),
+                name: $this->text($row['name']),
+                kind: SymbolKind::from($this->text($row['kind'])),
+                owner: isset($row['owner']) && is_string($row['owner']) ? $row['owner'] : null,
+                line: $this->number($row['line']),
+                endLine: $this->number($row['end_line']),
+                column: $this->number($row['col']),
+                signature: $this->text($row['signature']),
+                fullSignature: $this->text($row['full_signature']),
+                modifiers: $this->text($row['modifiers']),
+                isPromoted: $this->number($row['promoted']) === 1,
+                hasBody: $this->number($row['has_body']) === 1,
+            );
+        }
+
+        return $records;
+    }
+
+    /**
+     * @param  list<string>  $parameters
+     */
+    private function count(string $sql, array $parameters): int
+    {
+        $statement = $this->connection->prepare($sql);
+        $statement->execute($parameters);
+
+        return (int) $statement->fetchColumn();
+    }
+
+    private function prepare(string $key, string $sql): PDOStatement
+    {
+        return $this->prepared[$key] ??= $this->connection->prepare($sql);
+    }
+
+    private function text(mixed $value): string
+    {
+        return is_scalar($value) ? (string) $value : '';
+    }
+
+    private function number(mixed $value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
+    }
+}

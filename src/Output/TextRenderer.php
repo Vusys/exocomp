@@ -34,8 +34,12 @@ final class TextRenderer implements Renderer
                 $lines[] = sprintf('%s (%d)', $section->title, count($section->rows));
             }
 
+            // Records spanning several files carry `path:line:col` in the text itself, the way
+            // grep does; a line-number gutter would be a column of blanks in front of them.
+            $gutter = $this->wantsGutter($section->rows);
+
             foreach ($section->rows as $row) {
-                $lines[] = $this->renderRow($row);
+                $lines[] = $gutter ? $this->renderRow($row) : $row->text;
             }
         }
 
@@ -52,6 +56,20 @@ final class TextRenderer implements Renderer
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param  list<Row>  $rows
+     */
+    private function wantsGutter(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            if ($row->line === null || $row->carriesAddress) {
+                return false;
+            }
+        }
+
+        return $rows !== [];
     }
 
     private function renderRow(Row $row): string
