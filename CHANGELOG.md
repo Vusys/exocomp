@@ -130,6 +130,10 @@ All notable changes to this project are documented here. The format follows
   disagreed with the command used to check it would be worse than no graph.
 - `$this->dispatch(new X)` is read as a dispatch, `inferred` rather than `resolved` because the
   receiver's type is not checked.
+- Mutation-testing thresholds raised from 71% to 72% — the first ratchet up in this project,
+  against a measured 73.24% over 6,704 mutants. Two consecutive phases have finished above
+  72.8%, so it is earned rather than aspirational; it stops short of 73 because a threshold
+  within a point of the measurement makes the next commit a coin toss rather than a check.
 - Mutation-testing thresholds re-set from 78% to 71%, below the 73.3% a clean run over Phases
   0-3 measures. The source grew roughly fivefold since 78% was measured, so the old figure was
   failing the build against a codebase it was never measured on. This is a drop, not a ratchet,

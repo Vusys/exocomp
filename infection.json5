@@ -21,13 +21,23 @@
     // diffuse: 840 of 1,769 sat in the framework readers, which had been tested end to end
     // through the CLI and so asserted that a string appeared somewhere rather than that a column
     // had the right type on the right line. Unit tests for those readers took it to 71.57% and
-    // then to **72.82%** on the committed tree, and found four real defects on the way — a route
+    // then to 72.82% on the committed tree, and found four real defects on the way — a route
     // losing its name, a column type printed in a spelling the framework does not have, a PHP
     // warning leaking into the output, and a dead branch behind an unimported class name.
     //
-    // The threshold stays at 71 rather than being ratcheted to the measured figure. Ratcheting
-    // to within a point of the measurement makes the next commit a coin toss rather than a
-    // check; it goes up when there is room to raise it to.
-    "minMsi": 71,
-    "minCoveredMsi": 71
+    // Phase 5 repeated the pattern exactly. The graph layer landed at 71.85% (6,703 mutants)
+    // with 83 escapes in one row-rendering expression nothing checked the shape of, and the
+    // same remedy — assert the record, not that a substring appeared — took it to 72.85%.
+    // Reading what was still escaping in the walk then turned up a loop guard that could never
+    // fire, and removing it rather than defending against an impossible cycle gave **73.24%**
+    // (4,910 of 6,704) on the committed tree.
+    //
+    // Raised from 71 to 72 here — the first ratchet up in this project, and it is earned rather
+    // than aspirational: two consecutive phases have finished above 72.8. It leaves about 1.2
+    // points of headroom, which is roughly eighty mutants, so a commit that adds a couple of
+    // hundred lines of lightly tested code will trip it. That is the gate working. The reason
+    // not to go to 73 is the one that kept it at 71 before: a threshold within a point of the
+    // measurement makes the next commit a coin toss rather than a check.
+    "minMsi": 72,
+    "minCoveredMsi": 72
 }

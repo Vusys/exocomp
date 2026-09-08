@@ -511,6 +511,44 @@ the two. The distinction is stated without the engine knowing anything about Elo
 with `__get` resolves it, a class without one has a bug there, and which of those it is cannot
 be seen from the access.
 
+### What the mutation gate said about Phase 5
+
+It said the same thing it said about Phase 4, in the same words, and the value of a gate that
+repeats itself is that the second time you recognise it.
+
+| | Mutants | MSI | |
+| --- | ---: | ---: | --- |
+| Phase 4, as committed | 5,814 | 72.82% | |
+| Phase 5 landed | 6,703 | **71.85%** | passed the 71 threshold by 0.85 |
+| After asserting records rather than substrings | 6,711 | 72.85% | |
+| After removing a guard that could never fire | 6,704 | **73.24%** | |
+
+71.85% was a pass. It was also a drop, and the escape distribution said why: `ReachesCommand`
+83, `Walk` 78, `LaravelEdges` 63 — the new code, tested through the CLI with
+`assertStringContainsString`, which asserts that a string appeared somewhere and nothing about
+the record it appeared in. Eighty-three of those escapes sat in a single row-rendering
+expression.
+
+Writing the tests the escapes pointed at found four behaviours with no coverage at all — the
+node budget, a cycle, a declaration reachable two ways, and the identity of a stop — and one
+output bug that said "1 edge led into a dependency and *were* not walked past", in three places.
+
+Reading what still escaped in the walk afterwards was the part worth doing. `trace()` carried a
+loop bound guarding against a cycle in the parent links, and the parent links are a tree: a key
+is written once, when its node is first enqueued, and an enqueued node is never enqueued again.
+The guard could not fire. The one construct that could have made a cycle — recording the
+arriving edge before tracing through it — was removed instead, so the invariant holds by
+construction rather than by being defended against.
+
+That is the argument for treating the gate as a gap-finder rather than a number. Both times it
+dropped, the escapes were concentrated rather than diffuse, and both times following them found
+something real.
+
+The threshold moves from 71 to 72, the first ratchet up in the project. Two consecutive phases
+have now finished above 72.8, so it is earned rather than aspirational — and it stops short of
+73 for the reason that kept it at 71 before: a threshold within a point of the measurement makes
+the next commit a coin toss rather than a check.
+
 ### What it still declines, on purpose
 
 Read against the corpus, these are the honest limits rather than a to-do list:
@@ -590,6 +628,15 @@ The second step is the one no language-only tool reaches: the controller calls
 `SomeJob::dispatch($contract)` and execution continues in a different class, in a different
 process. Reading the controller tells you nothing about the model that gets written.
 
+A second positive, picked from the same sweep and checked the same way, is two ordinary steps —
+a controller calling an injected service, the service saving a model 1,300 lines into the file.
+That one a reader could have found by hand; the point of checking it is that the tool did not
+invent a step to reach a conclusion it had already drawn.
+
+Neither path was accepted on the tool's word. Both were opened at every line the answer named,
+because a reachability verdict is exactly the kind of claim that is expensive to disbelieve and
+worse to trust wrongly.
+
 None of the 60 benchmark commands is a reachability question, and that is not evidence against
 the phase — it is the shape of the evidence. A reachability audit appears in a shell history as
 *dozens* of ordinary searches repeated with different arguments, never as one command, which is
@@ -622,6 +669,11 @@ The second is that **a sweep gets cheaper per endpoint the more of one subsystem
 fewer parsed files. The caches are shared across starts, so the second walk through a service
 pays only for the nodes it has not already parsed. The fixed cost — index validation, the
 container read, the route table — is about 1.7 seconds and is paid once.
+
+`graph` is bounded by the dependency wall rather than by its depth setting, which is what makes
+a default of six steps safe to hand someone. From one controller on the corpus: 45 declarations
+at two steps, 78 at three, 110 at four, 137 at six. Without the wall the fourth step would be
+most of the framework.
 
 These are far above Phase 1's sub-200 ms index budget, for the same reason the Phase 4 answers
 are: a walk parses files by convention rather than reading rows, and nothing about a walk is
@@ -660,6 +712,44 @@ ahead of the answer. At that point it is not a remark, it is the output.
 **Every distinct receiver type cost a file parse**, to establish whether it was an interface or
 a facade — facts the index already records. Deciding both from the index instead removed a parse
 per class encountered.
+
+### What the mutation gate said about Phase 5
+
+It said the same thing it said about Phase 4, in the same words, and the value of a gate that
+repeats itself is that the second time you recognise it.
+
+| | Mutants | MSI | |
+| --- | ---: | ---: | --- |
+| Phase 4, as committed | 5,814 | 72.82% | |
+| Phase 5 landed | 6,703 | **71.85%** | passed the 71 threshold by 0.85 |
+| After asserting records rather than substrings | 6,711 | 72.85% | |
+| After removing a guard that could never fire | 6,704 | **73.24%** | |
+
+71.85% was a pass. It was also a drop, and the escape distribution said why: `ReachesCommand`
+83, `Walk` 78, `LaravelEdges` 63 — the new code, tested through the CLI with
+`assertStringContainsString`, which asserts that a string appeared somewhere and nothing about
+the record it appeared in. Eighty-three of those escapes sat in a single row-rendering
+expression.
+
+Writing the tests the escapes pointed at found four behaviours with no coverage at all — the
+node budget, a cycle, a declaration reachable two ways, and the identity of a stop — and one
+output bug that said "1 edge led into a dependency and *were* not walked past", in three places.
+
+Reading what still escaped in the walk afterwards was the part worth doing. `trace()` carried a
+loop bound guarding against a cycle in the parent links, and the parent links are a tree: a key
+is written once, when its node is first enqueued, and an enqueued node is never enqueued again.
+The guard could not fire. The one construct that could have made a cycle — recording the
+arriving edge before tracing through it — was removed instead, so the invariant holds by
+construction rather than by being defended against.
+
+That is the argument for treating the gate as a gap-finder rather than a number. Both times it
+dropped, the escapes were concentrated rather than diffuse, and both times following them found
+something real.
+
+The threshold moves from 71 to 72, the first ratchet up in the project. Two consecutive phases
+have now finished above 72.8, so it is earned rather than aspirational — and it stops short of
+73 for the reason that kept it at 71 before: a threshold within a point of the measurement makes
+the next commit a coin toss rather than a check.
 
 ### What it still declines
 
