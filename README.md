@@ -34,6 +34,12 @@ them:
 - **Predicate chaining.** 2,170 commands with three or more pipe stages — structural questions
   approximated by text filters.
 
+And a fourth that no language-only tool addresses at all: **the questions are framework
+questions.** 678 searches were about facades, 307 about config keys, 139 about model internals,
+108 about reconstructing a table from its migrations. A language engine can tell you a relation
+method exists; it cannot tell you what class the relation targets, that the model carries a
+tenant-scoping global scope, or that `dispatch(new ProcessOrder)` continues in another class.
+
 ## Install
 
 ```console
