@@ -13,6 +13,7 @@ use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Index\MemberOrigin;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\Identifier as SymbolIdentifier;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -261,7 +262,7 @@ final class ReferenceScanner extends NodeVisitorAbstract
             return ['confidence' => Confidence::Resolved, 'reason' => 'receiver is '.$owner];
         }
 
-        $key = mb_strtolower($receiverFqn);
+        $key = SymbolIdentifier::fold($receiverFqn);
 
         // Calling an inherited member through a subclass is the same member. Not following this
         // would drop every call made through a child class.

@@ -140,6 +140,20 @@ final class TierBNamingTrapsTest extends TestCase
         $this->assertSame(['Fixtures\TierA\Contract'], $relative->implements);
     }
 
+    public function test_class_names_fold_by_ascii_rules_only(): void
+    {
+        $analysis = $this->analyse('src/TierB/Accents.php');
+
+        // Two classes, not one. PHP leaves every byte above 0x7F alone when it folds a name,
+        // so this accented pair stays distinct where an ASCII pair would be the same class.
+        $this->assertCount(2, $analysis->declarations);
+
+        $upper = $this->classLike('src/TierB/Accents.php', "Fixtures\\TierB\\\u{00C9}tage");
+        $lower = $this->classLike('src/TierB/Accents.php', "Fixtures\\TierB\\\u{00E9}tage");
+
+        $this->assertNotSame($upper->startLine, $lower->startLine);
+    }
+
     private function analyse(string $relative): FileAnalysis
     {
         return (new Analyser)->analyse(SourceFile::fromPath(Cli::corpusFile($relative), $relative));

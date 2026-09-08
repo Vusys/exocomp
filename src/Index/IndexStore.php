@@ -7,6 +7,7 @@ namespace Vusys\Exocomp\Index;
 use PDO;
 use PDOStatement;
 use RuntimeException;
+use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
@@ -81,12 +82,12 @@ final class IndexStore
             $symbol->execute([
                 $hash,
                 $fqn,
-                $foldable ? mb_strtolower($fqn) : null,
+                $foldable ? Identifier::fold($fqn) : null,
                 $name,
-                $foldable ? mb_strtolower($name) : null,
+                $foldable ? Identifier::fold($name) : null,
                 $kind,
                 $owner,
-                $owner === null ? null : mb_strtolower($owner),
+                $owner === null ? null : Identifier::fold($owner),
                 $this->number($row['line']),
                 $this->number($row['end_line']),
                 $this->number($row['col']),
@@ -113,7 +114,7 @@ final class IndexStore
         }
 
         foreach ($mentioned as $referenced) {
-            $lower = mb_strtolower($referenced);
+            $lower = Identifier::fold($referenced);
 
             if (isset($seen[$lower])) {
                 continue;
@@ -126,7 +127,7 @@ final class IndexStore
         $edge = $this->prepare('put_edge', 'INSERT INTO edges (hash, from_fqn, lower_from, kind, to_fqn, lower_to) VALUES (?, ?, ?, ?, ?, ?)');
 
         foreach ($facts->edges as $row) {
-            $edge->execute([$hash, $row['from'], mb_strtolower($row['from']), $row['kind'], $row['to'], mb_strtolower($row['to'])]);
+            $edge->execute([$hash, $row['from'], Identifier::fold($row['from']), $row['kind'], $row['to'], Identifier::fold($row['to'])]);
         }
     }
 
@@ -309,7 +310,7 @@ final class IndexStore
 
         foreach ($names as $index => $name) {
             $sql .= " JOIN names n{$index} ON n{$index}.hash = f.hash AND n{$index}.lower_name = :name{$index}";
-            $parameters['name'.$index] = mb_strtolower($name);
+            $parameters['name'.$index] = Identifier::fold($name);
         }
 
         $sql .= ' WHERE f.root = :root ORDER BY f.path';
@@ -342,7 +343,7 @@ final class IndexStore
     public function byName(string $root, string $name, ?SymbolKind $kind = null): array
     {
         $sql = $this->selection().' AND (s.lower_name = :folded OR s.name = :exact)';
-        $parameters = ['root' => $root, 'folded' => mb_strtolower($name), 'exact' => $name];
+        $parameters = ['root' => $root, 'folded' => Identifier::fold($name), 'exact' => $name];
 
         if ($kind instanceof SymbolKind) {
             $sql .= ' AND s.kind = :kind';
@@ -359,7 +360,7 @@ final class IndexStore
     {
         return $this->records(
             $this->selection().' AND (s.lower_fqn = :folded OR s.fqn = :exact) ORDER BY f.path, s.line',
-            ['root' => $root, 'folded' => mb_strtolower($fqn), 'exact' => $fqn],
+            ['root' => $root, 'folded' => Identifier::fold($fqn), 'exact' => $fqn],
         );
     }
 
@@ -370,7 +371,7 @@ final class IndexStore
     {
         return $this->records(
             $this->selection().' AND s.lower_owner = :owner ORDER BY s.line',
-            ['root' => $root, 'owner' => mb_strtolower($ownerFqn)],
+            ['root' => $root, 'owner' => Identifier::fold($ownerFqn)],
         );
     }
 
@@ -388,7 +389,7 @@ final class IndexStore
             .' JOIN symbols s ON s.hash = e.hash AND s.lower_fqn = e.lower_from'
             .' WHERE e.kind = :kind AND e.lower_to = :target'
             .' ORDER BY f.path, s.line',
-            ['root' => $root, 'kind' => $kind, 'target' => mb_strtolower($target)],
+            ['root' => $root, 'kind' => $kind, 'target' => Identifier::fold($target)],
         );
     }
 
@@ -401,7 +402,7 @@ final class IndexStore
             'SELECT DISTINCT e.kind, e.to_fqn FROM edges e'
             .' JOIN files f ON f.hash = e.hash AND f.root = ?'
             .' WHERE e.lower_from = ?');
-        $statement->execute([$root, mb_strtolower($fqn)]);
+        $statement->execute([$root, Identifier::fold($fqn)]);
 
         $edges = [];
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Index;
 
+use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
@@ -57,7 +58,7 @@ final class SymbolGraph
      */
     public function byFqn(string $fqn): array
     {
-        return $this->memoisedFqn[mb_strtolower($fqn)] ??= $this->validated(
+        return $this->memoisedFqn[Identifier::fold($fqn)] ??= $this->validated(
             fn (): array => $this->store->byFqn($this->root, $fqn),
         );
     }
@@ -145,7 +146,7 @@ final class SymbolGraph
     {
         $found = [];
         $queue = [[$fqn, $seed]];
-        $visited = [mb_strtolower($fqn) => true];
+        $visited = [Identifier::fold($fqn) => true];
 
         while ($queue !== []) {
             /** @var array{0: string, 1: list<string>} $item */
@@ -156,7 +157,7 @@ final class SymbolGraph
                 $edges = $this->validated(fn (): array => $this->store->edgesTo($this->root, $kind, $current));
 
                 foreach ($edges as $record) {
-                    $key = mb_strtolower($record->fqn);
+                    $key = Identifier::fold($record->fqn);
 
                     if (isset($visited[$key])) {
                         continue;
@@ -188,7 +189,7 @@ final class SymbolGraph
         // needs the target class's members looked up, and without a cache that is a fresh walk
         // of the hierarchy — and a fresh round of database queries — per call site. Measured on
         // a large codebase, caching took a reference search from 31 seconds to under two.
-        $key = mb_strtolower($fqn).($includeInherited ? '+' : '-');
+        $key = Identifier::fold($fqn).($includeInherited ? '+' : '-');
 
         if (isset($this->memoisedMembers[$key])) {
             return $this->memoisedMembers[$key];
@@ -237,7 +238,7 @@ final class SymbolGraph
      */
     public function ancestorsOf(string $fqn): array
     {
-        $key = mb_strtolower($fqn);
+        $key = Identifier::fold($fqn);
 
         if (isset($this->memoisedAncestors[$key])) {
             return $this->memoisedAncestors[$key];
@@ -245,7 +246,7 @@ final class SymbolGraph
 
         $found = [];
         $queue = [[$fqn, null]];
-        $seen = [mb_strtolower($fqn) => true];
+        $seen = [Identifier::fold($fqn) => true];
 
         while ($queue !== []) {
             /** @var array{0: string, 1: MemberOrigin|null} $item */
@@ -257,7 +258,7 @@ final class SymbolGraph
             }
 
             foreach ($this->store->edgesFrom($this->root, $current) as $edge) {
-                $key = mb_strtolower($edge['to']);
+                $key = Identifier::fold($edge['to']);
 
                 if (isset($seen[$key])) {
                     continue;
@@ -288,7 +289,7 @@ final class SymbolGraph
         array $visited,
         int $depth,
     ): void {
-        $key = mb_strtolower($fqn);
+        $key = Identifier::fold($fqn);
 
         if (isset($visited[$key]) || $depth > 64) {
             return;
@@ -393,7 +394,7 @@ final class SymbolGraph
      */
     private function declaredMembers(string $fqn): array
     {
-        return $this->memoisedMembersOf[mb_strtolower($fqn)] ??= $this->validated(
+        return $this->memoisedMembersOf[Identifier::fold($fqn)] ??= $this->validated(
             fn (): array => $this->store->membersOf($this->root, $fqn),
         );
     }
@@ -462,7 +463,7 @@ final class SymbolGraph
 
     private function slot(SymbolRecord $record): string
     {
-        $name = $record->kind === SymbolKind::Method ? mb_strtolower($record->name) : $record->name;
+        $name = $record->kind === SymbolKind::Method ? Identifier::fold($record->name) : $record->name;
 
         return $record->kind->value.':'.$name;
     }

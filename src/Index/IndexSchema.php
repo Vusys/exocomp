@@ -18,7 +18,7 @@ use PDO;
  */
 final class IndexSchema
 {
-    public const int VERSION = 4;
+    public const int VERSION = 5;
 
     public static function apply(PDO $connection): void
     {
