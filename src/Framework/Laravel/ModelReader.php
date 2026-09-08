@@ -1,0 +1,506 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Vusys\Exocomp\Framework\Laravel;
+
+use PhpParser\Node;
+use PhpParser\Node\Expr\MethodCall;
+use PhpParser\NodeFinder;
+use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Analysis\LiteralValue;
+use Vusys\Exocomp\Index\MemberOrigin;
+use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\LoadedClass;
+use Vusys\Exocomp\Symbol\Confidence;
+
+/**
+ * Reads an Eloquent model the way someone reading the file would, and further.
+ *
+ * "Further" is the point. A model's table, casts and scopes are routinely declared on a parent
+ * or flattened in from a trait, and the 139 measured searches for `$table`, `$fillable` and
+ * `$casts` were mostly opening one file, finding nothing, and opening the next. This walks the
+ * chain once and says which class each answer came from.
+ *
+ * Two conventions are reproduced rather than read, and both are labelled: the table name when
+ * none is declared, and the scope a `SoftDeletes` trait adds without appearing in any body.
+ * Everything else is a literal in the source or is declined.
+ */
+final class ModelReader
+{
+    /** @var list<string> */
+    private const array SCALARS = ['table', 'connection', 'primaryKey', 'keyType', 'incrementing', 'timestamps', 'dateFormat', 'perPage'];
+
+    /** @var list<string> */
+    private const array LISTS = ['fillable', 'guarded', 'hidden', 'visible', 'appends', 'touches', 'with', 'withCount', 'dates'];
+
+    /** @var list<string> */
+    private const array MAPS = ['casts', 'attributes'];
+
+    /**
+     * The relation factories. A method is a relation because it calls one of these on `$this`,
+     * never because of what it is named — `reference()` returning a string is not a relation,
+     * and a reader that decided by name would say it was.
+     *
+     * @var list<string>
+     */
+    private const array RELATIONS = [
+        'hasone', 'hasmany', 'belongsto', 'belongstomany', 'hasonethrough', 'hasmanythrough',
+        'morphone', 'morphmany', 'morphto', 'morphtomany', 'morphedbymany', 'hasoneofmany',
+    ];
+
+    /** @var list<ModelFact> */
+    private array $facts = [];
+
+    /** @var list<ModelFact> */
+    private array $declined = [];
+
+    /** @var array<string, true> */
+    private array $claimed = [];
+
+    public function __construct(
+        private readonly SymbolGraph $graph,
+        private readonly ClassSource $source,
+    ) {}
+
+    public function isModel(string $fqn): bool
+    {
+        return array_any(array_keys($this->graph->ancestorsOf($fqn)), fn (string $ancestor): bool => strcasecmp($ancestor, LaravelProfile::MODEL) === 0);
+    }
+
+    /**
+     * @param  ?callable(): array<string, Table>  $schema  the reconstructed tables, used to
+     *                                                     corroborate a derived table name
+     *                                                     rather than to produce one. Deferred
+     *                                                     because replaying a large migration
+     *                                                     directory costs about half a second
+     *                                                     and a model that declares `$table`
+     *                                                     never needs it.
+     */
+    public function read(string $fqn, ?callable $schema = null): ?EloquentModel
+    {
+        $chain = $this->source->withAncestors($fqn);
+
+        if ($chain === []) {
+            return null;
+        }
+
+        $this->facts = [];
+        $this->declined = [];
+        $this->claimed = [];
+
+        $own = $chain[0];
+
+        foreach ($chain as $class) {
+            $this->readProperties($class, $class->fqn === $own->fqn);
+            $this->readCastsMethod($class);
+            $this->readRelations($class);
+            $this->readScopeCalls($class);
+            $this->readScopedByAttribute($class);
+        }
+
+        $this->readTraits($own);
+        $this->resolveTable($own, $schema);
+
+        return new EloquentModel(
+            fqn: $own->fqn,
+            path: $own->path,
+            line: $own->node->getStartLine(),
+            facts: $this->facts,
+            declined: $this->declined,
+            notes: $this->source->notes(),
+        );
+    }
+
+    private function readProperties(LoadedClass $class, bool $isOwn): void
+    {
+        foreach ($class->node->getProperties() as $property) {
+            foreach ($property->props as $item) {
+                $name = $item->name->toString();
+                $default = $item->default;
+
+                if ($default === null) {
+                    continue;
+                }
+
+                match (true) {
+                    in_array($name, self::SCALARS, true) => $this->scalarProperty($class, $name, $default, $item->getStartLine(), $isOwn),
+                    in_array($name, self::LISTS, true) => $this->listProperty($class, $name, $default, $item->getStartLine()),
+                    in_array($name, self::MAPS, true) => $this->mapProperty($class, $name, $default),
+                    default => null,
+                };
+            }
+        }
+    }
+
+    private function scalarProperty(LoadedClass $class, string $name, Node\Expr $default, int $line, bool $isOwn): void
+    {
+        // Nearest declaration wins, exactly as PHP resolves it — a parent's `$connection` is
+        // only the answer when the model itself does not set one.
+        if (isset($this->claimed[$name])) {
+            return;
+        }
+
+        $value = LiteralValue::scalar($default);
+        $this->claimed[$name] = true;
+
+        if ($value === null && ! $default instanceof Node\Expr\ConstFetch) {
+            $this->declined[] = new ModelFact('attribute', $name, null, Confidence::Textual, $class->path, $line, 'declared here, but its value is computed', $class->fqn);
+
+            return;
+        }
+
+        $this->facts[] = new ModelFact(
+            'attribute',
+            $name,
+            is_bool($value) ? ($value ? 'true' : 'false') : (string) $value,
+            Confidence::Resolved,
+            $class->path,
+            $line,
+            $isOwn ? null : 'declared by '.$class->fqn,
+            $class->fqn,
+        );
+    }
+
+    private function listProperty(LoadedClass $class, string $name, Node\Expr $default, int $line): void
+    {
+        if (isset($this->claimed[$name])) {
+            return;
+        }
+
+        $this->claimed[$name] = true;
+
+        if (! $default instanceof Node\Expr\Array_) {
+            $this->declined[] = new ModelFact($name, $name, null, Confidence::Textual, $class->path, $line, 'declared here, but not as a literal array', $class->fqn);
+
+            return;
+        }
+
+        foreach (LiteralValue::items($default) as $item) {
+            if (! $item['literal'] || ! is_string($item['value'])) {
+                $this->declined[] = new ModelFact($name, '?', null, Confidence::Textual, $class->path, $item['line'], 'this entry is computed', $class->fqn);
+
+                continue;
+            }
+
+            $this->facts[] = new ModelFact($name, $item['value'], null, Confidence::Resolved, $class->path, $item['line'], null, $class->fqn);
+        }
+
+        // `$guarded = []` is the framework's "everything is mass-assignable" spelling, and its
+        // emptiness is the whole message. Reporting nothing would read as "not declared".
+        if ($name === 'guarded' && $default->items === []) {
+            $this->facts[] = new ModelFact($name, '(empty — every attribute is mass-assignable)', null, Confidence::Resolved, $class->path, $line, null, $class->fqn);
+        }
+    }
+
+    private function mapProperty(LoadedClass $class, string $name, Node\Expr $default): void
+    {
+        if (isset($this->claimed[$name])) {
+            return;
+        }
+
+        $this->claimed[$name] = true;
+        $this->recordPairs($class, $name, $default);
+    }
+
+    private function recordPairs(LoadedClass $class, string $name, Node\Expr $expression): void
+    {
+        foreach (LiteralValue::pairs($expression) as $pair) {
+            if ($pair['value'] === null) {
+                $this->declined[] = new ModelFact($name, $pair['key'], null, Confidence::Textual, $class->path, $pair['line'], 'the cast is computed', $class->fqn);
+
+                continue;
+            }
+
+            $this->facts[] = new ModelFact($name, $pair['key'], $pair['value'], Confidence::Resolved, $class->path, $pair['line'], null, $class->fqn);
+        }
+    }
+
+    /**
+     * Laravel 11 moved casts from a property to a `casts()` method, and plenty of code has both
+     * spellings across a hierarchy. Reading only the property would report a model's casts as
+     * empty while the file plainly lists them.
+     */
+    private function readCastsMethod(LoadedClass $class): void
+    {
+        $method = $class->node->getMethod('casts');
+
+        if (! $method instanceof Node\Stmt\ClassMethod || isset($this->claimed['casts()'])) {
+            return;
+        }
+
+        foreach (new NodeFinder()->findInstanceOf([$method], Node\Stmt\Return_::class) as $return) {
+            if ($return->expr instanceof Node\Expr\Array_) {
+                $this->claimed['casts()'] = true;
+                $this->recordPairs($class, 'casts', $return->expr);
+            }
+        }
+    }
+
+    private function readRelations(LoadedClass $class): void
+    {
+        foreach ($class->node->getMethods() as $method) {
+            $name = $method->name->toString();
+
+            if (isset($this->claimed['relation:'.strtolower($name)])) {
+                continue;
+            }
+
+            foreach (new NodeFinder()->findInstanceOf([$method], Node\Stmt\Return_::class) as $return) {
+                if (! $return->expr instanceof Node\Expr) {
+                    continue;
+                }
+
+                $call = $this->relationCall($return->expr);
+
+                if (! $call instanceof MethodCall) {
+                    continue;
+                }
+
+                $this->claimed['relation:'.strtolower($name)] = true;
+                $this->recordRelation($class, $name, $call, $method->getStartLine());
+
+                break;
+            }
+        }
+    }
+
+    /**
+     * Peels a chain like `$this->hasMany(X::class)->orderBy('position')` back to the call that
+     * made it a relation. Reading only the outermost call would see `orderBy` and conclude the
+     * method was not a relation at all.
+     */
+    private function relationCall(Node\Expr $expression): ?MethodCall
+    {
+        while ($expression instanceof MethodCall) {
+            if ($expression->var instanceof Node\Expr\Variable
+                && $expression->var->name === 'this'
+                && $expression->name instanceof Node\Identifier
+                && in_array(strtolower($expression->name->toString()), self::RELATIONS, true)) {
+                return $expression;
+            }
+
+            $expression = $expression->var;
+        }
+
+        return null;
+    }
+
+    private function recordRelation(LoadedClass $class, string $name, MethodCall $call, int $line): void
+    {
+        $kind = $call->name instanceof Node\Identifier ? $call->name->toString() : 'relation';
+        $arguments = $call->getArgs();
+
+        if (strcasecmp($kind, 'morphTo') === 0) {
+            $this->declined[] = new ModelFact(
+                'relation',
+                $name,
+                $kind,
+                Confidence::Textual,
+                $class->path,
+                $line,
+                'polymorphic — what it points at is decided by the morph map, not by this file',
+                $class->fqn,
+            );
+
+            return;
+        }
+
+        $target = $arguments === [] ? null : LiteralValue::className($arguments[0]->value, $class->fqn);
+
+        if ($target === null) {
+            $this->declined[] = new ModelFact('relation', $name, $kind, Confidence::Textual, $class->path, $line, 'the related class is not named literally', $class->fqn);
+
+            return;
+        }
+
+        // `X::class` is checkable and a class-string is not, so they are not equally known.
+        $literal = $arguments[0]->value instanceof Node\Expr\ClassConstFetch;
+
+        $this->facts[] = new ModelFact(
+            'relation',
+            $name,
+            $kind.'  '.$target,
+            $literal ? Confidence::Resolved : Confidence::Inferred,
+            $class->path,
+            $line,
+            $literal ? null : 'named by a string rather than ::class',
+            $class->fqn,
+        );
+    }
+
+    /**
+     * Global scopes, wherever they are registered from — a `booted()` method on the model, or a
+     * `bootX()` method on a trait it uses. The second is the common spelling for tenant
+     * scoping, and it is invisible in the model's own file.
+     */
+    private function readScopeCalls(LoadedClass $class): void
+    {
+        foreach (new NodeFinder()->findInstanceOf([$class->node], Node\Expr\StaticCall::class) as $call) {
+            if (! $call->name instanceof Node\Identifier || strcasecmp($call->name->toString(), 'addGlobalScope') !== 0) {
+                continue;
+            }
+
+            $this->recordScope($class, $call->getArgs(), $call->getStartLine());
+        }
+
+        foreach (new NodeFinder()->findInstanceOf([$class->node], MethodCall::class) as $call) {
+            if ($call->name instanceof Node\Identifier
+                && strcasecmp($call->name->toString(), 'addGlobalScope') === 0
+                && $call->var instanceof Node\Expr\Variable
+                && $call->var->name === 'this') {
+                $this->recordScope($class, $call->getArgs(), $call->getStartLine());
+            }
+        }
+    }
+
+    /**
+     * @param  array<int, Node\Arg>  $arguments
+     */
+    private function recordScope(LoadedClass $class, array $arguments, int $line): void
+    {
+        $first = $arguments[0]->value ?? null;
+
+        if ($first === null) {
+            return;
+        }
+
+        $target = $first instanceof Node\Expr\New_ && $first->class instanceof Node\Name
+            ? Analyser::resolvedName($first->class)
+            : LiteralValue::className($first);
+
+        if ($target === null) {
+            $this->declined[] = new ModelFact('scope', 'addGlobalScope', null, Confidence::Textual, $class->path, $line, 'the scope is a closure or is built at runtime', $class->fqn);
+
+            return;
+        }
+
+        $this->facts[] = new ModelFact('scope', $target, null, Confidence::Resolved, $class->path, $line, 'registered by '.$class->fqn, $class->fqn);
+    }
+
+    private function readScopedByAttribute(LoadedClass $class): void
+    {
+        foreach ($class->node->attrGroups as $group) {
+            foreach ($group->attrs as $attribute) {
+                if (strcasecmp($attribute->name->getLast(), 'ScopedBy') !== 0) {
+                    continue;
+                }
+
+                foreach ($attribute->args as $argument) {
+                    foreach ($this->attributeTargets($argument->value) as $target) {
+                        $this->facts[] = new ModelFact('scope', $target, null, Confidence::Resolved, $class->path, $attribute->getStartLine(), '#[ScopedBy]', $class->fqn);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function attributeTargets(Node\Expr $expression): array
+    {
+        $single = LiteralValue::className($expression);
+
+        if ($single !== null) {
+            return [$single];
+        }
+
+        if (! $expression instanceof Node\Expr\Array_) {
+            return [];
+        }
+
+        $targets = [];
+
+        foreach ($expression->items as $item) {
+            $target = LiteralValue::className($item->value);
+
+            if ($target !== null) {
+                $targets[] = $target;
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * Traits come from the graph rather than from the file, because a trait used by a parent is
+     * as present on the model as one used directly — and `SoftDeletes` in particular changes
+     * every query the model makes without appearing in its body at all.
+     */
+    private function readTraits(LoadedClass $own): void
+    {
+        foreach ($this->graph->ancestorsOf($own->fqn) as $ancestor => $origin) {
+            if ($origin !== MemberOrigin::Trait_) {
+                continue;
+            }
+
+            $record = $this->graph->classLike($ancestor);
+
+            // A trait reached through the graph may not itself be indexed — a framework trait
+            // usually is not — so the model's own file stands in as the address.
+            $path = $record instanceof SymbolRecord ? $record->path : $own->path;
+            $line = $record instanceof SymbolRecord ? $record->line : null;
+
+            $this->facts[] = new ModelFact(
+                'trait',
+                $ancestor,
+                null,
+                Confidence::Resolved,
+                $path,
+                $line,
+                null,
+                $own->fqn,
+            );
+
+            if (str_ends_with($ancestor, '\\SoftDeletes')) {
+                $this->facts[] = new ModelFact(
+                    'scope',
+                    'Illuminate\Database\Eloquent\SoftDeletingScope',
+                    null,
+                    Confidence::Inferred,
+                    $path,
+                    $line,
+                    'the SoftDeletes trait registers this scope; it appears in no body here',
+                    $own->fqn,
+                );
+            }
+        }
+    }
+
+    /**
+     * @param  ?callable(): array<string, Table>  $schema
+     */
+    private function resolveTable(LoadedClass $own, ?callable $schema): void
+    {
+        foreach ($this->facts as $fact) {
+            if ($fact->group === 'attribute' && $fact->name === 'table') {
+                return;
+            }
+        }
+
+        $derived = TableName::forClass($own->fqn);
+        $tables = $schema === null ? [] : $schema();
+        $known = isset($tables[$derived]);
+
+        // Derived from a convention, then checked against what the migrations actually create.
+        // "The convention says `people` and a table called `people` exists" is a much stronger
+        // claim than the convention alone, and the two must not read the same.
+        $this->facts[] = new ModelFact(
+            'attribute',
+            'table',
+            $derived,
+            Confidence::Inferred,
+            $own->path,
+            $own->node->getStartLine(),
+            $tables === []
+                ? 'derived from the class name; no migration history was read to check it against'
+                : ($known
+                    ? 'derived from the class name, and the migrations do create this table'
+                    : 'derived from the class name, but no migration creates a table of this name'),
+            $own->fqn,
+        );
+    }
+}

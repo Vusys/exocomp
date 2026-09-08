@@ -32,14 +32,25 @@ final class LiteralValue
      * The fully-qualified class name behind `X::class`, or behind a string that is spelled like
      * one. Both forms appear constantly in framework code and both name a class; only the
      * first is checkable by the engine, which is why the caller is told which it got.
+     *
+     * @param  ?string  $selfFqn  the class the expression is written in, so `self::class` can be
+     *                            answered with a name rather than with the word "self"
      */
-    public static function className(Node\Expr $expression): ?string
+    public static function className(Node\Expr $expression, ?string $selfFqn = null): ?string
     {
         if ($expression instanceof Node\Expr\ClassConstFetch
             && $expression->class instanceof Node\Name
             && $expression->name instanceof Node\Identifier
             && strcasecmp($expression->name->toString(), 'class') === 0) {
-            return Analyser::resolvedName($expression->class);
+            $resolved = Analyser::resolvedName($expression->class);
+
+            // `self::class` and `static::class` name the class they are written in, and the
+            // name resolver cannot know which that is. Returning the literal word would put
+            // "self" where a fully-qualified name belongs — a self-referencing relation would
+            // report a class called `self` that does not exist.
+            return in_array(strtolower($resolved), ['self', 'static', 'parent'], true)
+                ? ($selfFqn ?? $resolved)
+                : $resolved;
         }
 
         if ($expression instanceof Node\Scalar\String_ && str_contains($expression->value, '\\')) {

@@ -13,6 +13,7 @@ use Vusys\Exocomp\Console\Command\ImportsCommand;
 use Vusys\Exocomp\Console\Command\IndexCommand;
 use Vusys\Exocomp\Console\Command\LocateCommand;
 use Vusys\Exocomp\Console\Command\MembersCommand;
+use Vusys\Exocomp\Console\Command\ModelCommand;
 use Vusys\Exocomp\Console\Command\OutlineCommand;
 use Vusys\Exocomp\Console\Command\OverridesCommand;
 use Vusys\Exocomp\Console\Command\QueryCommand;
@@ -45,6 +46,7 @@ final class Application extends SymfonyApplication
             new CallsFromCommand,
             new QueryCommand,
             new CheckCommand,
+            new ModelCommand,
             new SchemaCommand,
             new IndexCommand,
         ]);
