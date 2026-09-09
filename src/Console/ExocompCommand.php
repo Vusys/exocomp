@@ -77,9 +77,23 @@ abstract class ExocompCommand extends Command
         } catch (SymbolNotFound $notFound) {
             $this->fail($output, $notFound->getMessage());
 
+            $elsewhere = $this->declaredElsewhere($context, $notFound->address);
+
+            foreach ($elsewhere as $note) {
+                $this->fail($output, 'note: '.$note);
+            }
+
             // A scan that could not parse a file, or an index that dropped one, must say so
             // here too. "Not found" and "could not look" are different answers.
+            //
+            // Except when the name was found under another namespace: a content scan cannot
+            // place a class that is not there under the name asked for, so advising one would
+            // send the reader to a dead end past the answer they are being handed.
             foreach ($context->notes() as $note) {
+                if ($elsewhere !== [] && str_contains($note, 'content scan of the source roots')) {
+                    continue;
+                }
+
                 $this->fail($output, 'note: '.$note);
             }
 
@@ -106,6 +120,59 @@ abstract class ExocompCommand extends Command
         // A negative answer is still an answer and still goes to standard output — but the
         // exit code has to say "not found", or `exocomp reaches … && …` means nothing.
         return $result->found ? self::EXIT_FOUND : self::EXIT_NOT_FOUND;
+    }
+
+    /**
+     * The same short name, declared under a namespace other than the one asked for.
+     *
+     * Guessing a namespace is the commonest way a name fails to resolve — an agent knows the
+     * class is called `OrderRepository` and puts it under `App\Repositories\` when it lives
+     * somewhere else entirely. The index already holds the answer, so this is a fact
+     * rather than a suggestion, and it costs one lookup on a path that has already failed.
+     *
+     * The index is read as it stands and never built to answer this: a command that does not
+     * need an index must not acquire one to improve its error message.
+     *
+     * @return list<string>
+     */
+    private function declaredElsewhere(CommandContext $context, string $address): array
+    {
+        $owner = explode('::', $address)[0];
+
+        // Nothing to offer when no namespace was guessed — the short name is the question that
+        // was already asked and already answered.
+        if (! str_contains($owner, '\\')) {
+            return [];
+        }
+
+        $short = (string) array_slice(explode('\\', $owner), -1)[0];
+
+        try {
+            $found = $context->index()->graph(validate: false)->byName($short);
+        } catch (RuntimeException) {
+            return [];
+        }
+
+        $names = [];
+
+        foreach ($found as $record) {
+            if ($record->isClassLike() && strcasecmp($record->fqn, $owner) !== 0) {
+                $names[$record->fqn] = true;
+            }
+        }
+
+        $names = array_keys($names);
+
+        if ($names === []) {
+            return [];
+        }
+
+        return [sprintf(
+            '"%s" is declared as %s%s',
+            $short,
+            implode(', ', array_slice($names, 0, 3)),
+            count($names) > 3 ? sprintf(' and %d more — try: exocomp locate %s', count($names) - 3, $short) : '',
+        )];
     }
 
     private function fail(OutputInterface $output, string $message): void

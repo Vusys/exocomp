@@ -54,6 +54,15 @@ is a real predicate. A `1` from `reaches` or `query` is an answer, not a failure
 - `inferred` — from a docblock, or a receiver typed as a base class. A claim about the code, not a fact of it.
 - `textual` — the name matches, the receiver could not be established.
 
+**A name that does not resolve tells you where it really is.** Guessing a namespace is the usual way
+a lookup fails; when the short name is declared elsewhere the answer says so, and you should take that
+rather than re-running with `--scan`:
+
+```
+exocomp show: no declaration of "App\Repositories\OrderRepository" found …
+exocomp show: note: "OrderRepository" is declared as App\Domain\Orders\Persistence\OrderRepository
+```
+
 **Anything it will not stand behind is handed back rather than dropped**, in a trailing block that names the
 command which would close the gap:
 

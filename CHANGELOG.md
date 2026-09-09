@@ -191,6 +191,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **A guessed namespace is answered with the real one.** Reading real sessions, the commonest way
+  a name failed was an agent knowing the class is called `OrderRepository` and guessing it lives
+  under `App\Repositories\`. "No declaration of that" was correct and useless — the
+  index already held the answer — and the advice given instead, pass `--scan`, cannot place a
+  class that is not there under the name asked for, so it cost a second run and returned the same
+  nothing. The miss now names where the short name really is declared, and withholds the scan
+  advice when it does, because advising a search past the answer is worse than saying nothing.
+  The index is read as it stands and never built for this.
 - **An accessor's reason described the wrong mechanism for half the rows it was attached to.**
   `model` gave `getDisplayNameAttribute()` and `shortCode(): Attribute` the same account — "read
   as an attribute by the framework's naming convention" — which is true of the first and false of
