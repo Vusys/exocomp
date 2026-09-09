@@ -40,6 +40,9 @@ final class ModelReader
     /** @var list<string> */
     private const array MAPS = ['casts', 'attributes'];
 
+    /** Where the framework keeps the types a relation method declares it returns. */
+    private const string RELATION_NAMESPACE = 'Illuminate\\Database\\Eloquent\\Relations\\';
+
     /**
      * The relation factories. A method is a relation because it calls one of these on `$this`,
      * never because of what it is named — `reference()` returning a string is not a relation,
@@ -125,7 +128,7 @@ final class ModelReader
 
         $this->readTraits($own);
         $this->resolveTable($own, $schema);
-        $this->reconcile($own, $schema);
+        $this->reconcile($own, $schema, $this->unreadableAncestry($chain));
 
         return new EloquentModel(
             fqn: $own->fqn,
@@ -271,23 +274,61 @@ final class ModelReader
                 continue;
             }
 
-            foreach (new NodeFinder()->findInstanceOf([$method], Node\Stmt\Return_::class) as $return) {
-                if (! $return->expr instanceof Node\Expr) {
-                    continue;
-                }
+            $call = $this->returnedRelation($method) ?? $this->declaredRelation($method);
 
-                $call = $this->relationCall($return->expr);
+            if (! $call instanceof MethodCall) {
+                $this->recordDerivedRelation($class, $method, $name);
 
-                if (! $call instanceof MethodCall) {
-                    continue;
-                }
+                continue;
+            }
 
-                $this->claimed['relation:'.strtolower($name)] = true;
-                $this->recordRelation($class, $name, $call, $method->getStartLine());
+            $this->claimed['relation:'.strtolower($name)] = true;
+            $this->recordRelation($class, $name, $call, $method->getStartLine());
+        }
+    }
 
-                break;
+    /**
+     * The relation a method returns directly, which is how nearly all of them are written.
+     */
+    private function returnedRelation(Node\Stmt\ClassMethod $method): ?MethodCall
+    {
+        foreach (new NodeFinder()->findInstanceOf([$method], Node\Stmt\Return_::class) as $return) {
+            $call = $return->expr instanceof Node\Expr ? $this->relationCall($return->expr) : null;
+
+            if ($call instanceof MethodCall) {
+                return $call;
             }
         }
+
+        return null;
+    }
+
+    /**
+     * A relation built into a variable and handed back through something else.
+     *
+     * Package code writes them this way — build the relation, pass it through a scope helper,
+     * return that — and reading only the return statement finds nothing, which then reads as a
+     * model that has no such relation. The method's own declared return type is what makes it
+     * safe to widen the search: a method saying it returns a `Relations\*` type and calling a
+     * relation factory on `$this` is a relation, wherever in its body that call sits.
+     */
+    private function declaredRelation(Node\Stmt\ClassMethod $method): ?MethodCall
+    {
+        $returns = $method->getReturnType();
+
+        if (! $returns instanceof Node\Name || ! str_starts_with(Analyser::resolvedName($returns), self::RELATION_NAMESPACE)) {
+            return null;
+        }
+
+        foreach (new NodeFinder()->findInstanceOf([$method], MethodCall::class) as $call) {
+            $found = $this->relationCall($call);
+
+            if ($found instanceof MethodCall) {
+                return $found;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -309,6 +350,45 @@ final class ModelReader
         }
 
         return null;
+    }
+
+    /**
+     * A relation built out of another relation: `return $this->children()->with(...)`.
+     *
+     * No relation factory is called anywhere in the body, so nothing here can name the target
+     * class — but the method says it returns a relation type, and that is enough to know the
+     * attribute exists. Recording it as declined says both halves: the relation is real, and
+     * what it points at is not readable from this method.
+     *
+     * Left out entirely, these read as annotations that nothing backs, which is a much worse
+     * answer than an honest gap.
+     */
+    private function recordDerivedRelation(LoadedClass $class, Node\Stmt\ClassMethod $method, string $name): void
+    {
+        $returns = $method->getReturnType();
+
+        if (! $returns instanceof Node\Name || isset($this->claimed['relation:'.strtolower($name)])) {
+            return;
+        }
+
+        $kind = Analyser::resolvedName($returns);
+
+        if (! str_starts_with($kind, self::RELATION_NAMESPACE)) {
+            return;
+        }
+
+        $this->claimed['relation:'.strtolower($name)] = true;
+
+        $this->declined[] = new ModelFact(
+            'relation',
+            $name,
+            lcfirst(substr($kind, strlen(self::RELATION_NAMESPACE))),
+            Confidence::Inferred,
+            $class->path,
+            $method->getStartLine(),
+            'derived from another relation, so the related class is not named in this method',
+            $class->fqn,
+        );
     }
 
     private function recordRelation(LoadedClass $class, string $name, MethodCall $call, int $line): void
@@ -553,7 +633,35 @@ final class ModelReader
      * and the claim outlives the thing it described. Nothing else in the toolchain will say so,
      * and the two halves needed to notice are already in hand here.
      */
-    private function reconcile(LoadedClass $own, ?callable $schema): void
+    /**
+     * The parents and traits in a model's chain that could not be read.
+     *
+     * A relation declared in a package trait is invisible here, and an annotation naming it
+     * would look like drift. Which of those two it is changes what a reader should do, so the
+     * answer has to be able to say.
+     *
+     * @param  list<LoadedClass>  $chain
+     * @return list<string>
+     */
+    private function unreadableAncestry(array $chain): array
+    {
+        $missing = [];
+
+        foreach ($chain as $class) {
+            foreach ($this->source->parentsOf($class) as $parent) {
+                if ($parent !== LaravelProfile::MODEL && !$this->source->load($parent) instanceof \Vusys\Exocomp\Project\LoadedClass) {
+                    $missing[$parent] = true;
+                }
+            }
+        }
+
+        return array_keys($missing);
+    }
+
+    /**
+     * @param  list<string>  $unreadable
+     */
+    private function reconcile(LoadedClass $own, ?callable $schema, array $unreadable): void
     {
         $claimed = [];
         $accounted = [];
@@ -561,7 +669,7 @@ final class ModelReader
         foreach ($this->facts as $fact) {
             match ($fact->group) {
                 'annotated' => $claimed[$fact->name] = true,
-                'accessor', 'relation', 'casts', 'fillable', 'guarded', 'hidden', 'visible', 'appends', 'dates' => $accounted[$fact->name] = true,
+                'accessor', 'relation', 'casts', 'fillable', 'guarded', 'hidden', 'visible', 'appends', 'dates' => $accounted[$this->normalise($fact->name)] = true,
                 default => null,
             };
         }
@@ -572,37 +680,87 @@ final class ModelReader
 
         foreach ($own->node->getProperties() as $property) {
             foreach ($property->props as $item) {
-                $accounted[$item->name->toString()] = true;
+                $accounted[$this->normalise($item->name->toString())] = true;
+            }
+        }
+
+        // A relation the reader declined is still a relation. `morphTo` names no target class,
+        // which is why it is declined — but the attribute is there, and counting it as missing
+        // would report the commonest polymorphic shape in Laravel as a stale annotation.
+        foreach ($this->declined as $fact) {
+            if ($fact->group === 'relation') {
+                $accounted[$this->normalise($fact->name)] = true;
             }
         }
 
         $table = $this->tableName();
         $tables = $schema === null ? [] : $schema();
-        $columns = $table !== null && isset($tables[$table]) ? $tables[$table]->columns : [];
+        $found = $table === null ? null : ($tables[$table] ?? null);
 
         // Without a migration history there is nothing to check the claims against, and a report
         // that every annotated property is unaccounted for would be noise rather than a finding.
-        if ($columns === []) {
+        //
+        // The same goes for a table whose history the replay could not read to the end: its
+        // column list is a best reading rather than a fact, and a claim cannot be contradicted
+        // by a list that is knowingly incomplete.
+        if ($found === null || $found->columns === [] || $found->unread !== []) {
             return;
         }
 
+        $columns = $found->columns;
+
         foreach ($columns as $column) {
-            $accounted[$column->name] = true;
+            $accounted[$this->normalise($column->name)] = true;
         }
 
-        $unaccounted = array_values(array_diff(array_keys($claimed), array_keys($accounted)));
+        $unaccounted = array_values(array_filter(
+            array_keys($claimed),
+            fn (string $name): bool => ! isset($accounted[$this->normalise($name)]) && ! $this->isRelationAggregate($name),
+        ));
 
         if ($unaccounted === []) {
             return;
         }
 
         $this->notes[] = sprintf(
-            '%d of %d annotated properties are accounted for by no column, cast, accessor or relation — %s%s',
+            '%d of %d annotated properties are accounted for by no column, cast, accessor or relation — %s%s%s',
             count($unaccounted),
             count($claimed),
             implode(', ', array_slice($unaccounted, 0, 8)),
             count($unaccounted) > 8 ? sprintf(' and %d more', count($unaccounted) - 8) : '',
+            $unreadable === []
+                ? '; the model was read to the end of its ancestry, so these are claims nothing backs'
+                : sprintf('; %s could not be read, so a relation or accessor declared there would look the same', implode(', ', array_slice($unreadable, 0, 3))),
         );
+    }
+
+    /**
+     * Whether an attribute is the aggregate of a relation rather than a thing in its own right.
+     *
+     * `withCount('lines')` puts `lines_count` on the model, and the generated annotation block
+     * records it. Nothing in the source declares it and nothing ever will, so without this every
+     * model using an aggregate would be reported as carrying a stale claim — which is how a
+     * report that is right most of the time gets switched off.
+     */
+    private function isRelationAggregate(string $name): bool
+    {
+        // Declined relations count. A `morphTo` names no target class and is declined for that
+        // reason, but the aggregate it puts on the model is there either way.
+        foreach ([...$this->facts, ...$this->declined] as $fact) {
+            if ($fact->group !== 'relation') {
+                continue;
+            }
+
+            $relation = self::snake($fact->name);
+
+            foreach (['_count', '_exists', '_sum_', '_avg_', '_min_', '_max_'] as $aggregate) {
+                if (str_starts_with($this->normalise($name), $this->normalise($relation.$aggregate))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function tableName(): ?string
@@ -614,6 +772,19 @@ final class ModelReader
         }
 
         return null;
+    }
+
+    /**
+     * The form two spellings of the same attribute share.
+     *
+     * `getDisplayNameAttribute()` answers to `displayName` and to `display_name`,
+     * because the framework studlies whatever key it is given. Comparing literal spellings
+     * reported a declared accessor as a stale annotation, which is exactly the false positive
+     * that gets a report like this switched off.
+     */
+    private function normalise(string $name): string
+    {
+        return strtolower(str_replace('_', '', $name));
     }
 
     private function snake(string $name): string
