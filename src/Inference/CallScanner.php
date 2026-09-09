@@ -90,7 +90,9 @@ final class CallScanner extends NodeVisitorAbstract
             return;
         }
 
-        $this->record($call, 'method call', $receiver->fqn.'::'.$call->name->toString(), $receiver->confidence, $receiver->reason);
+        $target = $this->types->callTarget((string) $receiver->fqn, $call->name->toString(), $receiver->confidence, $receiver->reason);
+
+        $this->record($call, 'method call', $target->fqn, $target->confidence, $target->reason);
     }
 
     private function staticCall(Node\Expr\StaticCall $call): void
@@ -104,7 +106,15 @@ final class CallScanner extends NodeVisitorAbstract
         $keyword = $this->scope->resolveKeyword($call->class->toString());
         $owner = $keyword instanceof ResolvedType ? $keyword->fqn : Analyser::resolvedName($call->class);
 
-        $this->record($call, 'static call', $owner.'::'.$call->name->toString(), Confidence::Resolved, 'class name');
+        if ($owner === null) {
+            $this->record($call, 'static call', null, Confidence::Textual, $keyword instanceof ResolvedType ? $keyword->reason : 'static call on an unknown class');
+
+            return;
+        }
+
+        $target = $this->types->callTarget($owner, $call->name->toString(), Confidence::Resolved, 'class name');
+
+        $this->record($call, 'static call', $target->fqn, $target->confidence, $target->reason);
     }
 
     private function functionCall(Node\Expr\FuncCall $call): void

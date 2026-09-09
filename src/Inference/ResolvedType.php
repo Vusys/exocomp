@@ -38,6 +38,15 @@ final readonly class ResolvedType
     }
 
     /**
+     * A type established at a confidence the caller worked out — used where a chain of evidence
+     * decides the strength rather than a single kind of declaration.
+     */
+    public static function of(string $fqn, Confidence $confidence, string $reason): self
+    {
+        return new self($fqn, $confidence, $reason);
+    }
+
+    /**
      * Established from something that was written down but is not binding — a docblock, most
      * often. Worth reporting, never worth rewriting on.
      */

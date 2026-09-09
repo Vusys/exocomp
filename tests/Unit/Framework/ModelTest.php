@@ -178,7 +178,11 @@ final class ModelTest extends TestCase
         $note = $byKind['property fetch']['note'] ?? null;
 
         $this->assertIsString($note);
-        $this->assertStringContainsString('__get', $note);
+
+        // It used to say "this resolves through __get, if the class defines one", which was the
+        // right hedge when the tool could not see the mechanism. It can now: the relation is
+        // declared, and naming it is a better answer than hedging about it.
+        $this->assertStringContainsString('relation read as an attribute', $note);
     }
 
     public function test_an_unknown_name_is_not_found(): void

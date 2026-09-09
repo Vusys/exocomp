@@ -54,6 +54,12 @@ final class FixtureIntegrityTest extends TestCase
         yield 'anonymous class' => ['src/TierB/Anonymous.php', 'return new class extends AbstractBase'];
         yield 'commented-out declaration' => ['src/TierB/Anonymous.php', 'public function commentedOut(): void'];
         yield 'deliberately unparseable' => ['src/TierF/Unparseable.php', '$this->'];
+        yield 'magic without a docblock' => ['src/TierD/Magic.php', 'class Bag'];
+        yield 'the same magic, declared' => ['src/TierD/Magic.php', '@method Notifier fetch(string $key)'];
+        yield 'a borrowed API' => ['src/TierD/Magic.php', '@mixin Notifier'];
+        yield 'a readable forwarder' => ['src/TierD/Magic.php', '$this->inner->{$name}(...$arguments)'];
+        yield 'a computed magic target' => ['src/TierD/Magic.php', 'substr($name, 3)'];
+        yield 'a call to a member that is not there' => ['src/TierB/CallSites.php', '$this->repository->findByUuid($uuid)'];
     }
 
     public function test_the_unparseable_fixture_is_still_unparseable(): void

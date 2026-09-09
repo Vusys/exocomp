@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Inference;
 
+use PHPStan\PhpDocParser\Ast\PhpDoc\MethodTagValueNode;
+use PHPStan\PhpDocParser\Ast\PhpDoc\MixinTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\ParamTagValueNode;
+use PHPStan\PhpDocParser\Ast\PhpDoc\PropertyTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\ReturnTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\VarTagValueNode;
 use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
@@ -91,6 +94,67 @@ final readonly class DocBlockTypes
         }
 
         return ['params' => $params, 'return' => $return, 'var' => $var, 'vars' => $vars];
+    }
+
+    /**
+     * The members a class docblock claims it has, and the classes it says its magic forwards to.
+     *
+     * These are the `@method`, `@property` and `@mixin` tags, and they are the commonest form
+     * magic takes in practice by a wide margin — a measured Laravel application carried 3,552
+     * `@method` and 4,155 `@property` tags against a single `__call` body. They are read here
+     * and nowhere else, so that everything downstream treats them as one kind of evidence.
+     *
+     * A member whose type is not a class name is still recorded, with a null type. "This member
+     * exists and yields an int" is a different and better answer than "no such member", even
+     * though there is no receiver to carry forward.
+     *
+     * @return array{methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}
+     */
+    public function members(string $docblock): array
+    {
+        $methods = [];
+        $properties = [];
+        $mixins = [];
+
+        if (trim($docblock) === '') {
+            return ['methods' => $methods, 'properties' => $properties, 'mixins' => $mixins];
+        }
+
+        $node = $this->parser->parse(new TokenIterator($this->lexer->tokenize($docblock)));
+
+        foreach ($node->getTags() as $tag) {
+            $value = $tag->value;
+
+            if ($value instanceof MethodTagValueNode) {
+                $methods[$value->methodName] = [
+                    'type' => $value->returnType instanceof TypeNode ? self::nameOf($value->returnType) : null,
+                    'tag' => $tag->name,
+                ];
+
+                continue;
+            }
+
+            if ($value instanceof PropertyTagValueNode) {
+                // The tag is kept because `@property-read` and `@property` are different claims,
+                // and a reader deciding whether to trust one wants to see which was written.
+                $properties[ltrim($value->propertyName, '$')] = [
+                    'type' => self::nameOf($value->type),
+                    'tag' => $tag->name,
+                ];
+
+                continue;
+            }
+
+            if ($value instanceof MixinTagValueNode) {
+                $name = self::nameOf($value->type);
+
+                if ($name !== null) {
+                    $mixins[] = $name;
+                }
+            }
+        }
+
+        return ['methods' => $methods, 'properties' => $properties, 'mixins' => $mixins];
     }
 
     /**

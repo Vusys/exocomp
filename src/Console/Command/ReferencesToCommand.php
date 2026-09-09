@@ -64,7 +64,7 @@ final class ReferencesToCommand extends IndexedCommand
         }
 
         $target = SymbolRef::parse($this->stringArgument($input, 'symbol') ?? '');
-        $finder = new ReferenceFinder($context->project, $context->index());
+        $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
         $references = $finder->find($target, $this->boolOption($input, 'strings'));
 
         $certain = array_values(array_filter($references, static fn (Reference $r): bool => $r->confidence === Confidence::Resolved));

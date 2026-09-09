@@ -45,7 +45,7 @@ final class CallersOfCommand extends IndexedCommand
         }
 
         $target = SymbolRef::parse($this->stringArgument($input, 'symbol') ?? '');
-        $finder = new ReferenceFinder($context->project, $context->index());
+        $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
 
         $calls = array_values(array_filter(
             $finder->find($target),

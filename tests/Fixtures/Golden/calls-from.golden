@@ -1,7 +1,9 @@
-What one method calls, resolved through declared types
+What one method calls — and the one it cannot, on a class read to the end
 -----
 calls-from Fixtures\TierB\CallSites::lookups
 -----
 2 calls from Fixtures\TierB\CallSites::lookups
 src/TierB/CallSites.php:36:16  Fixtures\TierA\Support\Repository::find
-src/TierB/CallSites.php:36:46  Fixtures\TierA\Support\Repository::findByUuid
+
+── 1 unresolved ──
+src/TierB/CallSites.php:36:46  $this->repository->findByUuid($uuid)   Fixtures\TierA\Support\Repository declares no findByUuid()

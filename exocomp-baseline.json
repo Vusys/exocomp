@@ -16,13 +16,6 @@
         },
         {
             "rule": "substr-on-possibly-multibyte-text",
-            "file": "src/Inference/TypeResolver.php",
-            "context": "Vusys\\Exocomp\\Inference\\TypeResolver::qualify",
-            "code": "substr($classFqn, 0, (int) strrpos($classFqn, '\\\\'))",
-            "count": 1
-        },
-        {
-            "rule": "substr-on-possibly-multibyte-text",
             "file": "src/Project/AutoloadMap.php",
             "context": "Vusys\\Exocomp\\Project\\AutoloadMap::candidates",
             "code": "substr($relative, 0, $position + 1)",

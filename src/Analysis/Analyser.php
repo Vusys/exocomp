@@ -109,6 +109,50 @@ final readonly class Analyser
      * resolver worked out over the literal spelling. A relative or imported short name means
      * nothing on its own — resolving it is precisely the thing grep cannot do.
      */
+    /**
+     * A name written inside a file, resolved the way PHP itself would resolve it: leading
+     * backslash means absolute, `self`/`static` mean the enclosing class, an alias wins over
+     * everything, and a bare name falls back to the current namespace.
+     *
+     * This is the half of name resolution a textual search cannot do, and it is needed wherever
+     * a name is read out of something the parser did not resolve for us — a docblock, most of
+     * all, since `@method Notifier fetch()` means whatever `Notifier` means in that file.
+     *
+     * @param  list<Import>  $imports
+     */
+    public static function qualify(string $name, ?string $classFqn, array $imports): string
+    {
+        if (str_starts_with($name, '\\')) {
+            return ltrim($name, '\\');
+        }
+
+        if (in_array(strtolower($name), ['self', 'static', '$this'], true)) {
+            return $classFqn ?? $name;
+        }
+
+        $head = explode('\\', $name)[0];
+
+        foreach ($imports as $import) {
+            if (strcasecmp($import->alias, $head) === 0) {
+                $rest = array_slice(explode('\\', $name), 1);
+
+                return $rest === [] ? $import->fqn : $import->fqn.'\\'.implode('\\', $rest);
+            }
+        }
+
+        if ($classFqn !== null && ! str_contains($name, '\\')) {
+            $segments = explode('\\', $classFqn);
+            array_pop($segments);
+            $namespace = implode('\\', $segments);
+
+            if ($namespace !== '') {
+                return $namespace.'\\'.$name;
+            }
+        }
+
+        return $name;
+    }
+
     public static function resolvedName(Node\Name $name): string
     {
         $resolved = $name->getAttribute('resolvedName');

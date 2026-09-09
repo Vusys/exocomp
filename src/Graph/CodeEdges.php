@@ -11,6 +11,7 @@ use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\CallScanner;
+use Vusys\Exocomp\Inference\Magic;
 use Vusys\Exocomp\Inference\OutgoingCall;
 use Vusys\Exocomp\Inference\TypeResolver;
 use Vusys\Exocomp\Project\ClassSource;
@@ -94,7 +95,7 @@ final class CodeEdges
             return $this->calls[$key];
         }
 
-        $types = new TypeResolver($this->graph);
+        $types = new TypeResolver($this->graph, Magic::forProject($this->graph, $this->source));
         $scope = $types->scopeFor($body->classFqn, $body->parentFqn, $body->node, $body->analysis->imports);
         $scanner = new CallScanner($body->analysis, $types, $scope, $this->graph);
 

@@ -10,6 +10,7 @@ use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\Import;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
@@ -31,9 +32,12 @@ final readonly class TypeResolver
 {
     private DocBlockTypes $docblocks;
 
-    public function __construct(private SymbolGraph $graph)
+    private Members $members;
+
+    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null)
     {
         $this->docblocks = new DocBlockTypes;
+        $this->members = new Members($graph);
     }
 
     /**
@@ -171,11 +175,17 @@ final readonly class TypeResolver
             return ResolvedType::unknown($owner->reason);
         }
 
-        $member = $this->member((string) $owner->fqn, $fetch->name->toString(), SymbolKind::Property);
+        $name = $fetch->name->toString();
+        $member = $this->member((string) $owner->fqn, $name, SymbolKind::Property);
 
-        return $member?->typeFqn === null
-            ? ResolvedType::unknown('property has no declared class type')
-            : ResolvedType::declared($member->typeFqn);
+        if ($member instanceof SymbolRecord) {
+            return $member->typeFqn === null
+                ? ResolvedType::unknown('property has no declared class type')
+                : ResolvedType::declared($member->typeFqn);
+        }
+
+        return $this->magically((string) $owner->fqn, $name, SymbolKind::Property)
+            ?? ResolvedType::unknown('property has no declared class type');
     }
 
     private function staticPropertyType(Node\Expr\StaticPropertyFetch $fetch, Scope $scope): ResolvedType
@@ -227,7 +237,8 @@ final readonly class TypeResolver
         $member = $this->member($ownerFqn, $method, SymbolKind::Method);
 
         if (! $member instanceof SymbolRecord) {
-            return ResolvedType::unknown($this->whyNoMethod($ownerFqn, $method));
+            return $this->magically($ownerFqn, $method, SymbolKind::Method)
+                ?? ResolvedType::unknown($this->whyNoMethod($ownerFqn, $method));
         }
 
         return $member->typeFqn === null
@@ -329,25 +340,85 @@ final readonly class TypeResolver
         );
     }
 
-    private function member(string $ownerFqn, string $name, SymbolKind $kind): ?SymbolRecord
+    /**
+     * What a call site actually calls, once the receiver's type is known.
+     *
+     * Knowing the receiver was only ever half the question. Reporting `Receiver::whateverWasTyped`
+     * without checking the member exists is right for code that compiles and confidently wrong
+     * for the rest — and "the rest" is where a framework application spends its time.
+     */
+    public function callTarget(string $ownerFqn, string $name, Confidence $confidence, string $reason): CallTarget
     {
-        foreach ($this->graph->members($ownerFqn)['members'] as $member) {
-            $record = $member->record;
-
-            if ($record->kind !== $kind) {
-                continue;
-            }
-
-            $matches = $kind === SymbolKind::Method
-                ? strcasecmp($record->name, $name) === 0
-                : $record->name === $name;
-
-            if ($matches) {
-                return $record;
-            }
+        if ($this->member($ownerFqn, $name, SymbolKind::Method) instanceof SymbolRecord) {
+            return CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason);
         }
 
-        return null;
+        $magic = $this->magic?->method($ownerFqn, $name);
+
+        if ($magic instanceof MagicMember) {
+            return CallTarget::at(
+                $magic->declaration ?? $ownerFqn.'::'.$name,
+                Confidence::weakest($confidence, $magic->confidence),
+                $magic->reason,
+            );
+        }
+
+        // Only a class that was read to the end of its ancestry can prove a member is absent.
+        // Everything else — a framework base class, an interface in a dependency, a name the
+        // corpus never indexed — is a class whose API is larger than anything readable, and an
+        // absence there says nothing at all.
+        if (! $this->members->isComplete($ownerFqn) || $this->isEnumIntrinsic($ownerFqn, $name)) {
+            return CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason);
+        }
+
+        return CallTarget::none($this->whyNoMethod($ownerFqn, $name));
+    }
+
+    /**
+     * `from`, `tryFrom` and `cases` are given to every enum by the language itself, so they are
+     * declared nowhere and are not missing.
+     */
+    private function isEnumIntrinsic(string $ownerFqn, string $name): bool
+    {
+        return in_array(strtolower($name), ['from', 'tryfrom', 'cases'], true)
+            && $this->graph->classLike($ownerFqn)?->kind === SymbolKind::EnumType;
+    }
+
+    /**
+     * The type a member yields when nothing declares it under the name that was written.
+     */
+    private function magically(string $ownerFqn, string $name, SymbolKind $kind): ?ResolvedType
+    {
+        $magic = $kind === SymbolKind::Method
+            ? $this->magic?->method($ownerFqn, $name)
+            : $this->magic?->property($ownerFqn, $name);
+
+        if (! $magic instanceof MagicMember) {
+            return null;
+        }
+
+        if ($magic->type !== null) {
+            return ResolvedType::of($magic->type, $magic->confidence, $magic->reason);
+        }
+
+        if ($magic->declaration === null) {
+            return null;
+        }
+
+        // A convention names a real declaration, and what that declaration returns is then an
+        // ordinary lookup — carried at the strength of the weakest step that got us here.
+        $owner = $magic->owner();
+        $member = $magic->member();
+        $declared = $owner === null || $member === null ? null : $this->member($owner, $member, SymbolKind::Method);
+
+        return $declared?->typeFqn === null
+            ? null
+            : ResolvedType::of($declared->typeFqn, $magic->confidence, $magic->reason);
+    }
+
+    private function member(string $ownerFqn, string $name, SymbolKind $kind): ?SymbolRecord
+    {
+        return $this->members->declared($ownerFqn, $name, $kind);
     }
 
     /**
@@ -389,33 +460,7 @@ final readonly class TypeResolver
      */
     private function qualify(string $name, ?string $classFqn, array $imports): string
     {
-        if (str_starts_with($name, '\\')) {
-            return ltrim($name, '\\');
-        }
-
-        if (in_array(strtolower($name), ['self', 'static', '$this'], true)) {
-            return $classFqn ?? $name;
-        }
-
-        $head = explode('\\', $name)[0];
-
-        foreach ($imports as $import) {
-            if (strcasecmp($import->alias, $head) === 0) {
-                return count(explode('\\', $name)) === 1
-                    ? $import->fqn
-                    : $import->fqn.substr($name, strlen($head));
-            }
-        }
-
-        if ($classFqn !== null && ! str_contains($name, '\\')) {
-            $namespace = substr($classFqn, 0, (int) strrpos($classFqn, '\\'));
-
-            if ($namespace !== '') {
-                return $namespace.'\\'.$name;
-            }
-        }
-
-        return $name;
+        return Analyser::qualify($name, $classFqn, $imports);
     }
 
     private function variableName(Node $node): ?string

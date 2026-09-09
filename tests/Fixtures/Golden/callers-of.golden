@@ -1,8 +1,11 @@
-The declarations that depend on a member
+The declarations that name a member — and the fact that nothing declares it
 -----
 callers-of Fixtures\TierA\Support\Repository::findByUuid
 -----
 2 callers of Fixtures\TierA\Support\Repository::findByUuid
-src/TierB/CallSites.php:36:46  Fixtures\TierB\CallSites::lookups
-src/TierB/CallSites.php:44:16  Fixtures\TierB\CallSites::oldLookup
+
+── 2 unresolved ──
+src/TierB/CallSites.php:36:46  Fixtures\TierB\CallSites::lookups     no declaration of this name
+src/TierB/CallSites.php:44:16  Fixtures\TierB\CallSites::oldLookup   no declaration of this name
+note: Fixtures\TierA\Support\Repository declares no findByUuid, and its ancestry is readable to the end — so every match is a name, not a reference to a declaration
 note: 1 file could not be parsed and is not in the index (see: exocomp index --status)

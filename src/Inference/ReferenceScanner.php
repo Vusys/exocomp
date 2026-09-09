@@ -50,11 +50,18 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
     private bool $targetKindResolved = false;
 
+    /**
+     * @param  list<string>  $spellings  other names a call site may use for this member
+     */
     public function __construct(
         private readonly SymbolRef $target,
         private readonly FileAnalysis $analysis,
         private readonly SymbolGraph $graph,
         private readonly TypeResolver $types,
+        private readonly ?Magic $magic = null,
+        private readonly array $spellings = [],
+        private readonly bool $targetDeclared = true,
+        private readonly string $undeclared = '',
     ) {
         $this->scope = new Scope(null, null);
     }
@@ -189,7 +196,14 @@ final class ReferenceScanner extends NodeVisitorAbstract
             return;
         }
 
-        if (! $this->nameMatches($name, $member)) {
+        $written = $this->written($name);
+        $spelled = ! $this->nameMatches($name, $member);
+
+        // A member reached under another name — a local scope called as `active()` — is only a
+        // reference if the magic that renames it actually lands on the target. The name alone
+        // proves nothing here, and following it without that check would turn every `->active()`
+        // in the corpus into a hit.
+        if ($spelled && ($written === null || ! in_array(strtolower($written), array_map(strtolower(...), $this->spellings), true))) {
             return;
         }
 
@@ -198,12 +212,20 @@ final class ReferenceScanner extends NodeVisitorAbstract
             : $this->types->typeOf($receiver, $this->scope, $this->analysis->imports);
 
         if (! $type->isKnown()) {
+            if ($spelled) {
+                return;
+            }
+
             $this->record($node, $kind, Confidence::Textual, $type->reason);
 
             return;
         }
 
-        $relation = $this->relation((string) $type->fqn);
+        $relation = $spelled ? null : $this->relation((string) $type->fqn);
+
+        if ($relation === null && $written !== null) {
+            $relation = $this->throughMagic((string) $type->fqn, $written, $kind);
+        }
 
         if ($relation === null) {
             // A same-named member on an unrelated class. Not a reference, and excluding it is
@@ -222,11 +244,29 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
         // A property fetch naming a method is not the same claim as calling it. On a class with
         // `__get` it really is that member — an Eloquent relation read as an attribute is the
-        // commonest example there is — and on a class without one it is a bug rather than a
-        // use. Either way the engine cannot see which, so it says so instead of asserting.
-        if ($this->shapeDisagrees($kind)) {
-            $confidence = $this->weaker($confidence, Confidence::Inferred);
-            $reason .= '; read as a property, but the member is declared as a method — this resolves through __get, if the class defines one';
+        // commonest example there is — and on a class without one it is a bug rather than a use.
+        //
+        // So the magic layer is asked first, and when it can name the mechanism its answer is
+        // used instead of the caveat. Hedging with "if the class defines one" about a relation
+        // the framework demonstrably routes would be hedging against something established.
+        if ($this->shapeDisagrees($kind) && ! ($relation['explained'] ?? false)) {
+            $explained = $written === null ? null : $this->throughMagic((string) $type->fqn, $written, $kind);
+
+            if ($explained === null) {
+                $confidence = $this->weaker($confidence, Confidence::Inferred);
+                $reason .= '; read as a property, but the member is declared as a method — this resolves through __get, if the class defines one';
+            } else {
+                $confidence = $this->weaker($confidence, $explained['confidence']);
+                $reason = $explained['reason'];
+            }
+        }
+
+        // A member nothing declares, on a class read to the end of its ancestry, is not a
+        // reference to a declaration — there is none. It is a name that matches, which is
+        // exactly what `textual` is for.
+        if (! $this->targetDeclared) {
+            $confidence = Confidence::Textual;
+            $reason = $this->undeclared;
         }
 
         $this->record($node, $kind, $confidence, $reason);
@@ -294,6 +334,56 @@ final class ReferenceScanner extends NodeVisitorAbstract
      * How a receiver of this type relates to the class the target member belongs to.
      *
      * @return array{confidence: Confidence, reason: string}|null
+     */
+    /**
+     * The member reached through magic, when the hierarchy alone does not connect the receiver
+     * to the target.
+     *
+     * Two shapes arrive here. A `@mixin` or a forwarder lands on the target under the same
+     * name, and a framework convention lands on it under a different one; both have to end at a
+     * declaration that really is the member being searched for, or they are not references.
+     *
+     * @return array{confidence: Confidence, reason: string}|null
+     */
+    private function throughMagic(string $receiverFqn, string $written, string $kind): ?array
+    {
+        $magic = str_contains($kind, 'propert')
+            ? $this->magic?->property($receiverFqn, $written)
+            : $this->magic?->method($receiverFqn, $written);
+
+        if ($magic?->declaration === null) {
+            return null;
+        }
+
+        $owner = $magic->owner();
+        $member = $magic->member();
+
+        if ($owner === null || $member === null || strcasecmp($member, (string) $this->target->member) !== 0) {
+            return null;
+        }
+
+        $related = $this->relation($owner);
+
+        return $related === null ? null : [
+            'confidence' => Confidence::weakest($related['confidence'], $magic->confidence),
+            'reason' => $magic->reason,
+            'explained' => true,
+        ];
+    }
+
+    /**
+     * The name as it is literally written, when it is written at all — a variable member name
+     * is exactly the case that has none.
+     */
+    private function written(Node $name): ?string
+    {
+        // `VarLikeIdentifier` — a static property's name — extends `Identifier`, so one check
+        // covers both.
+        return $name instanceof Identifier ? $name->toString() : null;
+    }
+
+    /**
+     * @return array{confidence: Confidence, reason: string, explained?: bool}|null
      */
     private function relation(string $receiverFqn): ?array
     {

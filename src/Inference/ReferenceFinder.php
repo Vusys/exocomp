@@ -7,10 +7,15 @@ namespace Vusys\Exocomp\Inference;
 use PhpParser\NodeTraverser;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Index\Index;
+use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\Project;
+use Vusys\Exocomp\Project\SymbolLocator;
 use Vusys\Exocomp\Source\ParseFailure;
 use Vusys\Exocomp\Source\SourceFile;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\SymbolKind;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -34,6 +39,7 @@ final class ReferenceFinder
         private readonly Project $project,
         private readonly Index $index,
         private readonly Analyser $analyser = new Analyser,
+        private readonly ?SymbolLocator $locator = null,
     ) {}
 
     /**
@@ -42,12 +48,24 @@ final class ReferenceFinder
     public function find(SymbolRef $target, bool $includeStrings = false): array
     {
         $graph = $this->index->graph();
-        $types = new TypeResolver($graph);
+        $magic = Magic::forProject($graph, new ClassSource($this->project, $graph, $this->locator));
         $shortName = $this->shortName($target->hasMember() ? (string) $target->member : $target->owner);
+        $types = new TypeResolver($graph, $magic);
+
+        // A member the framework lets you call by another name is mentioned by that other name
+        // and no other, so the narrowing has to look for both. Getting this wrong would not
+        // produce an error — it would produce an empty answer with full confidence in it, which
+        // on a rename is how a codebase breaks at runtime.
+        $spellings = $target->hasMember() ? $magic->spellings($target->owner, $shortName) : [];
+        $undeclared = $this->undeclared($target, $graph, $magic);
+
+        if ($undeclared !== null) {
+            $this->notes[] = $undeclared;
+        }
 
         $references = [];
 
-        foreach ($this->index->store->pathsMentioning($this->project->root, [$shortName]) as $path) {
+        foreach ($this->candidates($shortName, $spellings, $this->shortName($target->owner)) as $path) {
             $absolute = $this->project->path($path);
 
             if (! is_file($absolute)) {
@@ -65,7 +83,7 @@ final class ReferenceFinder
                 continue;
             }
 
-            $scanner = new ReferenceScanner($target, $analysis, $graph, $types);
+            $scanner = new ReferenceScanner($target, $analysis, $graph, $types, $magic, $spellings, $undeclared === null, 'no declaration of this name');
             new NodeTraverser($scanner)->traverse($statements);
 
             $references = [...$references, ...$scanner->references()];
@@ -157,6 +175,77 @@ final class ReferenceFinder
     public function notes(): array
     {
         return $this->notes;
+    }
+
+    /**
+     * Whether the member being searched for is declared at all.
+     *
+     * Asked once, about the target, rather than at every call site — it is a property of the
+     * question, not of the answers. A name that no declaration and no magic accounts for still
+     * matches text, and those matches are worth showing; calling them references to a
+     * declaration that is not there is not.
+     *
+     * Only a class read to the end of its ancestry can prove this. Anything whose parents leave
+     * the corpus — which is most of a framework application — has an API larger than anything
+     * readable, and an absence there says nothing.
+     */
+    private function undeclared(SymbolRef $target, SymbolGraph $graph, Magic $magic): ?string
+    {
+        if (! $target->hasMember()) {
+            return null;
+        }
+
+        $owner = $target->owner;
+        $member = (string) $target->member;
+        $members = new Members($graph);
+
+        foreach ([SymbolKind::Method, SymbolKind::Property, SymbolKind::Constant, SymbolKind::EnumCase] as $kind) {
+            if ($members->declared($owner, $member, $kind) instanceof SymbolRecord) {
+                return null;
+            }
+        }
+
+        if (! $members->isComplete($owner)) {
+            return null;
+        }
+
+        if ($magic->method($owner, $member) instanceof MagicMember || $magic->property($owner, $member) instanceof MagicMember) {
+            return null;
+        }
+
+        return sprintf('%s declares no %s, and its ancestry is readable to the end — so every match is a name, not a reference to a declaration', $owner, $member);
+    }
+
+    /**
+     * The files worth opening.
+     *
+     * The primary name narrows on its own: anything that could refer to the symbol has to write
+     * its name somewhere. A second spelling cannot narrow on its own — `active` appears in 719
+     * files of one measured application against 9 for `scopeActive` — so it is paired with the
+     * owner's short name, which costs nothing in recall: a call site whose receiver *resolves*
+     * to a class had that class's name written in the same file, in an import, a type hint, a
+     * docblock or the `extends` clause. That is the same argument the primary narrowing already
+     * rests on, applied to the other half of the pair.
+     *
+     * Without the pairing this search took 30 seconds where it takes two.
+     *
+     * @param  list<string>  $spellings
+     * @return list<string>
+     */
+    private function candidates(string $primary, array $spellings, string $owner): array
+    {
+        $paths = [];
+
+        foreach ([[$primary], ...array_map(static fn (string $spelling): array => [$spelling, $owner], $spellings)] as $names) {
+            foreach ($this->index->store->pathsMentioning($this->project->root, $names) as $path) {
+                $paths[$path] = true;
+            }
+        }
+
+        $found = array_keys($paths);
+        sort($found);
+
+        return $found;
     }
 
     private function shortName(string $fqn): string

@@ -2,7 +2,7 @@ References grouped by how sure the tool is, with the impostor excluded
 -----
 references-to Fixtures\TierD\Notifier::send
 -----
-12 references to Fixtures\TierD\Notifier::send  (8 resolved, 1 inferred, 3 unresolved)
+14 references to Fixtures\TierD\Notifier::send  (8 resolved, 4 inferred, 2 unresolved)
 src/TierD/CallSites.php:18:16     $this->notifier->send('hello')
 src/TierD/CallSites.php:24:16     $this->loud->send('hello')
 src/TierD/CallSites.php:44:16     $made->send('hello')
@@ -12,11 +12,13 @@ src/TierD/Notifier.php:16:5       public function send(string $message): bool { 
 src/TierD/Notifier.php:27:5       public function send(string $message): bool { return parent::send(strtoupper($message)); }
 src/TierD/Notifier.php:29:16      parent::send(strtoupper($message))
 
-inferred (1)
+inferred (4)
 src/TierD/CallSites.php:51:16     $thing->send('hello')
+src/TierD/MagicCallers.php:44:16  $this->annotated->current->send('hello')
+src/TierD/MagicCallers.php:56:16  $this->mixin->send('hello')
+src/TierD/MagicCallers.php:62:16  $this->forwarder->send('hello')
 
-── 3 unresolved ──
-src/TierD/CallSites.php:36:16     $anything->send('hello')                   receiver type unknown
-src/TierD/Magic.php:99:16         $handler?->send($name)                     receiver type unknown
-src/TierD/MagicCallers.php:44:16  $this->annotated->current->send('hello')   property has no declared class type
+── 2 unresolved ──
+src/TierD/CallSites.php:36:16     $anything->send('hello')   receiver type unknown
+src/TierD/Magic.php:99:16         $handler?->send($name)     receiver type unknown
 note: 1 file could not be parsed and is not in the index (see: exocomp index --status)

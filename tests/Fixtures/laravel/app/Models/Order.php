@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\HasTenant;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -48,5 +49,32 @@ final class Order extends Model
     public function reference(): string
     {
         return (string) $this->reference;
+    }
+
+    /**
+     * A local scope. Callers write `Order::active()`; nothing anywhere writes `scopeActive`
+     * except this line, which is why finding references to it means searching for the other
+     * spelling as well.
+     */
+    public function scopeActive($query)
+    {
+        return $query;
+    }
+
+    /**
+     * The older accessor spelling. Read as `$order->display_name`.
+     */
+    public function getDisplayNameAttribute(): string
+    {
+        return (string) $this->reference;
+    }
+
+    /**
+     * The newer one. Read as `$order->short_code`, and marked as an attribute by its return
+     * type rather than by its name — the name alone would match every method on the model.
+     */
+    protected function shortCode(): Attribute
+    {
+        return Attribute::make();
     }
 }
