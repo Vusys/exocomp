@@ -964,6 +964,34 @@ One survivor checked by hand: a model carrying `@property mixed $name` where the
 columns and none is `name`, and the word appears nowhere else in the file — no cast, no accessor,
 no relation. That is the case the report exists for.
 
+### The mutation gate, scoped
+
+The project-wide run could not be completed on the machine this work was done on: the OS killed
+it three times for memory pressure, at four threads and then at two. **The project's `minMsi` of
+72 has therefore not been re-verified, and this section is not a substitute for that.**
+
+What was measured instead is a single-threaded run over the 23 source files this work touched —
+1,799 mutants in just over three hours:
+
+| | |
+| --- | ---: |
+| killed | 1,251 |
+| escaped | 548 |
+| MSI over the changed files | **69.5%** |
+
+Below the project bar, and the escapes said where. The largest cluster outside the pre-existing
+files was the boundary of the conventions themselves: nothing asserted that they apply to Eloquent
+models and to nothing else. A plain class with a `scope`-prefixed method and a `get…Attribute()`
+now sits in the fixtures, and four tests hold the line — the conventions are the framework's, not
+the language's, and without that boundary every class spelled like a model would acquire members
+it does not have.
+
+Two other clusters are worth naming because they are *not* gaps. `'scope'.ucfirst($name)` survives
+having `ucfirst` removed, because method lookup folds case in PHP exactly as the language does, so
+the mutant is equivalent. Several arithmetic mutants on a recursion depth guard survive because
+the guard bounds a hierarchy no fixture is deep enough to reach — which is a fixture gap rather
+than a test gap, and a cheaper one to leave than to manufacture.
+
 ## Re-running this
 
 Point a checkout the corpus matches at the tool, then per command compare call count and output

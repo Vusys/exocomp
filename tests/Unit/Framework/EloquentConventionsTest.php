@@ -64,6 +64,39 @@ final class EloquentConventionsTest extends TestCase
         }
     }
 
+    public function test_the_conventions_apply_to_models_and_nothing_else(): void
+    {
+        // A plain class spelled like a model. The conventions are the framework's, not the
+        // language's, so a `scope`-prefixed method on anything else is an ordinary method and
+        // `active()` is a call to something that is not there.
+        $run = Cli::inLaravel(['calls-from', 'App\Services\OrderQueries::notAModel']);
+
+        $this->assertStringContainsString('declares no active()', $run->output);
+        $this->assertStringNotContainsString('scopeActive', $run->output);
+    }
+
+    public function test_a_scope_on_a_plain_class_has_only_its_declaration(): void
+    {
+        $this->assertSame([], $this->calls($this->references('App\Services\NotAModel::scopeActive')));
+    }
+
+    public function test_an_accessor_on_a_plain_class_is_not_an_attribute(): void
+    {
+        $this->assertSame([], $this->calls($this->references('App\Services\NotAModel::getDisplayNameAttribute')));
+    }
+
+    public function test_a_relation_reason_names_the_relation_type_not_its_namespace(): void
+    {
+        $records = array_values(array_filter(
+            $this->references('App\Models\Order::customer'),
+            static fn (array $record): bool => str_contains($record['reason'], 'relation read as an attribute'),
+        ));
+
+        $this->assertNotSame([], $records);
+        $this->assertStringContainsString('(): BelongsTo', $records[0]['reason']);
+        $this->assertStringNotContainsString('Illuminate\Database', $records[0]['reason']);
+    }
+
     public function test_a_call_through_a_scope_is_a_graph_edge(): void
     {
         $run = Cli::inLaravel(['calls-from', 'App\Services\OrderQueries::active']);

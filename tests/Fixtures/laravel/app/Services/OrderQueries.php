@@ -59,4 +59,15 @@ final class OrderQueries
     {
         return $builder->summarise();
     }
+
+    /** Neither of these is magic: the receiver is not a model. */
+    public function notAModel(NotAModel $plain): mixed
+    {
+        return $plain->active();
+    }
+
+    public function notAnAttribute(NotAModel $plain): mixed
+    {
+        return $plain->display_name;
+    }
 }
