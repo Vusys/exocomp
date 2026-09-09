@@ -566,10 +566,21 @@ final class ModelReader
             $isAttribute = $returns instanceof Node\Name
                 && Analyser::resolvedName($returns) === EloquentConventions::ATTRIBUTE;
 
-            $attribute = match (true) {
-                preg_match('/^get(.+)Attribute$/', $name, $matches) === 1 => $this->snake($matches[1]),
-                $isAttribute => $this->snake($name),
-                default => null,
+            // Two unrelated mechanisms, and the reason has to say which.
+            // `getDisplayNameAttribute()` is found by its name; `shortCode(): Attribute` is found
+            // by its return type and follows no naming convention at all. One sentence covering
+            // both teaches a reader the wrong rule — that a method named `shortCode` cannot be an
+            // accessor, or that renaming it to `getShortCodeAttribute()` would change nothing.
+            [$attribute, $reason] = match (true) {
+                preg_match('/^get(.+)Attribute$/', $name, $matches) === 1 => [
+                    $this->snake($matches[1]),
+                    'read as an attribute by the framework\'s naming convention',
+                ],
+                $isAttribute => [
+                    $this->snake($name),
+                    'read as an attribute — declared with an Attribute return type, not by its name',
+                ],
+                default => [null, ''],
             };
 
             if ($attribute === null || isset($this->claimed['accessor:'.$attribute])) {
@@ -585,7 +596,7 @@ final class ModelReader
                 Confidence::Inferred,
                 $class->path,
                 $method->getStartLine(),
-                'read as an attribute by the framework\'s naming convention',
+                $reason,
                 $class->fqn,
             );
         }

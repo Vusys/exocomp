@@ -94,7 +94,11 @@ final class SymbolLocator
      *
      * @throws SymbolNotFound
      */
-    public function locateOwner(SymbolRef $ref): LocatedDeclaration
+    /**
+     * @param  bool  $speculative  true when the caller is reading as far as it can rather than
+     *                             asking about a name someone typed — see {@see self::notes()}
+     */
+    public function locateOwner(SymbolRef $ref, bool $speculative = false): LocatedDeclaration
     {
         foreach ($this->map->candidates($ref->owner, $this->existenceOracle()) as $candidate) {
             $located = $this->declarationIn($candidate, $ref->owner);
@@ -104,7 +108,7 @@ final class SymbolLocator
             }
         }
 
-        $scanned = $this->scanForOwner($ref->owner);
+        $scanned = $this->scanForOwner($ref->owner, $speculative);
 
         if ($scanned instanceof LocatedDeclaration) {
             return $scanned;
@@ -177,7 +181,7 @@ final class SymbolLocator
      * a checkout's layout may be out of step with its `composer.json`. The second pass is the
      * expensive one and only runs when everything cheaper has missed.
      */
-    private function scanForOwner(string $fqn): ?LocatedDeclaration
+    private function scanForOwner(string $fqn, bool $speculative = false): ?LocatedDeclaration
     {
         $position = strrpos($fqn, '\\');
         $shortName = $position === false ? $fqn : substr($fqn, $position + 1);
@@ -189,7 +193,13 @@ final class SymbolLocator
         }
 
         if (! $this->shouldScanContents()) {
-            $this->notes[] = 'a content scan of the source roots was not run — pass --scan to search inside files';
+            // Only worth saying about a name someone asked for. A speculative read — walking an
+            // ancestry, or putting a receiver through the magic ladder — asks about hundreds of
+            // names that legitimately do not exist, and telling the reader their answer might be
+            // incomplete because one of those missed is how a note stops being read at all.
+            if (! $speculative) {
+                $this->notes[] = 'a content scan of the source roots was not run — pass --scan to search inside files';
+            }
 
             return null;
         }

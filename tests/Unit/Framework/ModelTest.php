@@ -205,6 +205,49 @@ final class ModelTest extends TestCase
         $this->assertStringContainsString('shortCode()', $run->output);
     }
 
+    public function test_the_two_accessor_spellings_are_reported_as_the_different_mechanisms_they_are(): void
+    {
+        $reasons = [];
+
+        foreach ($this->records(['model', 'Order', '--only=accessor', '--json']) as $record) {
+            $name = $record['name'] ?? null;
+            $note = $record['note'] ?? null;
+
+            if (is_string($name) && is_string($note)) {
+                $reasons[$name] = $note;
+            }
+        }
+
+        // One is found by its name and the other by its return type, and `short_code` follows no
+        // naming convention whatsoever. Describing both the same way teaches a reader the wrong
+        // rule about the framework — that a method named `shortCode` cannot be an accessor, or
+        // that renaming it to `getShortCodeAttribute()` would be a no-op.
+        $this->assertArrayHasKey('display_name', $reasons);
+        $this->assertArrayHasKey('short_code', $reasons);
+        $this->assertNotSame($reasons['display_name'], $reasons['short_code']);
+        $this->assertStringContainsString('naming convention', $reasons['display_name']);
+        $this->assertStringContainsString('Attribute return type', $reasons['short_code']);
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     * @return list<array<array-key, mixed>>
+     */
+    private function records(array $arguments): array
+    {
+        $found = [];
+
+        foreach (Cli::inLaravel($arguments)->lines() as $line) {
+            $decoded = json_decode($line, true);
+
+            if (is_array($decoded)) {
+                $found[] = $decoded;
+            }
+        }
+
+        return $found;
+    }
+
     public function test_annotated_properties_are_kept_apart_from_what_the_body_says(): void
     {
         $run = Cli::inLaravel(['model', 'Order', '--only=annotated', '--json']);

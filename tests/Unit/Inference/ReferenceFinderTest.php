@@ -204,4 +204,14 @@ final class ReferenceFinderTest extends TestCase
             }
         }
     }
+
+    public function test_a_successful_search_does_not_advise_a_scan_it_did_not_need(): void
+    {
+        $run = Cli::inCorpus(['references-to', 'Fixtures\\TierD\\Notifier::send']);
+
+        // The magic ladder asks about every receiver type it meets, and most of those names do
+        // not exist. Surfacing that as "your result may be incomplete" cost a reader a redundant
+        // re-run with --scan that produced byte-identical output.
+        $this->assertStringNotContainsString('a content scan of the source roots was not run', $run->output);
+    }
 }

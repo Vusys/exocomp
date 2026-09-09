@@ -54,6 +54,24 @@ final class InstalledProjectTest extends TestCase
         $this->assertStringContainsString('--scan', $locator->notes()[0]);
     }
 
+    public function test_a_speculative_read_does_not_advise_a_scan(): void
+    {
+        $locator = $this->locator();
+
+        try {
+            $locator->locateOwner(SymbolRef::parse('Installed\Hidden'), speculative: true);
+            $this->fail('expected the lookup to decline');
+        } catch (SymbolNotFound) {
+            // Expected, and unremarkable: this is what reading as far as you can looks like.
+        }
+
+        // The advice is worth giving about a name someone asked for. Walking an ancestry, or
+        // putting a receiver through the magic ladder, asks about hundreds of names that
+        // legitimately do not exist — and telling a reader their answer may be incomplete
+        // because one of those missed is how a note stops being read at all.
+        $this->assertSame([], $locator->notes());
+    }
+
     public function test_the_deep_scan_finds_it(): void
     {
         $located = $this->locator(deepScan: true)->locateOwner(SymbolRef::parse('Installed\Hidden'));

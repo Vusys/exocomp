@@ -191,6 +191,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **An accessor's reason described the wrong mechanism for half the rows it was attached to.**
+  `model` gave `getDisplayNameAttribute()` and `shortCode(): Attribute` the same account — "read
+  as an attribute by the framework's naming convention" — which is true of the first and false of
+  the second: the newer spelling is found by its return type and follows no naming convention at
+  all. The reason column is the trust surface, and one that is wrong teaches a reader the wrong
+  rule about the framework. The resolver had distinguished the two all along; only the command
+  did not.
+- **A note advised a scan that would have changed nothing.** The "pass `--scan`" advice is worth
+  giving about a name someone asked for. The magic ladder asks about hundreds of names that
+  legitimately do not exist, and each miss was surfacing it — so a successful search carried a
+  warning that its answer might be incomplete, and a reader who acted on it paid a redundant
+  re-run for byte-identical output. Speculative reads no longer raise it.
 - **`--resolved-only` emitted references a rename must not rewrite.** It dropped only the
   `textual` group and printed the `inferred` one, while its own help called it "the references
   the tool will stand behind" and the design gates the write side on `resolved` alone. A rename

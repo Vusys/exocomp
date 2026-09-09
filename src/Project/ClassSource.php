@@ -263,7 +263,7 @@ final class ClassSource
         }
 
         try {
-            $located = $this->locator->locateOwner(SymbolRef::parse($fqn));
+            $located = $this->locator->locateOwner(SymbolRef::parse($fqn), speculative: true);
         } catch (SymbolNotFound) {
             return [null, $fqn];
         }
