@@ -12,6 +12,7 @@ use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Index\MemberOrigin;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Inference\DocBlockTypes;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\LoadedClass;
 use Vusys\Exocomp\Symbol\Confidence;
@@ -60,10 +61,17 @@ final class ModelReader
     /** @var array<string, true> */
     private array $claimed = [];
 
+    /** @var list<string> */
+    private array $notes = [];
+
+    private readonly DocBlockTypes $docblocks;
+
     public function __construct(
         private readonly SymbolGraph $graph,
         private readonly ClassSource $source,
-    ) {}
+    ) {
+        $this->docblocks = new DocBlockTypes;
+    }
 
     /**
      * The index knows the hierarchy only as far as the corpus goes. A model extending a
@@ -101,6 +109,7 @@ final class ModelReader
         $this->facts = [];
         $this->declined = [];
         $this->claimed = [];
+        $this->notes = [];
 
         $own = $chain[0];
 
@@ -110,10 +119,13 @@ final class ModelReader
             $this->readRelations($class);
             $this->readScopeCalls($class);
             $this->readScopedByAttribute($class);
+            $this->readAccessors($class);
+            $this->readAnnotations($class);
         }
 
         $this->readTraits($own);
         $this->resolveTable($own, $schema);
+        $this->reconcile($own, $schema);
 
         return new EloquentModel(
             fqn: $own->fqn,
@@ -121,7 +133,7 @@ final class ModelReader
             line: $own->node->getStartLine(),
             facts: $this->facts,
             declined: $this->declined,
-            notes: $this->source->notes(),
+            notes: [...$this->source->notes(), ...$this->notes],
         );
     }
 
@@ -455,6 +467,160 @@ final class ModelReader
      * as present on the model as one used directly — and `SoftDeletes` in particular changes
      * every query the model makes without appearing in its body at all.
      */
+    /**
+     * The attributes a model exposes that are declared as methods.
+     *
+     * Both spellings: `getDisplayNameAttribute()` and, since the framework grew a second way to
+     * say it, `displayName(): Attribute`. The newer one is recognised by its return type and
+     * never by its name alone — without the type every ordinary method on the model would look
+     * like an attribute.
+     *
+     * There were 304 of these in one measured application and not one of them appeared in this
+     * command's output before, which made `model` and `members` disagree about the same class.
+     */
+    private function readAccessors(LoadedClass $class): void
+    {
+        foreach ($class->node->getMethods() as $method) {
+            $name = $method->name->toString();
+            $returns = $method->getReturnType();
+            $isAttribute = $returns instanceof Node\Name
+                && Analyser::resolvedName($returns) === EloquentConventions::ATTRIBUTE;
+
+            $attribute = match (true) {
+                preg_match('/^get(.+)Attribute$/', $name, $matches) === 1 => $this->snake($matches[1]),
+                $isAttribute => $this->snake($name),
+                default => null,
+            };
+
+            if ($attribute === null || isset($this->claimed['accessor:'.$attribute])) {
+                continue;
+            }
+
+            $this->claimed['accessor:'.$attribute] = true;
+
+            $this->facts[] = new ModelFact(
+                'accessor',
+                $attribute,
+                $name.'()',
+                Confidence::Inferred,
+                $class->path,
+                $method->getStartLine(),
+                'read as an attribute by the framework\'s naming convention',
+                $class->fqn,
+            );
+        }
+    }
+
+    /**
+     * The attributes the class *says* it has, in `@property` and its read-only and write-only
+     * variants.
+     *
+     * These are the commonest form magic takes by a wide margin — 4,155 of them against ten
+     * `__get` bodies in one measured application — and almost all of them are generated. So they
+     * are recorded as claims, with the tag and the class that carried it, and never mixed in
+     * with what the body actually says.
+     */
+    private function readAnnotations(LoadedClass $class): void
+    {
+        $docblock = $class->node->getDocComment()?->getText() ?? '';
+
+        foreach ($this->docblocks->members($docblock)['properties'] as $name => $claim) {
+            if (isset($this->claimed['annotated:'.$name])) {
+                continue;
+            }
+
+            $this->claimed['annotated:'.$name] = true;
+
+            $this->facts[] = new ModelFact(
+                'annotated',
+                $name,
+                $claim['type'],
+                Confidence::Inferred,
+                $class->path,
+                $class->node->getStartLine(),
+                sprintf('%s on %s — a claim about the model, checked by nothing', $claim['tag'], $class->fqn),
+                $class->fqn,
+            );
+        }
+    }
+
+    /**
+     * What the annotations claim, against what the rest of the source accounts for.
+     *
+     * After the passes above there are four independent accounts of a model's attributes: the
+     * migration history, `$casts`, the accessors, and the `@property` block. Generated
+     * annotation blocks go stale silently — a column is dropped, the block is not regenerated,
+     * and the claim outlives the thing it described. Nothing else in the toolchain will say so,
+     * and the two halves needed to notice are already in hand here.
+     */
+    private function reconcile(LoadedClass $own, ?callable $schema): void
+    {
+        $claimed = [];
+        $accounted = [];
+
+        foreach ($this->facts as $fact) {
+            match ($fact->group) {
+                'annotated' => $claimed[$fact->name] = true,
+                'accessor', 'relation', 'casts', 'fillable', 'guarded', 'hidden', 'visible', 'appends', 'dates' => $accounted[$fact->name] = true,
+                default => null,
+            };
+        }
+
+        if ($claimed === []) {
+            return;
+        }
+
+        foreach ($own->node->getProperties() as $property) {
+            foreach ($property->props as $item) {
+                $accounted[$item->name->toString()] = true;
+            }
+        }
+
+        $table = $this->tableName();
+        $tables = $schema === null ? [] : $schema();
+        $columns = $table !== null && isset($tables[$table]) ? $tables[$table]->columns : [];
+
+        // Without a migration history there is nothing to check the claims against, and a report
+        // that every annotated property is unaccounted for would be noise rather than a finding.
+        if ($columns === []) {
+            return;
+        }
+
+        foreach ($columns as $column) {
+            $accounted[$column->name] = true;
+        }
+
+        $unaccounted = array_values(array_diff(array_keys($claimed), array_keys($accounted)));
+
+        if ($unaccounted === []) {
+            return;
+        }
+
+        $this->notes[] = sprintf(
+            '%d of %d annotated properties are accounted for by no column, cast, accessor or relation — %s%s',
+            count($unaccounted),
+            count($claimed),
+            implode(', ', array_slice($unaccounted, 0, 8)),
+            count($unaccounted) > 8 ? sprintf(' and %d more', count($unaccounted) - 8) : '',
+        );
+    }
+
+    private function tableName(): ?string
+    {
+        foreach ($this->facts as $fact) {
+            if ($fact->group === 'attribute' && $fact->name === 'table') {
+                return $fact->value;
+            }
+        }
+
+        return null;
+    }
+
+    private function snake(string $name): string
+    {
+        return strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $name));
+    }
+
     private function readTraits(LoadedClass $own): void
     {
         foreach ($this->graph->ancestorsOf($own->fqn) as $ancestor => $origin) {

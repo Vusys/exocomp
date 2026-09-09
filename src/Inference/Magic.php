@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Inference;
 
 use Vusys\Exocomp\Framework\Laravel\EloquentConventions;
+use Vusys\Exocomp\Framework\Laravel\MacroRegistry;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\Project;
 use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
@@ -41,15 +43,24 @@ final class Magic
      * detection: a class that descends from Eloquent's model is one whether or not the checkout
      * looks like an application, and a convention nobody can confirm is not applied at all.
      */
-    public static function forProject(SymbolGraph $graph, ClassSource $source): self
+    public static function forProject(SymbolGraph $graph, ClassSource $source, ?Project $project = null): self
     {
         $members = new Members($graph);
 
-        return new self([
+        $sources = [
             new EloquentConventions($source, $members),
             new AnnotatedMembers($source, $members),
             new Forwarders($source, $members),
-        ]);
+        ];
+
+        // Last, and only when there is a project to scan. It is the weakest rung — it can name
+        // where a member was registered and never what it does — so anything else that can
+        // answer should have answered by now.
+        if ($project instanceof Project) {
+            $sources[] = new MacroRegistry($project, $graph, $source);
+        }
+
+        return new self($sources);
     }
 
     public function method(string $ownerFqn, string $name): ?MagicMember

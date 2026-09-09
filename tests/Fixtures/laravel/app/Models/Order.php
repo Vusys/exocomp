@@ -11,6 +11,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
+/**
+ * The generated annotation block a Laravel project almost always has. Three of these are real —
+ * two columns and an accessor — and `legacy_code` is not: it names a column the migrations
+ * dropped, and nothing but this comment says it exists. That is the ordinary way these go wrong,
+ * and nothing in the toolchain says so.
+ *
+ * @property int $id
+ * @property string $reference
+ * @property-read string $display_name
+ * @property string $legacy_code
+ */
 final class Order extends Model
 {
     use HasTenant;

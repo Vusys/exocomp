@@ -185,6 +185,60 @@ final class ModelTest extends TestCase
         $this->assertStringContainsString('relation read as an attribute', $note);
     }
 
+    public function test_an_accessor_is_listed_as_the_attribute_it_exposes(): void
+    {
+        $run = Cli::inLaravel(['model', 'Order', '--only=accessor']);
+
+        // 304 of these in one measured application and not one appeared here before, which left
+        // `model` and `members` holding different views of the same class.
+        $this->assertStringContainsString('display_name', $run->output);
+        $this->assertStringContainsString('getDisplayNameAttribute()', $run->output);
+    }
+
+    public function test_both_accessor_spellings_are_listed(): void
+    {
+        $run = Cli::inLaravel(['model', 'Order', '--only=accessor']);
+
+        // The newer one is recognised by its return type. Without that, every method on the
+        // model would look like an attribute.
+        $this->assertStringContainsString('short_code', $run->output);
+        $this->assertStringContainsString('shortCode()', $run->output);
+    }
+
+    public function test_annotated_properties_are_kept_apart_from_what_the_body_says(): void
+    {
+        $run = Cli::inLaravel(['model', 'Order', '--only=annotated', '--json']);
+
+        foreach ($run->lines() as $line) {
+            $decoded = json_decode($line, true);
+
+            if (is_array($decoded) && isset($decoded['confidence'])) {
+                $this->assertSame('inferred', $decoded['confidence']);
+            }
+        }
+    }
+
+    public function test_an_annotation_nothing_else_accounts_for_is_reported(): void
+    {
+        $run = Cli::inLaravel(['model', 'Order']);
+
+        // The ordinary way a generated block goes wrong: a column is dropped and the comment
+        // outlives it. Two of the four things needed to notice were already in hand here — the
+        // migration history and the annotations — and nothing else in the toolchain will say so.
+        $this->assertStringContainsString('annotated properties are accounted for by no column', $run->output);
+        $this->assertStringContainsString('legacy_code', $run->output);
+    }
+
+    public function test_an_annotation_the_source_accounts_for_is_not_reported_as_drift(): void
+    {
+        $run = Cli::inLaravel(['model', 'Order']);
+        $note = (string) strstr($run->output, 'annotated properties are accounted for');
+
+        foreach (['id', 'reference', 'display_name'] as $accounted) {
+            $this->assertStringNotContainsString($accounted, $note, "{$accounted} is a column, cast or accessor");
+        }
+    }
+
     public function test_an_unknown_name_is_not_found(): void
     {
         $this->assertSame(1, Cli::inLaravel(['model', 'NoSuchModel'])->exitCode);

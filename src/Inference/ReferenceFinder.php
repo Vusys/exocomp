@@ -48,7 +48,7 @@ final class ReferenceFinder
     public function find(SymbolRef $target, bool $includeStrings = false): array
     {
         $graph = $this->index->graph();
-        $magic = Magic::forProject($graph, new ClassSource($this->project, $graph, $this->locator));
+        $magic = Magic::forProject($graph, new ClassSource($this->project, $graph, $this->locator), $this->project);
         $shortName = $this->shortName($target->hasMember() ? (string) $target->member : $target->owner);
         $types = new TypeResolver($graph, $magic);
 

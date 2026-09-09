@@ -54,6 +54,20 @@ final class SymbolGraph
     }
 
     /**
+     * The files that mention every one of these names.
+     *
+     * The index records what each file refers to, which is what makes a corpus-wide question
+     * affordable: a name is written in a handful of files, not in six and a half thousand, and
+     * only the handful is parsed.
+     *
+     * @return list<string>
+     */
+    public function pathsMentioning(string ...$names): array
+    {
+        return $this->store->pathsMentioning($this->root, array_values($names));
+    }
+
+    /**
      * @return list<SymbolRecord>
      */
     public function byFqn(string $fqn): array

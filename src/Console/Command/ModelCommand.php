@@ -46,6 +46,7 @@ final class ModelCommand extends IndexedFrameworkCommand
     private const array GROUPS = [
         ['attribute', 'attributes'],
         ['relation', 'relations'],
+        ['accessor', 'accessors'],
         ['casts', 'casts'],
         ['fillable', 'fillable'],
         ['guarded', 'guarded'],
@@ -57,6 +58,7 @@ final class ModelCommand extends IndexedFrameworkCommand
         ['dates', 'dates'],
         ['scope', 'global scopes'],
         ['trait', 'traits'],
+        ['annotated', 'annotated properties'],
     ];
 
     protected function configure(): void

@@ -105,7 +105,9 @@ final class ContainerReaderTest extends TestCase
 
     public function test_every_provider_in_the_corpus_is_read(): void
     {
-        $this->assertSame(2, $this->reader()->providersRead());
+        // Three since the macro provider joined the fixture. The count is asserted rather than
+        // the bindings alone because a provider silently skipped is how a binding goes missing.
+        $this->assertSame(3, $this->reader()->providersRead());
     }
 
     private function binding(string $abstract): Binding

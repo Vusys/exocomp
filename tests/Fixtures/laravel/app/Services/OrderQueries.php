@@ -53,4 +53,10 @@ final class OrderQueries
     {
         return $order->placed_at;
     }
+
+    /** A macro. Nothing declares it; a provider registers it under a literal name. */
+    public function summary(\App\Services\ReportBuilder $builder): mixed
+    {
+        return $builder->summarise();
+    }
 }
