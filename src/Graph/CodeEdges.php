@@ -166,11 +166,56 @@ final class CodeEdges
             return Miss::edgeOfTheWorld(sprintf('%s declares no constructor', $class));
         }
 
+        $magic = $this->declaresMagic($loaded, '__call');
+
+        if ($magic !== null) {
+            return Miss::gap(sprintf(
+                '%s declares no %s(); %s declares __call(), so this resolves at runtime through that',
+                $class,
+                $method,
+                $magic,
+            ));
+        }
+
+        // Saying "a parent declares it" of a class that has no parent is the confidently wrong
+        // answer this tool exists not to give. The claim is only available when the ancestry
+        // actually ran off the end of the readable source.
+        $unreachable = $this->graph->members($class)['unreachable'];
+
+        if ($unreachable === []) {
+            return Miss::gap(sprintf(
+                '%s declares no %s(), and nothing in its readable ancestry does either',
+                $class,
+                $method,
+            ));
+        }
+
         return Miss::gap(sprintf(
-            '%s declares no %s(); a parent or trait outside the readable source does',
+            '%s declares no %s(); its ancestry leaves the readable source at %s, and a parent or trait there may',
             $class,
             $method,
+            $unreachable[0]->fqn,
         ));
+    }
+
+    /**
+     * The nearest class in the readable ancestry that declares a magic method, if any.
+     *
+     * A class with `__call` and one without produce the same "declares no such method" today,
+     * and they are not the same statement: one is a call that will not run, the other is a call
+     * whose far end this tool cannot see.
+     */
+    private function declaresMagic(LoadedClass $class, string $magic): ?string
+    {
+        foreach ($this->source->withAncestors($class->fqn) as $ancestor) {
+            foreach ($ancestor->node->getMethods() as $method) {
+                if (strcasecmp($method->name->toString(), $magic) === 0) {
+                    return $ancestor->fqn;
+                }
+            }
+        }
+
+        return null;
     }
 
     private function declaresFunction(string $name): bool

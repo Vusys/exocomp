@@ -110,7 +110,7 @@ final class CallScanner extends NodeVisitorAbstract
     private function functionCall(Node\Expr\FuncCall $call): void
     {
         if (! $call->name instanceof Node\Name) {
-            $this->record($call, 'function call', null, Confidence::Textual, 'dynamic function name');
+            $this->invocation($call);
 
             return;
         }
@@ -129,6 +129,24 @@ final class CallScanner extends NodeVisitorAbstract
             Confidence::Resolved,
             'function name',
         );
+    }
+
+    /**
+     * A value called as though it were a function is a call to `__invoke` on its class, and
+     * when the value's type is written down there is nothing dynamic about it. The call site
+     * writes no method name at all, which is exactly why a textual search cannot find it.
+     */
+    private function invocation(Node\Expr\FuncCall $call): void
+    {
+        $receiver = $this->types->typeOf($call->name, $this->scope, $this->analysis->imports);
+
+        if (! $receiver->isKnown()) {
+            $this->record($call, 'function call', null, Confidence::Textual, 'dynamic function name');
+
+            return;
+        }
+
+        $this->record($call, 'invoke', $receiver->fqn.'::__invoke', $receiver->confidence, $receiver->reason);
     }
 
     private function instantiation(Node\Expr\New_ $new): void

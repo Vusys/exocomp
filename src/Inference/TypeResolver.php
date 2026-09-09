@@ -93,6 +93,7 @@ final readonly class TypeResolver
             $expression instanceof Node\Expr\MethodCall,
             $expression instanceof Node\Expr\NullsafeMethodCall => $this->methodReturnType($expression, $scope, $imports),
             $expression instanceof Node\Expr\StaticCall => $this->staticReturnType($expression, $scope),
+            $expression instanceof Node\Expr\FuncCall => $this->invocationReturnType($expression, $scope, $imports),
             $expression instanceof Node\Expr\ClassConstFetch => $this->enumCaseType($expression, $scope),
             $expression instanceof Node\Expr\Assign => $this->typeOf($expression->expr, $scope, $imports),
             $expression instanceof Node\Expr\Clone_ => $this->typeOf($expression->expr, $scope, $imports),
@@ -238,6 +239,27 @@ final readonly class TypeResolver
      * An enum case is an instance of its enum — the one place where a constant fetch names a
      * type rather than a value.
      */
+    /**
+     * Calling a value invokes `__invoke` on its class, so the expression's type is that
+     * method's declared return type.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function invocationReturnType(Node\Expr\FuncCall $call, Scope $scope, array $imports): ResolvedType
+    {
+        if ($call->name instanceof Node\Name) {
+            return ResolvedType::unknown('a named function call carries no declared class type here');
+        }
+
+        $receiver = $this->typeOf($call->name, $scope, $imports);
+
+        if (! $receiver->isKnown()) {
+            return ResolvedType::unknown($receiver->reason);
+        }
+
+        return $this->returnTypeOf((string) $receiver->fqn, '__invoke');
+    }
+
     private function enumCaseType(Node\Expr\ClassConstFetch $fetch, Scope $scope): ResolvedType
     {
         $owner = $this->className($fetch->class, $scope);
@@ -286,6 +308,13 @@ final readonly class TypeResolver
      */
     private function whyNoMethod(string $ownerFqn, string $method): string
     {
+        // A class that declares `__call` answers to names it does not declare, so "declares no
+        // X()" reads as a broken call when it is really a wall. Which of the two it is changes
+        // what a reader should do about it, so the answer has to distinguish them.
+        if ($this->member($ownerFqn, '__call', SymbolKind::Method) instanceof SymbolRecord) {
+            return sprintf('%s declares no %s(), and declares __call(), so this resolves at runtime through that', $ownerFqn, $method);
+        }
+
         $unreachable = $this->graph->members($ownerFqn)['unreachable'];
 
         if ($unreachable === []) {

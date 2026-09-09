@@ -2,19 +2,21 @@ References grouped by how sure the tool is, with the impostor excluded
 -----
 references-to Fixtures\TierD\Notifier::send
 -----
-10 references to Fixtures\TierD\Notifier::send  (8 resolved, 1 inferred, 1 unresolved)
-src/TierD/CallSites.php:18:16  $this->notifier->send('hello')
-src/TierD/CallSites.php:24:16  $this->loud->send('hello')
-src/TierD/CallSites.php:44:16  $made->send('hello')
-src/TierD/CallSites.php:63:16  $given->send('hello')
-src/TierD/CallSites.php:73:16  $given->SEND('hello')
-src/TierD/Notifier.php:16:5    public function send(string $message): bool { return true; }
-src/TierD/Notifier.php:27:5    public function send(string $message): bool { return parent::send(strtoupper($message)); }
-src/TierD/Notifier.php:29:16   parent::send(strtoupper($message))
+12 references to Fixtures\TierD\Notifier::send  (8 resolved, 1 inferred, 3 unresolved)
+src/TierD/CallSites.php:18:16     $this->notifier->send('hello')
+src/TierD/CallSites.php:24:16     $this->loud->send('hello')
+src/TierD/CallSites.php:44:16     $made->send('hello')
+src/TierD/CallSites.php:63:16     $given->send('hello')
+src/TierD/CallSites.php:73:16     $given->SEND('hello')
+src/TierD/Notifier.php:16:5       public function send(string $message): bool { return true; }
+src/TierD/Notifier.php:27:5       public function send(string $message): bool { return parent::send(strtoupper($message)); }
+src/TierD/Notifier.php:29:16      parent::send(strtoupper($message))
 
 inferred (1)
-src/TierD/CallSites.php:51:16  $thing->send('hello')
+src/TierD/CallSites.php:51:16     $thing->send('hello')
 
-── 1 unresolved ──
-src/TierD/CallSites.php:36:16  $anything->send('hello')   receiver type unknown
+── 3 unresolved ──
+src/TierD/CallSites.php:36:16     $anything->send('hello')                   receiver type unknown
+src/TierD/Magic.php:99:16         $handler?->send($name)                     receiver type unknown
+src/TierD/MagicCallers.php:44:16  $this->annotated->current->send('hello')   property has no declared class type
 note: 1 file could not be parsed and is not in the index (see: exocomp index --status)
