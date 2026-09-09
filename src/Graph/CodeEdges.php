@@ -50,6 +50,8 @@ final class CodeEdges
     /** @var array<string, Miss> */
     private array $misses = [];
 
+    private ?TypeResolver $types = null;
+
     public function __construct(
         private readonly Project $project,
         private readonly SymbolGraph $graph,
@@ -95,7 +97,11 @@ final class CodeEdges
             return $this->calls[$key];
         }
 
-        $types = new TypeResolver($this->graph, Magic::forProject($this->graph, $this->source));
+        // Built once and kept. A walk expands hundreds of bodies, and both of these carry the
+        // caches that make the whole thing affordable — a fresh resolver per body threw away
+        // every memoised member lookup and re-confirmed the framework's conventions each time,
+        // which cost a hundred-endpoint sweep about as long again as it had taken in total.
+        $types = $this->types ??= new TypeResolver($this->graph, Magic::forProject($this->graph, $this->source));
         $scope = $types->scopeFor($body->classFqn, $body->parentFqn, $body->node, $body->analysis->imports);
         $scanner = new CallScanner($body->analysis, $types, $scope, $this->graph);
 

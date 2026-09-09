@@ -259,7 +259,7 @@ final readonly class TypeResolver
     private function invocationReturnType(Node\Expr\FuncCall $call, Scope $scope, array $imports): ResolvedType
     {
         if ($call->name instanceof Node\Name) {
-            return ResolvedType::unknown('a named function call carries no declared class type here');
+            return $this->functionReturnType($call->name);
         }
 
         $receiver = $this->typeOf($call->name, $scope, $imports);
@@ -372,6 +372,24 @@ final readonly class TypeResolver
         }
 
         return CallTarget::none($this->whyNoMethod($ownerFqn, $name));
+    }
+
+    /**
+     * The declared return type of a function the corpus itself declares.
+     *
+     * Only the corpus: a framework helper such as `redirect()` is not indexed, and there is no
+     * file to read it from, so the answer there is that its return type was not read rather
+     * than that it has none.
+     */
+    private function functionReturnType(Node\Name $name): ResolvedType
+    {
+        foreach ($this->graph->byFqn(ltrim(Analyser::resolvedName($name), '\\')) as $record) {
+            if ($record->kind === SymbolKind::FunctionDecl && $record->typeFqn !== null) {
+                return ResolvedType::declared($record->typeFqn);
+            }
+        }
+
+        return ResolvedType::unknown(sprintf('the return type of %s() was not read — no declaration of it is indexed', $name->getLast()));
     }
 
     /**
