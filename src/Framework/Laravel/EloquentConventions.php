@@ -8,6 +8,7 @@ use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\MagicMember;
 use Vusys\Exocomp\Inference\MagicSource;
 use Vusys\Exocomp\Inference\Members;
+use Vusys\Exocomp\Project\AutoloadMap;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolKind;
@@ -40,6 +41,9 @@ final class EloquentConventions implements MagicSource
 
     public const string ATTRIBUTE = 'Illuminate\Database\Eloquent\Casts\Attribute';
 
+    /** Where the framework keeps the attribute machinery — a trait, not the model. */
+    public const string HAS_ATTRIBUTES = 'Illuminate\Database\Eloquent\Concerns\HasAttributes';
+
     private ?bool $scopesConfirmed = null;
 
     private ?bool $accessorsConfirmed = null;
@@ -50,6 +54,7 @@ final class EloquentConventions implements MagicSource
     public function __construct(
         private readonly ClassSource $source,
         private readonly Members $members,
+        private readonly ?AutoloadMap $map = null,
     ) {}
 
     public function method(string $ownerFqn, string $name): ?MagicMember
@@ -175,20 +180,28 @@ final class EloquentConventions implements MagicSource
     /**
      * Whether the framework in front of us still implements the convention being relied on.
      *
-     * The whole readable ancestry is searched, traits included, because that is where these
-     * actually live: `hasNamedScope()` is on the model and the builder, and `hasGetMutator()` is
-     * on a trait the model uses. Looking only at the two classes by name would have found the
-     * first and missed the second, and the failure mode of missing one is silent — every
-     * accessor would have degraded to a guess while the tool reported that it had checked.
+     * Read out of the installed framework's own files rather than assumed, for the reason
+     * {@see FacadeResolver} parses the alias table instead of baking one in: a hardcoded
+     * convention is right until the framework changes it and is then wrong without saying so.
+     *
+     * The three files are named rather than discovered. Walking the model's whole ancestry finds
+     * the same answer and costs about a second and a half — Laravel's `Model` and `Builder` and
+     * their twenty-odd traits, parsed in full, on every command that touches a model. Naming the
+     * files is a hint about where to look, never the answer itself; when the method is not found
+     * there the conventions degrade to `inferred` and say so, which is the safe direction.
      */
     private function frameworkDeclares(string $method): bool
     {
-        foreach ([LaravelProfile::MODEL, self::BUILDER] as $fqn) {
-            foreach ($this->source->withAncestors($fqn) as $class) {
-                foreach ($class->node->getMethods() as $declared) {
-                    if (strcasecmp($declared->name->toString(), $method) === 0) {
-                        return true;
-                    }
+        if (! $this->map instanceof AutoloadMap) {
+            return false;
+        }
+
+        foreach ([LaravelProfile::MODEL, self::BUILDER, self::HAS_ATTRIBUTES] as $fqn) {
+            foreach ($this->map->candidates($fqn) as $path) {
+                $source = is_file($path) ? file_get_contents($path) : false;
+
+                if (is_string($source) && str_contains($source, 'function '.$method.'(')) {
+                    return true;
                 }
             }
         }

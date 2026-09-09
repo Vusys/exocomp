@@ -35,12 +35,12 @@ final readonly class Forwarders implements MagicSource
 
     public function method(string $ownerFqn, string $name): ?MagicMember
     {
-        return $this->through($ownerFqn, $name, '__call');
+        return $this->through($ownerFqn, $name, '__call', SymbolKind::Method);
     }
 
     public function property(string $ownerFqn, string $name): ?MagicMember
     {
-        return $this->through($ownerFqn, $name, '__get');
+        return $this->through($ownerFqn, $name, '__get', SymbolKind::Property);
     }
 
     /**
@@ -53,13 +53,20 @@ final readonly class Forwarders implements MagicSource
         return [];
     }
 
-    private function through(string $ownerFqn, string $name, string $magic): ?MagicMember
+    private function through(string $ownerFqn, string $name, string $magic, SymbolKind $kind): ?MagicMember
     {
         foreach ($this->source->withAncestors($ownerFqn) as $class) {
             $target = $this->forwardsTo($class, $magic);
 
             if ($target === null) {
                 continue;
+            }
+
+            // Knowing where the name goes is not knowing that anything is there to receive it.
+            // Naming `Target::whatever` on the strength of the forwarder alone would repeat, one
+            // rung down, exactly the mistake this ladder was built to stop.
+            if ($this->members->isComplete($target) && ! $this->members->declared($target, $name, $kind) instanceof SymbolRecord) {
+                return null;
             }
 
             return MagicMember::spelled(

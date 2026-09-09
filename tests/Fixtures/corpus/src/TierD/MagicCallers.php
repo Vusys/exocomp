@@ -18,6 +18,7 @@ final class MagicCallers
         private readonly Forwarder $forwarder,
         private readonly Computed $computed,
         private readonly Invokable $invokable,
+        private readonly BorrowedClaims $borrowed,
     ) {}
 
     /** Nothing is written down. This must be textual. */
@@ -60,6 +61,18 @@ final class MagicCallers
     public function throughForwarder(): bool
     {
         return $this->forwarder->send('hello');
+    }
+
+    /** The forwarder's target has no such member, so knowing where the name goes proves nothing. */
+    public function throughForwarderToNothing(): mixed
+    {
+        return $this->forwarder->noSuchMethod();
+    }
+
+    /** A mixin into a class that only annotates the member. Still a claim, with nowhere to jump. */
+    public function throughBorrowedClaim(): mixed
+    {
+        return $this->borrowed->fetch('key');
     }
 
     /** A `__call` that computes its target. Unknowable, and it must say so. */

@@ -649,7 +649,7 @@ final class ModelReader
 
         foreach ($chain as $class) {
             foreach ($this->source->parentsOf($class) as $parent) {
-                if ($parent !== LaravelProfile::MODEL && !$this->source->load($parent) instanceof \Vusys\Exocomp\Project\LoadedClass) {
+                if ($parent !== LaravelProfile::MODEL && ! $this->source->load($parent) instanceof LoadedClass) {
                     $missing[$parent] = true;
                 }
             }

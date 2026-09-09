@@ -99,3 +99,17 @@ class Computed
         return $handler?->send($name);
     }
 }
+
+/**
+ * A mixin pointing at a class that only claims the member itself. Two hops of annotation is
+ * still an annotation, and there is no declaration at the far end for anything to jump to.
+ *
+ * @mixin AnnotatedBag
+ */
+class BorrowedClaims
+{
+    public function __call(string $name, array $arguments): mixed
+    {
+        return null;
+    }
+}

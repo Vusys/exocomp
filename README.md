@@ -63,7 +63,7 @@ before it answers — in particular it never boots your application.
 | `locate <name>` | Where a short name or a fully-qualified one is declared. |
 | `subclasses` / `implementors` / `traits-users` | The inheritance graph, transitively. |
 | `overrides <symbol>` | Every declaration of one member across its hierarchy, up and down. |
-| `references-to <symbol>` | Every reference to a class or member, grouped by how certain each one is. |
+| `references-to <symbol>` | Every reference to a class or member, grouped by how certain each one is — including the ones written under another name, like a scope called as `active()`. |
 | `callers-of` / `calls-from` | The call graph in either direction, with unresolvable edges reported rather than dropped. |
 | `reaches <from> <to>` | Whether a call path exists — from a method, or from every matching endpoint at once. Exits 1 when there is none. |
 | `graph <symbol>` | Everything within N steps outward, and every edge that could not be followed. |
@@ -76,7 +76,7 @@ ordinary PHP and SQL, never by booting anything:
 
 | Command | Answers |
 | --- | --- |
-| `model <class>` | An Eloquent model's table, attributes, casts, relations **and their target classes**, global scopes and traits — resolved through parents and traits, each fact saying which class it came from. |
+| `model <class>` | An Eloquent model's table, attributes, casts, accessors, relations **and their target classes**, global scopes and traits — resolved through parents and traits, each fact saying which class it came from. Reconciles the `@property` block against the schema, the casts and the accessors, and reports the claims nothing backs. |
 | `facade <Facade[::method]>` | The class a facade actually resolves to, through its accessor and the container, and where the method is declared on it. |
 | `schema [table]` | A table's columns and indexes, reconstructed from the squashed schema dump and every migration since. |
 | `config <key>` | Where a config key is defined and everywhere it is read. |
@@ -171,6 +171,64 @@ annotation is a claim about the code rather than a fact of it. Anything else is 
 unknown with a reason. That is not a gap to be closed later; it is what makes partial inference
 safe to ship.
 
+## Magic members
+
+`__call`, `__get` and their framework descendants are where a static reader usually stops. Almost
+none of it is actually unreadable. Counted over the `app/` tree of a 4,516-file Laravel
+application:
+
+| Declared in a docblock or by convention | | Written as a body, or registered elsewhere | |
+| --- | ---: | --- | ---: |
+| `@property*` | 4,155 | `__get` | 10 |
+| `@method` | 3,552 | `::macro()` | 2 |
+| accessors | 271 | `__call` | 1 |
+| `@mixin` | 265 | `__callStatic` | 0 |
+| local scopes | 180 | | |
+| `: Attribute` methods | 33 | | |
+
+So the interesting problem — read the magic method, work out what it forwards to — is a rounding
+error, and the work is in the two boring cases. A ladder, in order of what the evidence is worth:
+
+- **Convention.** `Order::active()` is `scopeActive()`; `$order->display_name` is
+  `getDisplayNameAttribute()`, or the newer method that says so by returning `Attribute`. The
+  transform is a total function of the name and the target is either declared or not, so these
+  are `resolved` — on one condition: that the installed framework is confirmed to still
+  implement the convention. Hardcoding "the `scope` prefix means a scope" would be right until
+  the framework changed and would then be wrong without saying so. Where it cannot be read, the
+  answer degrades to `inferred` and gives that as the reason.
+- **Annotation.** `@method`, `@property*` and `@mixin` chains, always `inferred` and never more.
+  The reason names the file the claim came from, because 261 of those 265 `@mixin` tags point
+  into a generated helper, and "inferred through a generated file" is a weaker claim than
+  "inferred through a class in `app/`".
+- **A readable forwarder.** A `__call` or `__get` that is a single statement handing the name to
+  something typed is followed exactly one step — the same rule already applied to container
+  bindings. One that computes its target is declined, because following it would mean evaluating
+  the method, and a static reader that evaluates is one that invents.
+- **A macro** is answered with where it was registered and never with a target. A closure is not
+  a declaration, and whether the provider that registers one has run on the path being asked
+  about is not something the source says.
+
+The inverse matters as much. Finding every reference to `scopeActive` means finding every
+`->active()` — and nothing in a file that only writes `active()` mentions the declared name, so
+the old answer was the declaration alone, reported with full confidence:
+
+```console
+$ exocomp references-to 'App\Models\Order::scopeActive'
+3 references to App\Models\Order::scopeActive  (3 resolved, 0 inferred, 0 unresolved)
+app/Models/Order.php:59:5            public function scopeActive($query) { return $query; }
+app/Services/OrderQueries.php:21:16  Order::active()
+app/Services/OrderQueries.php:27:16  $order->active()
+```
+
+The call-site spelling is searched alongside the declared one, paired with the owner's short name
+so the search stays narrow — `active` appears in 719 files of that application against 9 for
+`scopeActive`, and the pairing costs nothing in recall for the same reason the original narrowing
+is sound: a receiver that *resolves* had its type written in the same file.
+
+What stays refused, and must: `$obj->$method()`, variable class names, `extract()`, string
+callables, `call_user_func` with a computed callable, `class_alias()`, a `__get` reading an array
+bag, and a `__call` that parses a prefix out of the method name.
+
 ## Structural query
 
 `query` takes the code you are looking for, written as PHP, with three things that are not
@@ -261,6 +319,28 @@ app/Models/Comment.php:16  commentable  morphTo   polymorphic — what it points
 - A **morph map**'s keys live in your database, in the `*_type` column of every polymorphic
   relation. `morph-map` says so on every answer, because a rename that updates the code and
   stays silent about `commentable_type` has made the application worse.
+
+### When the annotations and the schema disagree
+
+After reading a model's accessors and its `@property` block, `model` holds four independent
+accounts of what attributes the model has — the migration history, `$casts`, the accessors and
+the annotations — and reports the claims nothing else backs:
+
+```
+note: 1 of 14 annotated properties are accounted for by no column, cast, accessor or relation
+      — name; the model was read to the end of its ancestry, so these are claims nothing backs
+```
+
+Generated annotation blocks go stale in one direction: a column is dropped, the block is not
+regenerated, and the claim outlives the thing it described. Nothing else in a PHP toolchain says
+so. It stays quiet when there is nothing to check against — no migration history, a table whose
+history could not be read to the end, or a model whose parents and traits are not all readable —
+because a claim cannot be contradicted by a list that is knowingly incomplete.
+
+Measured over 120 real annotated models: three flagged, and the false positives that got it there
+are listed in `docs/measurements.md`. `withCount` aggregates, the two spellings of an accessor
+name, and a declined `morphTo` were all wrong at first, and a report that is right most of the
+time gets switched off.
 
 ## Reachability, and what a "no" is worth
 

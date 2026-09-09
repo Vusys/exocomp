@@ -39,7 +39,7 @@ final class ReferencesToCommand extends IndexedCommand
         $this
             ->addArgument('symbol', InputArgument::REQUIRED, 'A class or member address, e.g. "App\Models\Order::save"')
             ->addOption('strings', null, InputOption::VALUE_NONE, 'Also search string literals across the corpus — slower, and every hit is textual')
-            ->addOption('resolved-only', null, InputOption::VALUE_NONE, 'Emit only the references the tool will stand behind')
+            ->addOption('resolved-only', null, InputOption::VALUE_NONE, 'Emit only the references a rename may rewrite mechanically — the resolved ones')
             ->setHelp(<<<'HELP'
             Results are grouped by confidence:
 
@@ -67,9 +67,18 @@ final class ReferencesToCommand extends IndexedCommand
         $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
         $references = $finder->find($target, $this->boolOption($input, 'strings'));
 
+        // `--resolved-only` means the set a rename may rewrite mechanically, and that is
+        // `resolved` alone. It used to drop only the textual group and print the inferred one,
+        // which is the set the write side must *not* touch: an inference is worth reporting and
+        // never worth rewriting on. Nothing showed it up until this work moved records out of
+        // "unresolved" and into "inferred", where the flag was quietly emitting them.
+        $rewritableOnly = $this->boolOption($input, 'resolved-only');
+
         $certain = array_values(array_filter($references, static fn (Reference $r): bool => $r->confidence === Confidence::Resolved));
-        $likely = array_values(array_filter($references, static fn (Reference $r): bool => $r->confidence === Confidence::Inferred));
-        $unsure = $this->boolOption($input, 'resolved-only')
+        $likely = $rewritableOnly
+            ? []
+            : array_values(array_filter($references, static fn (Reference $r): bool => $r->confidence === Confidence::Inferred));
+        $unsure = $rewritableOnly
             ? []
             : array_values(array_filter($references, static fn (Reference $r): bool => $r->confidence === Confidence::Textual));
 

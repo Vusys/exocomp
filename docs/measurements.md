@@ -822,6 +822,148 @@ The 15% that stays with grep has not moved and should not: those are keyword hun
 and string literals, and searches spanning `.vue` and `.js`. A PHP-aware engine has nothing to
 add to them.
 
+## Magic members
+
+### What the corpus actually contains
+
+The plan for this work was to analyse `__call` bodies and follow the forwarding. Counting first
+overturned it. Over the `app/` tree of the corpus — 4,516 PHP files:
+
+| Construct | Count | Where the evidence lives |
+| --- | ---: | --- |
+| `@property` / `-read` / `-write` | 4,155 | the class's own docblock |
+| `@method` | 3,552 | the class's own docblock |
+| `getXxxAttribute()` accessors | 271 | a declaration in the same class, named by convention |
+| `@mixin` | 265 | the class's own docblock — 261 of them pointing at a generated helper |
+| `scopeXxx()` local scopes | 180, 113 distinct names | a declaration in the same class |
+| `protected function x(): Attribute` | 33 | same |
+| `__get` bodies | 10 | a method body |
+| `::macro()` registrations | 2 in `app/`, 30 in all of `vendor/` | a call site elsewhere |
+| `__call` bodies | 1 | a method body |
+| `__callStatic` bodies | 0 | — |
+
+Roughly 99% of the magic surface is either an annotation or an ordinary declaration whose name
+the framework transforms — both already in a file the parser has read. The general case is a
+rounding error, and it is built last and marked optional.
+
+`__invoke` is worth its own line: 758 in the corpus, 608 of them controllers. Those were already
+handled — a route naming only a class resolves to its `__invoke` — which is why the count did not
+drive any work here.
+
+### The safety gate
+
+Stated before building anything: **`references-to --resolved-only` may gain entries, and may not
+lose or change one.** Everything the write side is allowed to touch has to come through this
+work unaltered, or the phase is not shippable.
+
+Run over 24 members of the corpus — twenty ordinary methods and four local scopes — comparing the
+**resolved records** each binary emits, against the commit before any of this work:
+
+| | |
+| --- | ---: |
+| symbols compared | 24 |
+| resolved records lost | **0** |
+| resolved records gained | **5** |
+
+Every gain is a local scope reached by the name its callers write. Nothing left the resolved set.
+
+The comparison is between resolved *records*, not between `--resolved-only` *output*, and the
+difference is the second defect this gate found. `--resolved-only` dropped only the textual group
+and printed the inferred one — while its own help called it "the references the tool will stand
+behind", and the write side is gated on `resolved` alone. On six of these symbols it was emitting
+nineteen inferred references a rename would have rewritten. Nothing had surfaced it because
+inferred results were rare on the symbols anyone had tried; this work moved records out of
+"unresolved" and into "inferred", where the flag was quietly emitting them.
+
+The first thing it found was worse: `references-to` on a member of a model exhausted PHP's default
+512MB and died rather than answering. The ladder walks the ancestry of every receiver type it
+meets, and the class source retained each parse — file text and syntax tree — for 1,077 classes in
+one search. Bounding that cache, and asking the ladder only when it could answer (the receiver is
+related to the target, or the index says it has a `__call` or `__get` to forward through), took the
+peak from 511MB to 177MB and the loads on a typical search from 1,077 to 31.
+
+### What it found
+
+The reference search now answers the inverse question, which it previously answered wrongly:
+
+```
+$ exocomp references-to '<a model>::scopeActive'
+5 references  (5 resolved, 0 inferred, 0 unresolved)
+   ... 4 call sites written as `::active()`, and the declaration
+```
+
+Before this work the same command returned the declaration alone, with full confidence. Four
+call sites in one file were invisible, and a rename driven by that answer would have broken the
+codebase at runtime rather than at build time.
+
+**Latency.** The alternative spelling has to be searched for, and `active` appears in 719 files
+of the corpus against 9 for `scopeActive` — an 80× wider search, which took **30.6s**. Pairing the
+spelling with the owner's short name, which costs nothing in recall because a receiver that
+*resolves* had its type written in the same file, took the same query to **3.5s** with the same
+result. Both figures are the same binary before and after that one change.
+
+**What it costs.** Measured against the pre-phase commit, same corpus:
+
+| | before | after |
+| --- | ---: | ---: |
+| a typical member's references | 0.88s | 1.77s |
+| another | 0.86s | 1.93s |
+| the worst member found (`parent`, on a model) | 63s | 112s |
+| peak memory on that member | 54MB | 177MB |
+
+That is a real regression, and the narrowing above does not pay for it — it is what asking the
+ladder costs. The remaining time goes on parsing a model's framework ancestry, and on the 917KB
+generated helper reached through `@mixin` (0.12s to parse on its own). It is recorded rather than
+optimised away because the next step is not obvious, and the number should not be discovered later
+by someone else.
+
+### A baseline that was not one
+
+The first set of before/after figures for this work was wrong, and the way it was wrong is worth
+recording because the setup is an obvious one to repeat.
+
+The baseline was a `git worktree` of the earlier commit with its `vendor/` symlinked to the main
+checkout's, to avoid a second install. Composer's generated autoloader computes its base
+directory as `dirname(__DIR__)` from inside `vendor/composer/` — and `__DIR__` resolves symlinks.
+So the baseline binary loaded `Vusys\Exocomp\` from the *main* checkout: both sides of every
+comparison were the same code, and the differences measured were noise.
+
+What gave it away was a result that was too clean. The safety gate came back with 25 of 25
+symbols unchanged, on a sample that included four local scopes — three of which do have call
+sites, and finding those is the whole point of the change. A gate that cannot fail is not a gate.
+
+The fix is to give the worktree its own `vendor/composer/` and `vendor/autoload.php`, with the
+package directories symlinked individually, then confirm by reflection which file the class
+actually loads from before trusting a single number:
+
+```console
+$ php -r 'require "…/vendor/autoload.php";
+          echo (new ReflectionClass(TypeResolver::class))->getFileName();'
+```
+
+### The drift report
+
+`model` now holds four independent accounts of a model's attributes — the migration history,
+`$casts`, the accessors and the `@property` block — and reports the annotated properties that
+nothing else backs.
+
+Run against 120 real annotated models, the rate went **3 of 40 → 3 of 120** as the false
+positives were chased out:
+
+| Cause | Fix |
+| --- | --- |
+| an aggregate attribute from `withCount()` | relation aggregates are accounted for by their relation |
+| an accessor annotated in camel case, recorded in snake | the framework studlies whatever key it is given, so spellings are normalised |
+| a `morphTo` relation | a declined relation is still a relation |
+| a relation built into a variable and returned through a helper | read, when the method's declared return type is a `Relations\*` |
+| a relation derived from another relation | recorded as declined — real, with no target readable from that method |
+| a table whose migration history could not be read to the end | a knowingly incomplete column list cannot contradict a claim |
+| a model whose parents or traits could not be read | the note says which, instead of implying the claim is groundless |
+
+One survivor checked by hand: a model carrying `@property mixed $name` where the table has nine
+columns and none is `name`, and the word appears nowhere else in the file — no cast, no accessor,
+no relation. That is the case the report exists for.
+
 ## Re-running this
 
 Point a checkout the corpus matches at the tool, then per command compare call count and output

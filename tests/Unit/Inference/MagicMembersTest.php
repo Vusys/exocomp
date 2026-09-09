@@ -64,12 +64,33 @@ final class MagicMembersTest extends TestCase
         $this->assertStringContainsString('@mixin', $call['reason']);
     }
 
+    public function test_a_mixin_into_a_claim_stays_a_claim(): void
+    {
+        $call = $this->call('Fixtures\TierD\MagicCallers::throughBorrowedClaim');
+
+        // Two hops of annotation is still an annotation. Carrying the far end's *declaration*
+        // forward when there is none manufactured an empty one, and everything downstream
+        // treats a declaration as somewhere it can go.
+        $this->assertSame('Fixtures\TierD\BorrowedClaims::fetch', $call['fqn']);
+        $this->assertSame('inferred', $call['confidence']);
+        $this->assertStringContainsString('@mixin', $call['reason']);
+    }
+
     public function test_a_single_statement_forwarder_is_followed_one_step(): void
     {
         $call = $this->call('Fixtures\TierD\MagicCallers::throughForwarder');
 
         $this->assertSame('Fixtures\TierD\Notifier::send', $call['fqn']);
         $this->assertStringContainsString('forwards to', $call['reason']);
+    }
+
+    public function test_a_forwarder_does_not_invent_a_member_on_its_target(): void
+    {
+        // Knowing where a name is handed on is not knowing anything is there to receive it.
+        $call = $this->call('Fixtures\TierD\MagicCallers::throughForwarderToNothing');
+
+        $this->assertNull($call['fqn']);
+        $this->assertSame('textual', $call['confidence']);
     }
 
     public function test_a_computed_magic_target_stays_unknowable(): void

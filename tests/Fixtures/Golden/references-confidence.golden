@@ -14,9 +14,9 @@ src/TierD/Notifier.php:29:16      parent::send(strtoupper($message))
 
 inferred (4)
 src/TierD/CallSites.php:51:16     $thing->send('hello')
-src/TierD/MagicCallers.php:44:16  $this->annotated->current->send('hello')
-src/TierD/MagicCallers.php:56:16  $this->mixin->send('hello')
-src/TierD/MagicCallers.php:62:16  $this->forwarder->send('hello')
+src/TierD/MagicCallers.php:45:16  $this->annotated->current->send('hello')
+src/TierD/MagicCallers.php:57:16  $this->mixin->send('hello')
+src/TierD/MagicCallers.php:63:16  $this->forwarder->send('hello')
 
 ── 2 unresolved ──
 src/TierD/CallSites.php:36:16     $anything->send('hello')   receiver type unknown

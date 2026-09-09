@@ -121,9 +121,16 @@ final class AnnotatedMembers implements MagicSource
 
         $nested = $this->look($target, $name, $kind, $seen);
 
-        return $nested instanceof MagicMember
-            ? MagicMember::spelled($nested->declaration ?? '', $nested->type, Confidence::Inferred, $nested->reason.', reached through @mixin')
-            : null;
+        if (! $nested instanceof MagicMember) {
+            return null;
+        }
+
+        // A mixin pointing at a class that only *claims* the member yields a claim, not a
+        // declaration. Passing an empty string on would have manufactured one out of nothing,
+        // and everything downstream treats a declaration as somewhere it can go.
+        return $nested->declaration === null
+            ? MagicMember::claimed($nested->type, $nested->reason.', reached through @mixin')
+            : MagicMember::spelled($nested->declaration, $nested->type, Confidence::Inferred, $nested->reason.', reached through @mixin');
     }
 
     private function claim(LoadedClass $class, string $name, SymbolKind $kind): ?MagicMember

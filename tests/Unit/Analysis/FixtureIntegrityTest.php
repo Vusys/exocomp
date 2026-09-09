@@ -59,6 +59,7 @@ final class FixtureIntegrityTest extends TestCase
         yield 'a borrowed API' => ['src/TierD/Magic.php', '@mixin Notifier'];
         yield 'a readable forwarder' => ['src/TierD/Magic.php', '$this->inner->{$name}(...$arguments)'];
         yield 'a computed magic target' => ['src/TierD/Magic.php', 'substr($name, 3)'];
+        yield 'a mixin into a claim' => ['src/TierD/Magic.php', '@mixin AnnotatedBag'];
         yield 'a call to a member that is not there' => ['src/TierB/CallSites.php', '$this->repository->findByUuid($uuid)'];
     }
 

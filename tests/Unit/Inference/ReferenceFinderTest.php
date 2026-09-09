@@ -187,4 +187,21 @@ final class ReferenceFinderTest extends TestCase
         $this->assertInstanceOf(Reference::class, $reference, "no reference inside {$context}");
         $this->assertSame($confidence, $reference->confidence);
     }
+
+    public function test_resolved_only_emits_nothing_the_write_side_may_not_touch(): void
+    {
+        $run = Cli::inCorpus(['references-to', 'Fixtures\\TierD\\Notifier::send', '--resolved-only', '--json']);
+
+        foreach ($run->lines() as $line) {
+            $decoded = json_decode($line, true);
+
+            if (is_array($decoded) && isset($decoded['confidence'])) {
+                // The flag names the set a rename may rewrite mechanically, and an inference is
+                // worth reporting and never worth rewriting on.
+                $text = $decoded['text'] ?? null;
+
+                $this->assertSame('resolved', $decoded['confidence'], is_string($text) ? $text : '');
+            }
+        }
+    }
 }

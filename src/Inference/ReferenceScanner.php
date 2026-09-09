@@ -12,6 +12,7 @@ use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Index\MemberOrigin;
 use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\Identifier as SymbolIdentifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
@@ -49,6 +50,8 @@ final class ReferenceScanner extends NodeVisitorAbstract
     private ?SymbolKind $targetKind = null;
 
     private bool $targetKindResolved = false;
+
+    private ?Members $members = null;
 
     /**
      * @param  list<string>  $spellings  other names a call site may use for this member
@@ -221,9 +224,12 @@ final class ReferenceScanner extends NodeVisitorAbstract
             return;
         }
 
-        $relation = $spelled ? null : $this->relation((string) $type->fqn);
+        $related = $this->relation((string) $type->fqn);
+        $relation = $spelled ? null : $related;
 
-        if ($relation === null && $written !== null) {
+        // Asked when the hierarchy connects the receiver to the target — where a convention can
+        // land — or when the receiver can hand the name somewhere else entirely.
+        if ($relation === null && $written !== null && ($related !== null || $this->couldForward((string) $type->fqn))) {
             $relation = $this->throughMagic((string) $type->fqn, $written, $kind);
         }
 
@@ -335,6 +341,28 @@ final class ReferenceScanner extends NodeVisitorAbstract
      *
      * @return array{confidence: Confidence, reason: string}|null
      */
+    /**
+     * Whether a receiver unrelated to the target could hand the name somewhere else.
+     *
+     * It is only worth it if the receiver can hand the name somewhere else, and the two ways
+     * that happens both start at a `__call` or a `__get`. A convention resolves to a declaration
+     * on the receiver's *own* class, so it can never land on an unrelated target; asking anyway
+     * costs an ancestry walk per receiver type, and a corpus-wide search meets hundreds of them.
+     *
+     * Answered from the index, so it costs no file read. The limit it accepts: a `@mixin` on a
+     * class that declares no `__call` of its own — which the framework's base classes do declare,
+     * out in `vendor/` where the index cannot see them. In one measured application, 261 of the
+     * 265 `@mixin` tags point at a generated helper full of framework methods, which is not
+     * something a rename of an application member ever reaches.
+     */
+    private function couldForward(string $receiverFqn): bool
+    {
+        $members = $this->members ??= new Members($this->graph);
+
+        return $members->declared($receiverFqn, '__call', SymbolKind::Method) instanceof SymbolRecord
+            || $members->declared($receiverFqn, '__get', SymbolKind::Method) instanceof SymbolRecord;
+    }
+
     /**
      * The member reached through magic, when the hierarchy alone does not connect the receiver
      * to the target.

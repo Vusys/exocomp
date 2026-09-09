@@ -7,6 +7,7 @@ namespace Vusys\Exocomp\Inference;
 use Vusys\Exocomp\Framework\Laravel\EloquentConventions;
 use Vusys\Exocomp\Framework\Laravel\MacroRegistry;
 use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Project\AutoloadMap;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\Project;
 use Vusys\Exocomp\Symbol\Identifier;
@@ -46,9 +47,10 @@ final class Magic
     public static function forProject(SymbolGraph $graph, ClassSource $source, ?Project $project = null): self
     {
         $members = new Members($graph);
+        $map = $project instanceof Project ? AutoloadMap::forProject($project) : null;
 
         $sources = [
-            new EloquentConventions($source, $members),
+            new EloquentConventions($source, $members, $map),
             new AnnotatedMembers($source, $members),
             new Forwarders($source, $members),
         ];

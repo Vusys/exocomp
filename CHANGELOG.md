@@ -8,6 +8,42 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Magic members.** Members that exist at runtime and are declared nowhere the call site can
+  see. Counted over the `app/` tree of one measured 4,516-file Laravel application: 4,155
+  `@property` tags, 3,552 `@method`, 265 `@mixin`, 271 accessors and 180 local scopes — against
+  ten `__get` bodies, one `__call` and two macro registrations. Almost none of it is the
+  interesting problem; almost all of it is written down somewhere the parser has already read.
+  - **Framework conventions** resolve to the declaration they are spelled differently from:
+    `Order::active()` to `scopeActive()`, `$order->display_name` to `getDisplayNameAttribute()`
+    or to the newer method returning `Attribute`, and a relation read as an attribute to the
+    relation method. These reach `resolved`, because the transform is a total function of the
+    name and the target is found and checked — but only once the installed framework has been
+    confirmed to still implement the convention. Where it cannot be read they degrade to
+    `inferred` and say so.
+  - **`references-to` searches the call-site spelling too.** Finding every reference to
+    `scopeActive` means finding every `->active()`, and no call site writes the declared name;
+    the old answer was the declaration alone, reported with full confidence. The alternative
+    spelling is paired with the owner's short name so the search stays narrow — `active` appears
+    in 719 files of that corpus against 9 for `scopeActive`.
+  - **Annotations** — `@method`, `@method static`, `@property`, `@property-read`,
+    `@property-write` and `@mixin` chains — resolve at `inferred` and can never be more. An
+    annotation is a claim about the code rather than a fact of it, and the reason names the file
+    it came from, because 261 of those 265 `@mixin` tags point into a generated helper.
+  - **A single-statement `__call` or `__get` forwarder** is followed exactly one step to its
+    typed target, the same rule already applied to container bindings. A body that computes its
+    target is declined.
+  - **Macros** are answered with where they were registered and never with a target: a closure
+    is not a declaration, and whether the provider that registers one has run on the path being
+    asked about is not something the source says.
+  - **`model` reads accessors and the `@property` block**, and reconciles the four independent
+    accounts of a model's attributes — the migration history, `$casts`, the accessors and the
+    annotations — reporting the annotated properties that nothing else backs. Generated blocks
+    go stale silently and nothing else in a PHP toolchain says so. Measured on 120 real models:
+    3 flagged, one of them a property with no column, cast, accessor or relation whose name
+    appears nowhere else in the file.
+  - **A class declaring `__call` is said to**, everywhere the answer would otherwise read as a
+    call that will not run.
+
 - **Phase 5 — reachability.** The query the read engine was built to make possible.
   - `reaches <from> <to>` — whether a call path exists, with the path itself and the confidence
     of its weakest step. The destination is a shape rather than an address: `Order::save` for
@@ -155,6 +191,37 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **`--resolved-only` emitted references a rename must not rewrite.** It dropped only the
+  `textual` group and printed the `inferred` one, while its own help called it "the references
+  the tool will stand behind" and the design gates the write side on `resolved` alone. A rename
+  driven by it would have rewritten references established from a docblock. Nothing had shown it
+  up because inferred results were rare on the symbols anyone had tried; this work moved records
+  out of "unresolved" and into "inferred", where the flag was quietly emitting them. On six real
+  symbols it was emitting nineteen such entries.
+- **A corpus-wide reference search no longer exhausts memory.** The magic ladder walks the
+  ancestry of each receiver type it meets, and the class source held every parse — 1,077 classes,
+  each with its file text and syntax tree, taking one search from 54MB to 511MB and past PHP's
+  default limit, where it died rather than answering. The cache is now bounded, and the ladder is
+  asked only when the receiver is related to the target or the index says it has a `__call` or
+  `__get` to forward through: 1,077 loads become 31 on a typical search.
+- **A call target is verified, not assumed.** Knowing the receiver's type was only half of it:
+  `calls-from` reported `Repository::findByUuid` as a resolved call against a final class that
+  declares no such method, and the fixture corpus had been asserting that output since Phase 3.
+  A member that is absent from a class read to the end of its ancestry is now `textual` with the
+  reason, and one on a class whose ancestry leaves the corpus is unchanged — an absence there
+  proves nothing. `references-to` said the same about any name on a class it had read to the
+  end, and now says so once, in a note about the question rather than about each answer.
+- **"A parent or trait outside the readable source does"** was printed for every method the
+  graph layer could not find, including on classes with no parent and no traits. It now says
+  which of the three situations it is in and only claims an ancestry it has evidence for.
+- **A value called as a function** — `$handler($x)` — was reported as a dynamic function name
+  even when its type was declared. It is a call to `__invoke`, and the call site writes no
+  method name at all, which is exactly why a textual search cannot find it.
+- **A call to a function the corpus declares** now yields that function's return type.
+- **The `__get` caveat** is no longer printed over answers that name the mechanism exactly.
+- **A relation built into a variable** and handed back through a helper is read, and one derived
+  from another relation is recorded as declined rather than omitted — both gated on the method's
+  declared return type being a `Relations\*`.
 - A string controller name beginning with a backslash is absolute, and is no longer given the
   route namespace as well. Prefixing regardless produced a name with the root written twice —
   which resolves to nothing, was reported as `inferred` rather than as the resolved fact it is,

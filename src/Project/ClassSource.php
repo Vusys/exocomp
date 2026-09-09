@@ -26,8 +26,20 @@ use Vusys\Exocomp\Symbol\SymbolRef;
  */
 final class ClassSource
 {
+    /**
+     * How many parsed classes to keep. Each holds its file's text and its syntax tree, and the
+     * magic-member ladder asks about the receiver types it meets — 1,077 distinct classes in one
+     * corpus-wide reference search over a 950k-line application, which took the process from
+     * 54MB to 511MB and over PHP's default limit. The answers are memoised where they are asked
+     * for, so an eviction costs a re-parse and never a wrong answer.
+     */
+    private const int RETAINED = 128;
+
     /** @var array<string, LoadedClass|null> */
     private array $loaded = [];
+
+    /** @var list<string> */
+    private array $order = [];
 
     /** @var list<string> */
     private array $notes = [];
@@ -48,10 +60,35 @@ final class ClassSource
         // not in the corpus, and each retry is an index lookup, an autoload-map lookup and a
         // stat. "I already looked and there is nothing" is a cached result too.
         if (! array_key_exists($key, $this->loaded)) {
-            $this->loaded[$key] = $this->read($fqn);
+            $this->remember($key, $this->read($fqn));
         }
 
         return $this->loaded[$key];
+    }
+
+    /**
+     * Caches the result, evicting the oldest parse once the cap is reached.
+     *
+     * Misses are kept regardless: "I already looked and there is nothing" costs a key and saves
+     * an index lookup, an autoload-map lookup and a stat every time it is asked again.
+     */
+    private function remember(string $key, ?LoadedClass $class): void
+    {
+        $this->loaded[$key] = $class;
+
+        if (! $class instanceof LoadedClass) {
+            return;
+        }
+
+        $this->order[] = $key;
+
+        while (count($this->order) > self::RETAINED) {
+            $oldest = array_shift($this->order);
+
+            if (($this->loaded[$oldest] ?? null) instanceof LoadedClass) {
+                unset($this->loaded[$oldest]);
+            }
+        }
     }
 
     /**
