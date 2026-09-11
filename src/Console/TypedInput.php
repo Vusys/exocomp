@@ -22,6 +22,18 @@ trait TypedInput
         return is_string($value) ? $value : null;
     }
 
+    /**
+     * An `IS_ARRAY` argument, narrowed to the strings it really holds.
+     *
+     * @return list<string>
+     */
+    protected function stringListArgument(InputInterface $input, string $name): array
+    {
+        $value = $input->getArgument($name);
+
+        return is_array($value) ? array_values(array_filter($value, is_string(...))) : [];
+    }
+
     protected function stringOption(InputInterface $input, string $name): ?string
     {
         $value = $input->getOption($name);

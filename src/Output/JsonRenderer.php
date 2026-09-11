@@ -30,6 +30,10 @@ final class JsonRenderer implements Renderer
             $lines[] = $this->encode(['found' => false, 'note' => $result->header]);
         }
 
+        foreach ($result->objects as $object) {
+            $lines[] = $this->encode($object);
+        }
+
         foreach ($result->sections as $section) {
             foreach ($section->rows as $row) {
                 $record = $row->toArray();

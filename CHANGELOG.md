@@ -8,6 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`show` takes several addresses at once.** Read back from real sessions, the commonest thing
+  to follow `members` was not another command but `sed -n 'X,Yp'` — having learned where three
+  members are, the reader wanted their bodies, and one line range beat three round trips. The
+  range is the worse answer in a way that does not announce itself: it is correct only while
+  every member sits in one file, contiguously, with nothing else in between, and a member that
+  turns out to be inherited is not in that file at all. `show 'A::x' 'A::y' 'B::z'` prints them
+  in the order asked for, across classes and files.
+  - A missing address does not withdraw the others. It is listed in the trailing block with its
+    reason, including the real namespace when the short name is declared elsewhere, and the exit
+    code is `1` if even one address is missing — a partial answer must not read as a whole one
+    to `exocomp show a b && …`.
+  - One address is unchanged, deliberately: a lone header and body, and `--json` still a single
+    object rather than a stream of one. Several addresses emit one JSON record per line, led by
+    `{"found": false}` when the answer is partial.
+
 - **Magic members.** Members that exist at runtime and are declared nowhere the call site can
   see. Counted over the `app/` tree of one measured 4,516-file Laravel application: 4,155
   `@property` tags, 3,552 `@method`, 265 `@mixin`, 271 accessors and 180 local scopes — against
@@ -191,6 +206,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **`--format=paths` no longer emits a blank line** for a record that could not be placed in a
+  file. The format is shaped for `xargs`, where an empty line is an empty argument.
 - **A guessed namespace is answered with the real one.** Reading real sessions, the commonest way
   a name failed was an agent knowing the class is called `OrderRepository` and guessing it lives
   under `App\Repositories\`. "No declaration of that" was correct and useless — the

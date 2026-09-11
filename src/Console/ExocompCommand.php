@@ -135,7 +135,7 @@ abstract class ExocompCommand extends Command
      *
      * @return list<string>
      */
-    private function declaredElsewhere(CommandContext $context, string $address): array
+    protected function declaredElsewhere(CommandContext $context, string $address): array
     {
         $owner = explode('::', $address)[0];
 

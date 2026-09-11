@@ -21,6 +21,11 @@ final readonly class Result
      * @param  bool  $found  whether the question had an answer — the exit code, and for a
      *                       negative one the body still carries why, because "no" and "no, and
      *                       here is what I could not look at" are different claims
+     * @param  list<array<string, string|int|bool|null>>  $objects  the `--json` payload for an
+     *                                                              answer covering several addresses, one record per line. Separate
+     *                                                              from `$object` so that asking for one address still yields a single
+     *                                                              object, rather than a consumer's shape changing under it the day a
+     *                                                              command learns to take two.
      */
     public function __construct(
         public string $header = '',
@@ -32,6 +37,7 @@ final readonly class Result
         public array $notes = [],
         public ?array $object = null,
         public bool $found = true,
+        public array $objects = [],
     ) {}
 
     /**
@@ -79,6 +85,7 @@ final readonly class Result
             notes: $this->notes,
             object: $this->object,
             found: $this->found,
+            objects: $this->objects,
         );
     }
 
@@ -115,6 +122,18 @@ final readonly class Result
         if ($paths === [] && is_string($this->object['file'] ?? null)) {
             $paths[$this->object['file']] = true;
         }
+
+        // A multi-address answer has no rows either, so `--format=paths` would otherwise come
+        // back empty for exactly the call that names the most files.
+        foreach ($this->objects as $object) {
+            if (is_string($object['file'] ?? null)) {
+                $paths[$object['file']] = true;
+            }
+        }
+
+        // A row that could not be placed carries no file, and this format is shaped for
+        // `xargs`: an empty line in it is an empty argument, not a path.
+        unset($paths['']);
 
         return array_keys($paths);
     }

@@ -41,6 +41,16 @@ App\Models\Order::CREATED_AT           a class constant or enum case
 `show`, `outline`, `imports` and `members` also take a file path. `locate`, `model`, `dispatches` and
 `facade` take a short name (`Order`) as well as a fully-qualified one.
 
+`show` takes several addresses at once, printed in the order asked for:
+
+```
+exocomp show 'App\Models\Order::place' 'App\Models\Order::cancel' 'App\Models\Base::save'
+```
+
+Prefer this to reading a line range once you know where the members are. A range is only correct while
+every member you want sits in one file, contiguously, with nothing else between them — and it silently
+stops being correct when one of them turns out to be inherited. Addresses have neither failure mode.
+
 ## Reading the answer
 
 **Exit codes are meaningful: `0` found, `1` not found, `2` error.** So `exocomp locate Foo >/dev/null && …`
@@ -74,8 +84,15 @@ extends App\Models\Base     members not listed here — try: exocomp members App
 Read that block. It is where "I couldn't see past here" lives, and treating an answer as complete coverage
 without it is how an audit gets wrongly signed off.
 
+It is not the only spelling, so look for the right one. `members`, `reaches`, `graph` and a multi-address
+`show` use the trailing block; `references-to` and `callers-of` count the same thing in the header
+(`6 references to … (4 resolved, 2 inferred, 0 unresolved)`); a single-address `show` has nothing to add
+because it either found the one thing you named or exited `1`.
+
 **Nothing is ever truncated silently** — a capped result says `… 47 more (use --limit)`, and `{"elided": 47}`
-in JSON. Cap deliberately with `--limit N` or `--max-tokens N`.
+in JSON. Cap deliberately with `--limit N` or `--max-tokens N`, **not by piping to `head`**: the cut is the
+one thing the tool guarantees to tell you about, and `head` throws that guarantee away along with the
+output it drops.
 
 **Output shape never changes based on TTY.** Text is the default and is the denser format; `--json` (JSONL,
 one record per line) is for `jq` and structural joins; `--format=paths` prints deduplicated file paths, for
@@ -85,7 +102,7 @@ piping into another tool.
 
 | Command | Notes |
 | --- | --- |
-| `show <symbol>` | `--without-bodies` for the skeleton |
+| `show <symbol>…` | several addresses at once; `--without-bodies` for the skeleton. Exit `1` if any one is missing, and the missing are named |
 | `outline <file\|class>` | every declaration, no bodies |
 | `members <class>` | resolved through traits, parents, interfaces; each entry says where it came from. `--own` for declarations only |
 | `imports <file\|class>` | the `use` map, aliases resolved |
@@ -268,6 +285,10 @@ exocomp model Order | grep 'accounted for by no column'
 
 # The real API of a class, without opening its four parents.
 exocomp members 'App\Models\Order' | grep -i tenant
+
+# Then read the ones that matter — by name, not by line range. `members` says which class each
+# came from, and that is the class to name here; two of these may live in different files.
+exocomp show 'App\Models\Order::place' 'App\Models\Order::cancel' 'App\Models\Base::save'
 
 # Which endpoints touch a model at all.
 exocomp reaches 'route:*' 'App\Models\Order'
