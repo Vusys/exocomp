@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Output;
 
+use Vusys\Exocomp\Console\ExocompCommand;
+
 /**
  * The caller's ceiling on how much output it is willing to pay for.
  *
@@ -11,14 +13,28 @@ namespace Vusys\Exocomp\Output;
  * *visible* when they bite — `… N more` in text, `{"elided": N}` in JSON — because the one
  * failure worse than an expensive answer is a truncated one that reads as complete. That is
  * how an audit gets wrongly signed off.
+ *
+ * The token ceiling applies by default whenever output is not going to a terminal, and the
+ * reason is measured rather than theoretical. Across 236 real invocations, 234 were piped into
+ * `head -N` and 7 used these flags — and a third of those pipes cut the answer, silently,
+ * destroying the one guarantee this class exists to make. Telling callers not to do that has
+ * been tried three times. A cap that is on by default cannot be forgotten, and it is set high
+ * enough (see {@see ExocompCommand::DEFAULT_MAX_TOKENS}) that it
+ * bounds a runaway answer without touching an ordinary one.
  */
 final readonly class OutputBudget
 {
     private const int CHARACTERS_PER_TOKEN = 4;
 
+    /**
+     * @param  bool  $implicit  whether `$maxTokens` is a floor the tool applied rather than a
+     *                          ceiling the caller asked for — it changes only what a cut says
+     *                          about itself, never where the cut falls
+     */
     public function __construct(
         public int $limit = 0,
         public int $maxTokens = 0,
+        public bool $implicit = false,
     ) {}
 
     /**
@@ -71,7 +87,9 @@ final readonly class OutputBudget
             return $rendered;
         }
 
-        $kept[] = sprintf('… %d more lines (use --max-tokens)', $dropped);
+        $kept[] = $this->implicit
+            ? sprintf('… %d more lines, cut at the default ceiling of %d tokens because output is not a terminal (--max-tokens N to raise it, 0 to remove it)', $dropped, $this->maxTokens)
+            : sprintf('… %d more lines (use --max-tokens)', $dropped);
 
         return implode("\n", $kept);
     }

@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use Vusys\Exocomp\Framework\SourceRoots;
 use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Project\AutoloadMap;
 use Vusys\Exocomp\Project\Project;
@@ -26,7 +27,7 @@ putenv('EXOCOMP_CACHE_DIR='.$cache);
 foreach (['/Fixtures/corpus', '/Fixtures/laravel'] as $fixture) {
     $project = Project::at(__DIR__.$fixture);
 
-    Index::open($project, AutoloadMap::forProject($project))->sync();
+    Index::open($project, SourceRoots::augment($project, AutoloadMap::forProject($project)))->sync();
 }
 
 register_shutdown_function(static function () use ($cache): void {

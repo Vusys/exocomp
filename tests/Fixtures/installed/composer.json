@@ -1,9 +1,12 @@
 {
     "name": "fixtures/installed",
-    "description": "A corpus that has been through `composer install`, so a dumped classmap exists. Its only purpose is to exercise the locator's behaviour when one is present.",
+    "description": "A corpus that has been through `composer install`, so a dumped classmap exists. Its only purpose is to exercise the locator's behaviour when one is present, and a `classmap` entry so that a non-PSR-4 source directory counts as the project's own.",
     "autoload": {
         "psr-4": {
             "Installed\\": "src/"
-        }
+        },
+        "classmap": [
+            "lib/"
+        ]
     }
 }

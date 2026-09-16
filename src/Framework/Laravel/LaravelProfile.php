@@ -66,6 +66,28 @@ final class LaravelProfile implements Profile
     }
 
     /**
+     * Source directories the framework loads by scanning, which Composer therefore never
+     * declares — so nothing derived from the autoload map can see inside them.
+     *
+     * Migrations are the reason this exists. Laravel requires each one to `return new class`,
+     * an anonymous class with no name for an autoloader to map, and a project accumulates
+     * thousands of them holding the only written record of a column's history. They are asked
+     * about constantly and, until they are indexed, every such question falls back to grep.
+     *
+     * Routes are here for the same reason at a smaller scale: `routes/*.php` declares closures
+     * and references controllers, and is loaded by path.
+     *
+     * @return list<string>
+     */
+    public function sourceRoots(Project $project): array
+    {
+        return array_values(array_filter([
+            $this->migrationsDirectory($project),
+            $this->routesDirectory($project),
+        ], is_dir(...)));
+    }
+
+    /**
      * The schema as the migration history leaves it: the squashed dump first, then everything
      * that has run since, in filename order.
      */

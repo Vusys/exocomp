@@ -10,7 +10,9 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Output\StreamOutput;
 use Vusys\Exocomp\Analysis\FileAnalysis;
+use Vusys\Exocomp\Framework\SourceRoots;
 use Vusys\Exocomp\Output\OutputBudget;
 use Vusys\Exocomp\Output\OutputFormat;
 use Vusys\Exocomp\Output\Result;
@@ -40,6 +42,17 @@ abstract class ExocompCommand extends Command
 
     protected const int EXIT_ERROR = 2;
 
+    /**
+     * The ceiling applied when output is not going to a terminal and the caller named none.
+     *
+     * Roughly 100KB of text. Chosen against the measured distribution of real answers — median
+     * 1KB, ninetieth percentile 5KB, largest 13KB — so it is some eight times the biggest
+     * answer anyone has actually received and cannot bite ordinary use. It is a bound on a
+     * runaway, not a budget: the failure it exists to prevent is a `members` on a god object or
+     * a `references-to` on a framework base class filling a caller's whole context in one go.
+     */
+    public const int DEFAULT_MAX_TOKENS = 25000;
+
     protected function configure(): void
     {
         $this
@@ -51,7 +64,7 @@ abstract class ExocompCommand extends Command
             ->addOption('as', null, InputOption::VALUE_REQUIRED, 'The path to report for --stdin input', '(stdin)')
             ->addOption('scan', null, InputOption::VALUE_NONE, 'If the name cannot be placed, read every file under the source roots to find it (slow; needed only for a class sharing a file with a differently-named sibling)')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Maximum records to emit; the remainder is reported, never dropped silently', '0')
-            ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, 'Approximate ceiling on output size; any cut is reported', '0');
+            ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, sprintf('Approximate ceiling on output size; any cut is reported. Defaults to %d when output is not a terminal; 0 removes it', self::DEFAULT_MAX_TOKENS), '0');
     }
 
     /**
@@ -65,7 +78,7 @@ abstract class ExocompCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         try {
-            $context = $this->context($input);
+            $context = $this->context($input, $output);
         } catch (InvalidArgumentException|RuntimeException $error) {
             $this->fail($output, $error->getMessage());
 
@@ -224,7 +237,37 @@ abstract class ExocompCommand extends Command
         return $this->boolOption($input, 'stdin');
     }
 
-    private function context(InputInterface $input): CommandContext
+    /**
+     * Whether the answer is being read by a person at a terminal or piped into something else.
+     *
+     * The distinction decides whether a token ceiling applies by default, so it is read off the
+     * actual output stream rather than guessed: a test harness writing to a memory buffer is
+     * correctly not a terminal, and gets exactly the behaviour an agent's pipe gets.
+     */
+    private function writingToATerminal(OutputInterface $output): bool
+    {
+        $stream = $output instanceof StreamOutput ? $output->getStream() : null;
+
+        return is_resource($stream) && stream_isatty($stream);
+    }
+
+    /**
+     * The token ceiling for this run.
+     *
+     * An explicit `--max-tokens` always wins, including `--max-tokens 0`, which is how a caller
+     * asks for no ceiling at all and must keep working — an answer someone deliberately wants
+     * whole has to arrive whole.
+     */
+    private function tokenCeiling(InputInterface $input, OutputInterface $output): int
+    {
+        if ($input->hasParameterOption('--max-tokens')) {
+            return $this->intOption($input, 'max-tokens', 0);
+        }
+
+        return $this->writingToATerminal($output) ? 0 : self::DEFAULT_MAX_TOKENS;
+    }
+
+    private function context(InputInterface $input, OutputInterface $output): CommandContext
     {
         $root = $this->stringOption($input, 'project');
         $project = $root === null
@@ -239,7 +282,7 @@ abstract class ExocompCommand extends Command
             ? OutputFormat::Json
             : OutputFormat::parse($this->stringOption($input, 'format') ?? OutputFormat::Text->value);
 
-        $map = AutoloadMap::forProject($project);
+        $map = SourceRoots::augment($project, AutoloadMap::forProject($project));
 
         return new CommandContext(
             project: $project,
@@ -247,7 +290,8 @@ abstract class ExocompCommand extends Command
             locator: new SymbolLocator($project, $map, $this->boolOption($input, 'scan'), $revision),
             budget: new OutputBudget(
                 limit: $this->intOption($input, 'limit', 0),
-                maxTokens: $this->intOption($input, 'max-tokens', 0),
+                maxTokens: $this->tokenCeiling($input, $output),
+                implicit: ! $input->hasParameterOption('--max-tokens'),
             ),
             format: $format,
             revision: $reference,

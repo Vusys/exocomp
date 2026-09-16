@@ -47,12 +47,79 @@ final class AutoloadMap
             $psr4[$prefix] = [...($psr4[$prefix] ?? []), ...$directories];
         }
 
+        $ownRoots = self::classmapRoots($project);
+
+        foreach ($declared as $directories) {
+            foreach ($directories as $directory) {
+                $ownRoots[] = $directory;
+            }
+        }
+
         return new self(
             $project->path('vendor/composer/autoload_classmap.php'),
             $psr4,
             $psr0,
-            array_values(array_unique(array_merge(...array_values($declared)))),
+            array_values(array_unique($ownRoots)),
         );
+    }
+
+    /**
+     * Directories listed under `autoload.classmap`, which is how a project declares source that
+     * does not follow PSR-4 — a test suite whose classes are named freely, most commonly. They
+     * are the project's own code by Composer's own reckoning, so a scan that skips them is
+     * skipping code the autoloader would load.
+     *
+     * @return list<string>
+     */
+    private static function classmapRoots(Project $project): array
+    {
+        $roots = [];
+
+        foreach (self::composerSection($project, 'classmap') as $entry) {
+            $path = $project->path($entry);
+
+            if (is_dir($path)) {
+                $roots[] = rtrim($path, '/').'/';
+            }
+        }
+
+        return $roots;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function composerSection(Project $project, string $key): array
+    {
+        $contents = @file_get_contents($project->path('composer.json'));
+
+        if ($contents === false) {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
+
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        $entries = [];
+
+        foreach (['autoload', 'autoload-dev'] as $sectionName) {
+            $section = $decoded[$sectionName] ?? null;
+
+            if (! is_array($section) || ! is_array($section[$key] ?? null)) {
+                continue;
+            }
+
+            foreach ($section[$key] as $entry) {
+                if (is_string($entry)) {
+                    $entries[] = $entry;
+                }
+            }
+        }
+
+        return $entries;
     }
 
     /**
@@ -125,6 +192,36 @@ final class AutoloadMap
     public function ownRoots(): array
     {
         return $this->ownRoots;
+    }
+
+    /**
+     * The same map, told about source directories Composer does not declare.
+     *
+     * Composer's autoload sections are the wrong place to look for some of a project's own
+     * code, because a framework may load a directory by scanning it rather than by name —
+     * Laravel's migrations are the case that bites, since they declare anonymous classes that
+     * no autoloader could ever resolve. Files under such a directory are still the project's
+     * own source, and a search that cannot see them reports "not found" about code that is
+     * plainly there.
+     *
+     * Kept separate from {@see self::forProject()} so that this class keeps meaning exactly one
+     * thing — Composer's view — and whoever knows about frameworks does the composing.
+     *
+     * @param  list<string>  $directories  absolute paths; non-directories are ignored
+     */
+    public function withRoots(array $directories): self
+    {
+        $roots = $this->ownRoots;
+
+        foreach ($directories as $directory) {
+            if (is_dir($directory)) {
+                // Trailing slash to match the shape Composer's own PSR-4 targets arrive in, so
+                // a reported root list does not advertise where each entry came from.
+                $roots[] = rtrim($directory, '/').'/';
+            }
+        }
+
+        return new self($this->classMapPath, $this->psr4, $this->psr0, array_values(array_unique($roots)));
     }
 
     /**
