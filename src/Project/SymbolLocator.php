@@ -39,6 +39,14 @@ final class SymbolLocator
     /** @var list<string> */
     private array $notes = [];
 
+    /**
+     * Consulted only when everything else has missed: given a name nothing declares, it returns
+     * the one name that is really declared, or null when there is not exactly one.
+     *
+     * @var (callable(string): ?string)|null
+     */
+    private $correction;
+
     public function __construct(
         private readonly Project $project,
         private readonly AutoloadMap $map,
@@ -50,6 +58,20 @@ final class SymbolLocator
     public static function forProject(Project $project, bool $deepScan = false): self
     {
         return new self($project, AutoloadMap::forProject($project), $deepScan);
+    }
+
+    /**
+     * Teaches the locator how to correct a guessed namespace.
+     *
+     * Set rather than injected because the only thing that can answer it is the index, and the
+     * index hangs off the context that is built *from* this locator. The dependency is real and
+     * it points the other way; a setter is the honest way to say so.
+     *
+     * @param  (callable(string): ?string)|null  $correction
+     */
+    public function correctWith(?callable $correction): void
+    {
+        $this->correction = $correction;
     }
 
     /**
@@ -100,18 +122,19 @@ final class SymbolLocator
      */
     public function locateOwner(SymbolRef $ref, bool $speculative = false): LocatedDeclaration
     {
-        foreach ($this->map->candidates($ref->owner, $this->existenceOracle()) as $candidate) {
-            $located = $this->declarationIn($candidate, $ref->owner);
+        $before = count($this->notes);
+        $located = $this->locateFqn($ref->owner, $speculative);
 
-            if ($located instanceof LocatedDeclaration) {
-                return $located;
-            }
+        if ($located instanceof LocatedDeclaration) {
+            return $located;
         }
 
-        $scanned = $this->scanForOwner($ref->owner, $speculative);
+        $corrected = $this->corrected($ref->owner, $speculative);
 
-        if ($scanned instanceof LocatedDeclaration) {
-            return $scanned;
+        if ($corrected instanceof LocatedDeclaration) {
+            $this->withdrawScanAdvice($before);
+
+            return $corrected;
         }
 
         throw new SymbolNotFound((string) $ref, sprintf(
@@ -119,6 +142,85 @@ final class SymbolLocator
             $ref->owner,
             $this->describeRoots(),
         ));
+    }
+
+    private function locateFqn(string $fqn, bool $speculative): ?LocatedDeclaration
+    {
+        foreach ($this->map->candidates($fqn, $this->existenceOracle()) as $candidate) {
+            $located = $this->declarationIn($candidate, $fqn);
+
+            if ($located instanceof LocatedDeclaration) {
+                return $located;
+            }
+        }
+
+        return $this->scanForOwner($fqn, $speculative);
+    }
+
+    /**
+     * The declaration the caller meant, when the name it gave was the right class under the
+     * wrong namespace.
+     *
+     * Guessing a namespace is by a wide margin the commonest way a name fails to resolve here:
+     * an agent knows the class is called `GatewayService` and puts it under `App\Services\`
+     * when it lives under `App\Services\Gateways\`. The index already holds the answer, and
+     * printing it as a hint rather than acting on it charged a whole extra round trip for a
+     * fact the tool had already worked out.
+     *
+     * It is a correction and not a search: it applies only when *exactly one* declared name
+     * carries that short name, so there is nothing to choose between and no guess being made.
+     * Where several do, the ambiguity is real and the caller is told about it instead.
+     *
+     * Never on a speculative lookup. Walking an ancestry or a magic ladder asks about hundreds
+     * of names that legitimately do not exist, and silently substituting a same-named class
+     * from somewhere else would fabricate a hierarchy — the confidently-wrong answer this whole
+     * engine is arranged to avoid.
+     */
+    private function corrected(string $owner, bool $speculative): ?LocatedDeclaration
+    {
+        if ($speculative || $this->correction === null) {
+            return null;
+        }
+
+        $real = ($this->correction)($owner);
+
+        if ($real === null || strcasecmp($real, $owner) === 0) {
+            return null;
+        }
+
+        $located = $this->locateFqn($real, speculative: true);
+
+        if (! $located instanceof LocatedDeclaration) {
+            return null;
+        }
+
+        // Loud, and phrased as a substitution. An answer about a different class than the one
+        // asked for is only safe if it is impossible to read as an answer about the one asked
+        // for; a reader who skims this note must still come away knowing the name was wrong.
+        $this->notes[] = sprintf('nothing is declared as "%s" — answered %s instead', $owner, $real);
+
+        return $located;
+    }
+
+    /**
+     * Takes back the advice to scan, once the name has been placed after all.
+     *
+     * The failed first pass leaves a note telling the caller to re-run with `--scan`. That was
+     * sound while the answer was "not found"; alongside an answer it sends a reader off to
+     * search for a class that was never under the name they asked for. Only the notes this one
+     * lookup added are withdrawn — another address in the same command may have missed for
+     * real, and its advice still stands.
+     */
+    private function withdrawScanAdvice(int $before): void
+    {
+        $added = array_slice($this->notes, $before);
+        $this->notes = array_slice($this->notes, 0, $before);
+
+        foreach ($added as $note) {
+            if (! str_contains($note, 'content scan of the source roots')) {
+                $this->notes[] = $note;
+            }
+        }
     }
 
     /**

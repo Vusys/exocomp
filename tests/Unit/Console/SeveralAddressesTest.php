@@ -56,11 +56,24 @@ final class SeveralAddressesTest extends TestCase
         $this->assertStringContainsString('1 of 2 addresses found', $run->output);
     }
 
-    public function test_a_missing_address_still_gets_the_namespace_hint(): void
+    public function test_a_guessed_namespace_among_several_addresses_is_answered(): void
     {
         $run = $this->show('Fixtures\TierA\Baseline::greet', 'Fixtures\Wrong\Place\Repository');
 
-        $this->assertStringContainsString('"Repository" is declared as Fixtures\TierA\Support\Repository', $run->output);
+        $this->assertSame(0, $run->exitCode);
+        $this->assertStringContainsString('2 addresses', $run->output);
+        $this->assertStringContainsString('answered Fixtures\TierA\Support\Repository instead', $run->output);
+    }
+
+    public function test_an_ambiguous_address_still_gets_the_namespace_hint(): void
+    {
+        // Two classes are called Alpha, so nothing can be substituted — and the reason travels
+        // with the row rather than stopping the address that did resolve.
+        $run = $this->show('Fixtures\TierA\Baseline::greet', 'Fixtures\Wrong\Place\Alpha');
+
+        $this->assertSame(1, $run->exitCode);
+        $this->assertStringContainsString('1 of 2 addresses found', $run->output);
+        $this->assertStringContainsString('"Alpha" is declared as', $run->output);
         $this->assertStringNotContainsString('pass --scan', $run->output);
     }
 

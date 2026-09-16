@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Console;
 
+use RuntimeException;
 use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Output\OutputBudget;
 use Vusys\Exocomp\Output\OutputFormat;
@@ -29,7 +30,46 @@ final class CommandContext
         public readonly OutputBudget $budget,
         public readonly OutputFormat $format,
         public readonly ?string $revision = null,
-    ) {}
+    ) {
+        $locator->correctWith($this->soleDeclarationOf(...));
+    }
+
+    /**
+     * The one name really declared with this one's short name, or null when there is not
+     * exactly one.
+     *
+     * This is what turns a guessed namespace from a failed command into an answered one. It is
+     * deliberately strict: a short name carried by two classes is a genuine ambiguity, and
+     * picking either would be the kind of guess that makes every other answer untrustworthy.
+     *
+     * The index is read exactly as it stands and never built to answer this — a command that
+     * did not need an index must not acquire one because a name was mistyped. A cold cache
+     * therefore declines to correct, which is the right way round: silence, not a wrong name.
+     */
+    private function soleDeclarationOf(string $owner): ?string
+    {
+        $short = (string) array_slice(explode('\\', $owner), -1)[0];
+
+        if ($short === '') {
+            return null;
+        }
+
+        try {
+            $found = $this->index()->graph(validate: false)->byName($short);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        $names = [];
+
+        foreach ($found as $record) {
+            if ($record->isClassLike()) {
+                $names[$record->fqn] = true;
+            }
+        }
+
+        return count($names) === 1 ? array_key_first($names) : null;
+    }
 
     public function index(): Index
     {
