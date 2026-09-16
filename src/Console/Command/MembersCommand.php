@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Console\Command;
 
+use InvalidArgumentException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -42,15 +43,35 @@ final class MembersCommand extends IndexedCommand
 
         $this
             ->addArgument('class', InputArgument::REQUIRED, 'Class, interface, trait or enum name')
-            ->addOption('own', null, InputOption::VALUE_NONE, 'Only what this class declares itself, answered from the file with no index');
+            ->addOption('own', null, InputOption::VALUE_NONE, 'Only what this class declares itself, answered from the file with no index')
+            ->addOption('matching', null, InputOption::VALUE_REQUIRED, 'Only members whose name matches this regular expression (case-insensitive, unanchored)')
+            ->setHelp(<<<'HELP'
+            `--matching` takes a regular expression, applied to the member name and nothing
+            else — not the signature, not the file, not the declaring class — so it says what it
+            looks like it says:
+
+              exocomp members 'App\Models\Order' --matching 'contract|total|bot'
+
+            It is case-insensitive and unanchored, which is what a name filter almost always
+            wants; anchor it yourself with ^ and $ when it does not.
+
+            This replaces piping the answer into `grep`, which was measured as the commonest
+            thing done to this command's output and which quietly re-introduced the problem the
+            output contract exists to prevent: a filtered list gives no indication of what the
+            filter removed. Here the header says how many members the class has and how many
+            the filter kept, so a narrow pattern reads as narrow rather than as a small class.
+
+            Exit codes: 0 found, 1 the class has no member matching, 2 error.
+            HELP);
     }
 
     protected function answer(InputInterface $input, CommandContext $context): Result
     {
         $ref = SymbolRef::parse($this->stringArgument($input, 'class') ?? '');
+        $matching = $this->pattern($input);
 
         if ($this->boolOption($input, 'own')) {
-            return $this->declaredOnly($ref, $context);
+            return $this->declaredOnly($ref, $context, matching: $matching);
         }
 
         $notes = [];
@@ -66,16 +87,62 @@ final class MembersCommand extends IndexedCommand
         }
 
         $resolved = $graph->members($subject->fqn);
-        [$kept, $elided] = $context->budget->apply($resolved['members']);
+        $total = count($resolved['members']);
+        $members = $matching === null
+            ? $resolved['members']
+            : array_values(array_filter(
+                $resolved['members'],
+                static fn (ResolvedMember $member): bool => preg_match($matching, $member->record->name) === 1,
+            ));
+
+        [$kept, $elided] = $context->budget->apply($members);
 
         return new Result(
-            header: sprintf('%s  %s  (%d members)', $subject->path, $subject->fqn, count($resolved['members'])),
+            header: $this->header($subject->path, $subject->fqn, count($members), $total, $matching),
             sections: $this->group($kept),
             unresolvedTitle: 'not reached',
             unresolved: $this->unreachable($subject->path, $resolved['unreachable']),
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
+            found: $members !== [],
         );
+    }
+
+    /**
+     * The count line, which has to say what the filter removed.
+     *
+     * A filtered list that reports only its own length is indistinguishable from a small class,
+     * and that is precisely the silent truncation this tool's output contract exists to rule
+     * out. Saying "9 of 78" makes a narrow pattern read as narrow.
+     */
+    private function header(string $path, string $fqn, int $shown, int $total, ?string $matching): string
+    {
+        if ($matching === null) {
+            return sprintf('%s  %s  (%d members)', $path, $fqn, $total);
+        }
+
+        return sprintf('%s  %s  (%d of %d members matching)', $path, $fqn, $shown, $total);
+    }
+
+    /**
+     * The `--matching` expression, delimited and validated here so a bad pattern is a clear
+     * error rather than a PHP warning and an empty list that reads as "no such member".
+     */
+    private function pattern(InputInterface $input): ?string
+    {
+        $value = $this->stringOption($input, 'matching');
+
+        if ($value === null) {
+            return null;
+        }
+
+        $pattern = '/'.str_replace('/', '\/', $value).'/i';
+
+        if (@preg_match($pattern, '') === false) {
+            throw new InvalidArgumentException(sprintf('--matching "%s" is not a valid regular expression', $value));
+        }
+
+        return $pattern;
     }
 
     /**
@@ -156,11 +223,18 @@ final class MembersCommand extends IndexedCommand
      *
      * @param  list<string>  $notes
      */
-    private function declaredOnly(SymbolRef $ref, CommandContext $context, array $notes = []): Result
+    private function declaredOnly(SymbolRef $ref, CommandContext $context, array $notes = [], ?string $matching = null): Result
     {
         $located = $context->locator->locateOwner($ref);
         $declaration = $located->declaration;
         $path = $located->analysis->file->displayPath;
+        $total = count($declaration->members);
+        $members = $matching === null
+            ? $declaration->members
+            : array_values(array_filter(
+                $declaration->members,
+                static fn (Declaration $member): bool => preg_match($matching, $member->name) === 1,
+            ));
 
         $rows = array_map(
             static fn (Declaration $member): Row => new Row(
@@ -172,18 +246,21 @@ final class MembersCommand extends IndexedCommand
                 text: $member->signature.($member->isPromoted ? '  (promoted)' : ''),
                 extra: ['origin' => 'own'] + ($member->isPromoted ? ['promoted' => true] : []),
             ),
-            $declaration->members,
+            $members,
         );
 
         [$kept, $elided] = $context->budget->apply($rows);
 
         return new Result(
-            header: sprintf('%s  %s  (%d own members)', $path, $declaration->fqn, count($rows)),
+            header: $matching === null
+                ? sprintf('%s  %s  (%d own members)', $path, $declaration->fqn, $total)
+                : sprintf('%s  %s  (%d of %d own members matching)', $path, $declaration->fqn, count($rows), $total),
             sections: [new Section('own', $kept)],
             unresolvedTitle: 'not listed',
             unresolved: $this->notListed($path, $declaration),
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
+            found: $matching === null || $rows !== [],
         );
     }
 
