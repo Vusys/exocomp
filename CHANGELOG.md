@@ -4,7 +4,95 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-16
+
+Six changes, every one of them traced to a specific failure in ten days of real agent
+transcripts: 259 invocations across 17 sessions, read alongside the grep calls that were made
+instead. Adoption itself was not the problem — exocomp calls per session went from 0.8 to 10.7
+once the binary was reachable, and the searches it exists to replace fell 64%. These are the
+things that were still going wrong afterwards.
+
+Bumping the version changes the symbol cache's identity, so every project re-indexes once. That
+is required rather than incidental: the analysis layer now describes anonymous classes, and the
+source roots have grown, so a cache built under 0.1.0 is missing rows.
+
+### Added
+
+- **A file may stand in for a name, in `show`.** Addresses are names because names survive edits,
+  and that remains the rule — but the largest category of symbol searches still being done with
+  grep was `grep -n 'function processBatches' -A 60 <path>`: a reader who already had the file,
+  guessing a body length rather than spending a round trip working out the namespace. A path is
+  what comes out of a diff, a stack trace or a previous answer, so it is now an address:
+  `show 'app/Services/OrderService.php::place'`, or the path alone where the file declares one
+  class-like. The member half is still a name, so the address survives an edit above it. Paths
+  resolve against the working directory and the project root, since answers report the second.
+  - **This is the only way to read a Laravel migration.** A migration is `return new class
+    extends Migration` — anonymous, with no name for any command to take, and on a real
+    application a four-figure count of files holding the only written record of how a table came
+    to be what it is. Anonymous classes were recorded as unaddressable; they are now described
+    like any other class, and their members print exactly as a named class's do.
+  - Ambiguity is refused rather than guessed at. Two class-likes in one file, or two members of
+    that name, are reported with the candidates and their lines named.
+  - `show --at <path>.php:line` prints the innermost declaration covering a position, for one
+    that came out of a trace. A position does not survive an edit, which is why it is a flag and
+    not an address form.
+
+- **`locate` takes several names.** "Which of these exists, and where" is the real question far
+  more often than one name is; it was being asked as a shell `for` loop, or as four names OR'd
+  into one grep. One name keeps the answer it has always had.
+
+- **`members --matching <regex>`**, filtering on the member name alone. Piping this command's
+  output into `grep` was the commonest thing done to it — 25 times in ten days — and it quietly
+  gave back the silent truncation the output contract exists to prevent. The header reads
+  `(2 of 214 members matching)`, so a narrow pattern cannot read as a small class.
+
+- **Source directories a framework loads by scanning are indexed.** Composer's autoload sections
+  are the authority on where a project's classes live and are not the whole story: Laravel's
+  migrations appear in none of them, which is why nothing derived from the map could see inside.
+  `autoload.classmap` directories were being dropped for the same reason, and that is how a
+  freely-named test suite is declared. On the application this was measured against, the roots go
+  from four to six and the index from 6,627 files to 7,081.
+
+### Changed
+
+- **A guessed namespace is answered rather than reported.** Seven of every ten `show` and
+  `members` failures were a real class asked for under a guessed namespace, and five of those ten
+  printed the right name as a note and then made the caller ask again — a round trip spent on a
+  fact the tool had already worked out and already said out loud. Where exactly one declared name
+  carries that short name, the question is answered with it and the substitution is stated in
+  terms that cannot be skimmed past. Where two do, the ambiguity is real and the miss stands with
+  both named. It is withheld on any lookup the caller did not type, because walking an ancestry
+  asks about hundreds of names that legitimately do not exist and substituting there would
+  fabricate a hierarchy. This supersedes the 0.1.0 behaviour of naming the real declaration in
+  the error. A corollary: the namespace is now optional when unambiguous, so
+  `show 'OrderRepository::find'` is a legitimate address.
+
+- **A token ceiling of ~25,000 applies whenever output is not a terminal**, and says so when it
+  bites. Of 236 real invocations, 234 piped the answer into `head -N` and 7 used `--limit` or
+  `--max-tokens` — 33 to 1 against an instruction that is written down, explained, and had
+  already been restated three times. A third of those pipes cut the answer; `head` cuts silently,
+  destroying the one guarantee this tool makes about its own output, and takes the exit code with
+  it, as one session proved in passing by printing `0` from `exocomp locate X | head -40; echo $?`
+  after a miss. Guidance was not going to fix that. The ceiling is roughly eight times the largest
+  answer ever measured against a median of 1KB, so it cannot ration ordinary work; it exists to
+  stop a `members` on a god object filling a caller's context in one call. An explicit
+  `--max-tokens` always wins, `--max-tokens 0` included.
+
+### Fixed
+
+- **`locate` returned confident false negatives from an index that had not finished building.**
+  It was the only command with nothing to fall through to: every other one tries Composer's map
+  when a name misses, and this one reported whatever the index said. On a worktree whose first
+  pass was incomplete that produced "nothing named `Gateway` is declared" while `show` read
+  `App\Models\Billing\Gateway` out of the same checkout seconds later — eight such answers in one
+  morning, all on worktrees created that day, none afterwards. A wrong "no" is worse than the grep
+  it replaced, because grep never lies with authority, and this one landed in the command the
+  guidance names as the way out of a wrong guess. The source roots are now read before any
+  negative is returned, and the negative states the size of the index behind it and that the bytes
+  were read. `--no-sync` opts out and says it has, so the faster answer can never claim the
+  stronger guarantee.
+
+## [0.1.0]
 
 ### Added
 
