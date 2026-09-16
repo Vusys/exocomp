@@ -16,9 +16,11 @@ no database and no `vendor/`.
 | Question | Command | Why not grep |
 | --- | --- | --- |
 | Show me this method | `show 'App\Services\OrderService::place'` | no line-guessing, no `sed -n` second step, docblock included, never silently short |
+| Show me this method, and I have the path not the namespace | `show 'app/Services/OrderService.php::place'` | the path is already an address — no namespace lookup first, and still an exact span |
+| What does this migration do | `show 'database/migrations/2024_01_01_000000_create_orders_table.php::up'` | it is an anonymous class; there is no other way to name it |
 | What's in this file | `outline app/Models/Order.php` | signatures and line spans without reading bodies |
 | What can I call on this class | `members 'App\Models\Order'` | most members come from parents and traits, not the file you'd read |
-| Does this name exist, and where | `locate Order` | answers "which of these four spellings is real" in one call, not four ORed searches |
+| Do these names exist, and where | `locate Order OrderLine OrderPolicy` | answers "which of these is real" in one call, not four ORed searches — and reads the source before saying no |
 | Who uses this / who calls this | `references-to` / `callers-of` | a same-named method on an unrelated class is a false positive; on a subclass it is a hit grep can't see |
 | Who calls this scope or accessor | `references-to 'App\Models\Order::scopeActive'` | callers write `active()`; the declared name appears only at the declaration |
 | What does this method call | `calls-from 'App\Jobs\ProcessOrder::handle'` | resolves each receiver's type to a real target |
@@ -29,7 +31,9 @@ no database and no `vendor/`.
 
 ## Addressing
 
-Names, never cursors or byte offsets. Quote them — the shell eats backslashes otherwise.
+Names first. A name survives an edit and a byte offset does not, so every address is a name — with one
+narrow exception: the *file* half may be a path, because the member half is still a name and the address
+still survives. Quote them — the shell eats backslashes otherwise.
 
 ```
 App\Services\OrderService              a class, interface, trait or enum
@@ -38,8 +42,28 @@ App\Models\Order::$table               a property, including a promoted one
 App\Models\Order::CREATED_AT           a class constant or enum case
 ```
 
-`show`, `outline`, `imports` and `members` also take a file path. `locate`, `model`, `dispatches` and
-`facade` take a short name (`Order`) as well as a fully-qualified one.
+`locate`, `model`, `dispatches` and `facade` take a short name (`Order`) as well as a fully-qualified one.
+
+**When the path is what you have, use it.** `show`, `outline`, `imports` and `members` all take a file path,
+and `show` takes a member off one — so there is never a reason to look a namespace up first, and never a
+reason to fall back to `grep -n 'function x' -A 30 <file>`:
+
+```
+exocomp show 'app/Services/OrderService.php::place'     a member of whatever that file declares
+exocomp show 'app/Services/OrderService.php'            the class it declares, if it declares one
+exocomp show --at 'app/Services/OrderService.php:214'   the declaration covering that line
+```
+
+The member half is still a name, so the address survives edits above it. `--at` is for a position that came
+out of a stack trace, a diff or a test failure; a position does not survive an edit, which is why it is a
+flag rather than an address.
+
+**This is the only way to read a Laravel migration.** A migration is `return new class extends Migration` —
+an anonymous class, with no name for any command to take. Address it by its file:
+
+```
+exocomp show 'database/migrations/2024_01_01_000000_create_orders_table.php::up'
+```
 
 `show` takes several addresses at once, printed in the order asked for:
 
@@ -64,14 +88,23 @@ is a real predicate. A `1` from `reaches` or `query` is an answer, not a failure
 - `inferred` — from a docblock, or a receiver typed as a base class. A claim about the code, not a fact of it.
 - `textual` — the name matches, the receiver could not be established.
 
-**A name that does not resolve tells you where it really is.** Guessing a namespace is the usual way
-a lookup fails; when the short name is declared elsewhere the answer says so, and you should take that
-rather than re-running with `--scan`:
+**A guessed namespace is corrected rather than refused.** Guessing a namespace is by a wide margin the
+usual way a lookup fails. When exactly one class carries that short name, the question is answered with it
+and the substitution is stated — so don't re-run, and don't pass `--scan`:
 
 ```
-exocomp show: no declaration of "App\Repositories\OrderRepository" found …
-exocomp show: note: "OrderRepository" is declared as App\Domain\Orders\Persistence\OrderRepository
+exocomp show 'App\Repositories\OrderRepository::find'
+src/Domain/Orders/Persistence/OrderRepository.php:88-96  App\Domain\Orders\Persistence\OrderRepository::find
+…
+note: nothing is declared as "App\Repositories\OrderRepository" — answered App\Domain\Orders\Persistence\OrderRepository instead
 ```
+
+Read that note: the answer is about a *different class* from the one you named, and whatever you write next
+must use the real name. Where two classes share the short name there is nothing to choose between, so the
+miss stands and both are named — that is the case where you pick one and ask again.
+
+The corollary is that the namespace is optional when it is unambiguous: `exocomp show 'OrderRepository::find'`
+is a legitimate address.
 
 **Anything it will not stand behind is handed back rather than dropped**, in a trailing block that names the
 command which would close the gap:
@@ -92,21 +125,27 @@ because it either found the one thing you named or exited `1`.
 **Nothing is ever truncated silently** — a capped result says `… 47 more (use --limit)`, and `{"elided": 47}`
 in JSON. Cap deliberately with `--limit N` or `--max-tokens N`, **not by piping to `head`**: the cut is the
 one thing the tool guarantees to tell you about, and `head` throws that guarantee away along with the
-output it drops.
+output it drops. It throws the exit code away too — `exocomp locate Foo | head -40; echo $?` prints `0`
+after a miss, because the status of a pipeline is `head`'s.
 
-**Output shape never changes based on TTY.** Text is the default and is the denser format; `--json` (JSONL,
-one record per line) is for `jq` and structural joins; `--format=paths` prints deduplicated file paths, for
-piping into another tool.
+**A ceiling of ~25,000 tokens applies by default whenever output is not a terminal**, and says so when it
+bites. It is some eight times the largest answer ever measured, so it will not touch ordinary work; it is
+there to stop a `members` on a god object or a `references-to` on a base class filling your context in one
+call. `--max-tokens N` raises it, `--max-tokens 0` removes it.
+
+**Output shape never changes based on TTY** — only the default ceiling above does. Text is the default and is
+the denser format; `--json` (JSONL, one record per line) is for `jq` and structural joins; `--format=paths`
+prints deduplicated file paths, for piping into another tool.
 
 ## Language commands
 
 | Command | Notes |
 | --- | --- |
-| `show <symbol>…` | several addresses at once; `--without-bodies` for the skeleton. Exit `1` if any one is missing, and the missing are named |
+| `show <symbol>…` | several addresses at once; a file path is an address too; `--at file.php:line` for a position; `--without-bodies` for the skeleton. Exit `1` if any one is missing, and the missing are named |
 | `outline <file\|class>` | every declaration, no bodies |
-| `members <class>` | resolved through traits, parents, interfaces; each entry says where it came from. `--own` for declarations only |
+| `members <class>` | resolved through traits, parents, interfaces; each entry says where it came from. `--own` for declarations only; `--matching <regex>` filters by member name, and the header says how many the filter kept out of how many exist |
 | `imports <file\|class>` | the `use` map, aliases resolved |
-| `locate <name>` | `--kind=class\|interface\|trait\|enum\|function\|method\|property\|constant\|enum-case` |
+| `locate <name>…` | several names at once — "which of these exists, and where" is usually the real question. `--kind=class\|interface\|trait\|enum\|function\|method\|property\|constant\|enum-case` |
 | `subclasses` / `implementors` / `traits-users` `<name>` | transitive by default; `--direct` for one level |
 | `overrides <symbol>` | every declaration of one member across the hierarchy, up and down |
 | `references-to <symbol>` | finds call sites written under another name too (a scope, an accessor). `--resolved-only` emits `resolved` alone — the set a rename may rewrite; `--strings` also searches string literals (slower, every hit `textual`) |
@@ -120,6 +159,14 @@ ignoring it.
 
 If a name can't be placed, `--scan` reads every file to find it — over a second on a large project, so it is
 opt-in, and the answer says when it declined to take it.
+
+`locate` needs no such flag: it reads the source roots itself before returning any negative, so "nothing named
+X is declared" means the bytes were read and it was not there, and the message says how big the index behind it
+was. `--no-sync` skips that read — faster, and able to be wrong about a name added since the last full pass.
+
+**The source roots are whatever Composer declares, plus what the framework loads by scanning.** On a Laravel
+project that means `database/migrations/` and `routes/` are indexed and searchable alongside `app/` — so a
+migration's methods, and the anonymous class holding them, are reachable by every command that takes a file.
 
 ## Laravel commands
 
@@ -284,7 +331,11 @@ exocomp references-to 'App\Models\Order::scopeActive'   # finds every `->active(
 exocomp model Order | grep 'accounted for by no column'
 
 # The real API of a class, without opening its four parents.
-exocomp members 'App\Models\Order' | grep -i tenant
+exocomp members 'App\Models\Order'
+
+# Only the part of it you care about. Use --matching rather than piping to grep: it says how many
+# members the filter kept out of how many exist, so a narrow pattern cannot read as a small class.
+exocomp members 'App\Models\Order' --matching 'tenant|contract'
 
 # Then read the ones that matter — by name, not by line range. `members` says which class each
 # came from, and that is the class to name here; two of these may live in different files.
@@ -295,6 +346,9 @@ exocomp reaches 'route:*' 'App\Models\Order'
 
 # What a facade call actually runs, before changing it.
 exocomp facade 'Storage::disk'
+
+# A line number out of a stack trace or a failing test, turned into the declaration around it.
+exocomp show --at 'app/Services/OrderService.php:214'
 
 # Every file involved in a change, for a follow-up pass.
 exocomp references-to 'App\Models\Order' --format=paths | xargs …
@@ -327,5 +381,6 @@ a grep and present the result as complete.
   `new X` is that X); anything more involved is declined.
 - **Schema** is the *source's* account, never the database's — every row `inferred`, and a table whose
   history includes raw SQL is reported as incomplete rather than quietly short a column.
-- It is **not an LSP** (no completion, hover, or cursor addressing), **not a static analyser** (use PHPStan),
+- It is **not an LSP** (no completion, no hover; `show --at file:line` resolves a position but nothing takes
+  a live cursor), **not a static analyser** (use PHPStan),
   not a formatter, not Rector, not a test runner, and **has no write side yet** — it does not edit files.
