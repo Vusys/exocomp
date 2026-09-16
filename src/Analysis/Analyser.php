@@ -79,7 +79,7 @@ final readonly class Analyser
                 $collector->declarations(),
                 $collector->imports(),
                 $collector->namespaces(),
-                $anonymous->found(),
+                $anonymous->found($collector),
                 $references->names(),
             ),
             $statements,

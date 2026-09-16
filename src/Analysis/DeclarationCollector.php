@@ -163,7 +163,28 @@ final class DeclarationCollector
             return;
         }
 
-        $fqn = $node->namespacedName?->toString() ?? $name;
+        $this->declarations[] = $this->classLikeDeclaration($node, $name, $node->namespacedName?->toString() ?? $name);
+    }
+
+    /**
+     * An anonymous class, described as fully as a named one.
+     *
+     * `new class { … }` has no name, so nothing can address it *by name* — but it can be
+     * addressed by the file it is written in, and a Laravel migration is nothing but an
+     * anonymous class, so a tool that stops at "unaddressable" cannot read the thousands of
+     * files holding a schema's entire history. The members are the same members; only the way
+     * in is different.
+     *
+     * The FQN is the spelling PHP itself uses for these, and it is deliberately not unique:
+     * it is a label for a reader, never an address to pass back in.
+     */
+    public function anonymousDeclaration(Stmt\Class_ $node): Declaration
+    {
+        return $this->classLikeDeclaration($node, 'class@anonymous', 'class@anonymous');
+    }
+
+    private function classLikeDeclaration(Stmt\ClassLike $node, string $name, string $fqn): Declaration
+    {
         $members = [];
         $traits = [];
 
@@ -182,7 +203,7 @@ final class DeclarationCollector
 
         $signature = $this->signatures->classLike($node);
 
-        $this->declarations[] = new Declaration(
+        return new Declaration(
             kind: $this->classLikeKind($node),
             name: $name,
             fqn: $fqn,

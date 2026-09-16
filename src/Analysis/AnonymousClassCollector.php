@@ -17,8 +17,8 @@ use Vusys\Exocomp\Source\SourceFile;
  */
 final class AnonymousClassCollector extends NodeVisitorAbstract
 {
-    /** @var list<AnonymousClass> */
-    private array $found = [];
+    /** @var list<Node\Stmt\Class_> */
+    private array $nodes = [];
 
     public function __construct(private readonly SourceFile $file) {}
 
@@ -28,21 +28,34 @@ final class AnonymousClassCollector extends NodeVisitorAbstract
             return null;
         }
 
-        $this->found[] = new AnonymousClass(
-            line: $node->getStartLine(),
-            column: $this->file->columnAt($node->getStartFilePos()),
-            memberCount: count($node->stmts),
-            extends: $node->extends instanceof Node\Name ? Analyser::resolvedName($node->extends) : null,
-        );
+        $this->nodes[] = $node;
 
         return null;
     }
 
     /**
+     * What was found, described in full.
+     *
+     * The members come from the same builder a named class goes through, because an anonymous
+     * class addressed by its file is not a lesser kind of class — a migration's `up()` has to
+     * print exactly as `OrderService::place` does.
+     *
      * @return list<AnonymousClass>
      */
-    public function found(): array
+    public function found(DeclarationCollector $collector): array
     {
-        return $this->found;
+        $found = [];
+
+        foreach ($this->nodes as $node) {
+            $found[] = new AnonymousClass(
+                line: $node->getStartLine(),
+                column: $this->file->columnAt($node->getStartFilePos()),
+                memberCount: count($node->stmts),
+                extends: $node->extends instanceof Node\Name ? Analyser::resolvedName($node->extends) : null,
+                declaration: $collector->anonymousDeclaration($node),
+            );
+        }
+
+        return $found;
     }
 }
