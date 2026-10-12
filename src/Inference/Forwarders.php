@@ -10,6 +10,7 @@ use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\LoadedClass;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
@@ -26,11 +27,14 @@ use Vusys\Exocomp\Symbol\SymbolKind;
  * That is not a gap to be closed later: following it would mean evaluating the method, and a
  * static reader that starts evaluating is a static reader that starts inventing.
  */
-final readonly class Forwarders implements MagicSource
+final class Forwarders implements MagicSource
 {
+    /** @var array<string, list<array{string, string}>> */
+    private array $forwarders = [];
+
     public function __construct(
-        private ClassSource $source,
-        private Members $members,
+        private readonly ClassSource $source,
+        private readonly Members $members,
     ) {}
 
     public function method(string $ownerFqn, string $name): ?MagicMember
@@ -55,13 +59,7 @@ final readonly class Forwarders implements MagicSource
 
     private function through(string $ownerFqn, string $name, string $magic, SymbolKind $kind): ?MagicMember
     {
-        foreach ($this->source->withAncestors($ownerFqn) as $class) {
-            $target = $this->forwardsTo($class, $magic);
-
-            if ($target === null) {
-                continue;
-            }
-
+        foreach ($this->forwardersOf($ownerFqn, $magic) as [$class, $target]) {
             // Knowing where the name goes is not knowing that anything is there to receive it.
             // Naming `Target::whatever` on the strength of the forwarder alone would repeat, one
             // rung down, exactly the mistake this ladder was built to stop.
@@ -73,11 +71,39 @@ final readonly class Forwarders implements MagicSource
                 $target.'::'.$name,
                 null,
                 Confidence::Inferred,
-                sprintf('%s() on %s forwards to %s', $magic, $class->fqn, $target),
+                sprintf('%s() on %s forwards to %s', $magic, $class, $target),
             );
         }
 
         return null;
+    }
+
+    /**
+     * Which classes in the ancestry forward this magic method, and to what — nearest first.
+     *
+     * Kept per owner because it is asked once per member looked up, and a reference search
+     * looks up members on the same receiver type hundreds of times. Walking the ancestry each
+     * time re-parsed whichever classes in it had been evicted since.
+     *
+     * @return list<array{string, string}>
+     */
+    private function forwardersOf(string $ownerFqn, string $magic): array
+    {
+        $key = Identifier::fold($ownerFqn).' '.$magic;
+
+        if (! isset($this->forwarders[$key])) {
+            $this->forwarders[$key] = [];
+
+            foreach ($this->source->withAncestors($ownerFqn) as $class) {
+                $target = $this->forwardsTo($class, $magic);
+
+                if ($target !== null) {
+                    $this->forwarders[$key][] = [$class->fqn, $target];
+                }
+            }
+        }
+
+        return $this->forwarders[$key];
     }
 
     /**

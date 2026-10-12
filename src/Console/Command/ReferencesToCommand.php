@@ -35,6 +35,7 @@ final class ReferencesToCommand extends IndexedCommand
     protected function configure(): void
     {
         parent::configure();
+        $this->addTimeLimitOption();
 
         $this
             ->addArgument('symbol', InputArgument::REQUIRED, 'A class or member address, e.g. "App\Models\Order::save"')
@@ -57,15 +58,20 @@ final class ReferencesToCommand extends IndexedCommand
     protected function answer(InputInterface $input, CommandContext $context): Result
     {
         $notes = [];
-        $this->graph($input, $context, $notes);
+        $graph = $this->graph($input, $context, $notes);
 
         if (! $this->boolOption($input, 'no-sync')) {
             $context->index()->freshness($this->boolOption($input, 'vendor'))->full();
         }
 
-        $target = SymbolRef::parse($this->stringArgument($input, 'symbol') ?? '');
+        $target = $this->searchTarget(SymbolRef::parse($this->stringArgument($input, 'symbol') ?? ''), $graph, $notes);
         $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
-        $references = $finder->find($target, $this->boolOption($input, 'strings'));
+        $references = $finder->find(
+            $target,
+            $this->boolOption($input, 'strings'),
+            $this->searchDeadline($input),
+            $this->searchProgress($target->hasMember() ? (string) $target->member : $target->owner),
+        );
 
         // `--resolved-only` means the set a rename may rewrite mechanically, and that is
         // `resolved` alone. It used to drop only the textual group and print the inferred one,
@@ -95,6 +101,8 @@ final class ReferencesToCommand extends IndexedCommand
             $sections[] = new Section('inferred', array_map(fn (Reference $r): Row => $this->row($r, $width, true), $likely));
         }
 
+        [$incomplete, $incompleteNotes] = $this->incompleteSearch($finder->unsearched(), $input);
+
         return new Result(
             header: sprintf(
                 '%d reference%s to %s  (%d resolved, %d inferred, %d unresolved)',
@@ -104,12 +112,13 @@ final class ReferencesToCommand extends IndexedCommand
                 count($certain),
                 count($likely),
                 count($references) - count($certain) - count($likely),
-            ),
+            ).$incomplete,
             sections: $sections,
             unresolvedTitle: 'unresolved',
             unresolved: array_map(fn (Reference $r): Row => $this->row($r, $width, true), $unsure),
             elided: $elided,
-            notes: [...$notes, ...$finder->notes(), ...$context->notes()],
+            notes: [...$notes, ...$finder->notes(), ...$incompleteNotes, ...$context->notes()],
+            found: ! $finder->searchedForNothing(),
         );
     }
 

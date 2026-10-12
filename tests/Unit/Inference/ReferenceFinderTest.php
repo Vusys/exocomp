@@ -144,6 +144,44 @@ final class ReferenceFinderTest extends TestCase
     }
 
     /**
+     * A search for a common name can take longer than its caller will wait. One stopped by its
+     * own deadline has to say how much it left unread — a caller's timeout says nothing, and an
+     * answer that silently stopped early would read as a complete one.
+     */
+    public function test_a_search_past_its_deadline_says_how_much_it_did_not_read(): void
+    {
+        $project = Project::at(Cli::corpusRoot());
+        $index = Index::open($project, AutoloadMap::forProject($project));
+        $index->sync();
+
+        $unlimited = new ReferenceFinder($project, $index);
+        $this->assertNotSame([], $unlimited->find(SymbolRef::parse('Fixtures\TierD\Notifier::send')));
+        $this->assertSame(0, $unlimited->unsearched());
+
+        $expired = new ReferenceFinder($project, $index);
+        $this->assertSame([], $expired->find(SymbolRef::parse('Fixtures\TierD\Notifier::send'), deadline: microtime(true) - 1));
+        $this->assertSame(count($index->store->pathsMentioning($project->root, ['send'])), $expired->unsearched());
+    }
+
+    public function test_a_search_reports_its_progress_through_the_candidates(): void
+    {
+        $project = Project::at(Cli::corpusRoot());
+        $index = Index::open($project, AutoloadMap::forProject($project));
+        $index->sync();
+        $seen = [];
+
+        new ReferenceFinder($project, $index)->find(
+            SymbolRef::parse('Fixtures\TierD\Notifier::send'),
+            progress: static function (int $searched, int $of) use (&$seen): void {
+                $seen[] = [$searched, $of];
+            },
+        );
+
+        $candidates = count($index->store->pathsMentioning($project->root, ['send']));
+        $this->assertSame(array_map(static fn (int $i): array => [$i, $candidates], range(0, $candidates - 1)), $seen);
+    }
+
+    /**
      * @return list<Reference>
      */
     private function find(string $symbol): array

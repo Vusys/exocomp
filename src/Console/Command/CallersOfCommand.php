@@ -31,6 +31,7 @@ final class CallersOfCommand extends IndexedCommand
     protected function configure(): void
     {
         parent::configure();
+        $this->addTimeLimitOption();
 
         $this->addArgument('symbol', InputArgument::REQUIRED, 'A member address, e.g. "App\Models\Order::save"');
     }
@@ -38,17 +39,17 @@ final class CallersOfCommand extends IndexedCommand
     protected function answer(InputInterface $input, CommandContext $context): Result
     {
         $notes = [];
-        $this->graph($input, $context, $notes);
+        $graph = $this->graph($input, $context, $notes);
 
         if (! $this->boolOption($input, 'no-sync')) {
             $context->index()->freshness($this->boolOption($input, 'vendor'))->full();
         }
 
-        $target = SymbolRef::parse($this->stringArgument($input, 'symbol') ?? '');
+        $target = $this->searchTarget(SymbolRef::parse($this->stringArgument($input, 'symbol') ?? ''), $graph, $notes);
         $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
 
         $calls = array_values(array_filter(
-            $finder->find($target),
+            $finder->find($target, deadline: $this->searchDeadline($input), progress: $this->searchProgress((string) $target->member)),
             static fn (Reference $r): bool => str_contains($r->kind, 'call') || str_contains($r->kind, 'fetch'),
         ));
 
@@ -71,13 +72,17 @@ final class CallersOfCommand extends IndexedCommand
 
         [$kept, $elided] = $context->budget->apply($resolved);
 
+        [$incomplete, $incompleteNotes] = $this->incompleteSearch($finder->unsearched(), $input);
+
         return new Result(
-            header: sprintf('%d caller%s of %s', count($callers), count($callers) === 1 ? '' : 's', (string) $target),
+            header: sprintf('%d caller%s of %s', count($callers), count($callers) === 1 ? '' : 's', (string) $target)
+                .$incomplete,
             sections: [new Section('', array_map(fn (Reference $r): Row => $this->row($r, $width), $kept))],
             unresolvedTitle: 'unresolved',
             unresolved: array_map(fn (Reference $r): Row => $this->row($r, $width, true), $unsure),
             elided: $elided,
-            notes: [...$notes, ...$finder->notes(), ...$context->notes()],
+            notes: [...$notes, ...$finder->notes(), ...$incompleteNotes, ...$context->notes()],
+            found: ! $finder->searchedForNothing(),
         );
     }
 

@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Console;
 
 use Symfony\Component\Console\Application as SymfonyApplication;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Output\StreamOutput;
 use Vusys\Exocomp\Console\Command\BindingsCommand;
 use Vusys\Exocomp\Console\Command\CallersOfCommand;
 use Vusys\Exocomp\Console\Command\CallsFromCommand;
@@ -66,5 +70,38 @@ final class Application extends SymfonyApplication
             new GraphNeighbourhoodCommand,
             new IndexCommand,
         ]);
+    }
+
+    /**
+     * Colour only for a terminal, whatever the environment says.
+     *
+     * Symfony also colours whenever `FORCE_COLOR` is set, and that variable leaks into the
+     * shells agents run commands in. Escape codes in a stream piped to `grep` can get it classed
+     * as binary, and then it matches nothing without saying why. `--ansi` still forces colour,
+     * because that is a request made of this command rather than a setting it inherited.
+     * `NO_COLOR` is honoured by Symfony before any of this runs.
+     *
+     * Standard output and standard error share one formatter, so colour is on only when both
+     * are terminals: `2>&1` into a pipe is the common case, and has to come out plain.
+     */
+    protected function configureIO(InputInterface $input, OutputInterface $output): void
+    {
+        parent::configureIO($input, $output);
+
+        if ($input->hasParameterOption(['--ansi'], true)) {
+            return;
+        }
+
+        $streams = [$output];
+
+        if ($output instanceof ConsoleOutputInterface) {
+            $streams[] = $output->getErrorOutput();
+        }
+
+        foreach ($streams as $stream) {
+            if (! $stream instanceof StreamOutput || ! stream_isatty($stream->getStream())) {
+                $output->setDecorated(false);
+            }
+        }
     }
 }

@@ -106,6 +106,8 @@ miss stands and both are named — that is the case where you pick one and ask a
 The corollary is that the namespace is optional when it is unambiguous: `exocomp show 'OrderRepository::find'`
 is a legitimate address.
 
+**Members get the same treatment.** A member the class does not declare itself but inherits from a parent or a trait is answered from where it is declared, with a note saying so. One it does not have at all is looked for on related classes: if exactly one subclass, implementor, used trait, or trait used by a subclass declares it, that is the answer (again with a note). Otherwise the miss stands, exits `1`, and every declaration of the name is listed, each marked with how it relates to the class you named. Unrelated classes are listed but never answered from. This applies to `show`, `members <class>::<member>`, `callers-of` and `references-to`.
+
 **Anything it will not stand behind is handed back rather than dropped**, in a trailing block that names the
 command which would close the gap:
 
@@ -133,7 +135,7 @@ bites. It is some eight times the largest answer ever measured, so it will not t
 there to stop a `members` on a god object or a `references-to` on a base class filling your context in one
 call. `--max-tokens N` raises it, `--max-tokens 0` removes it.
 
-**Output shape never changes based on TTY** — only the default ceiling above does. Text is the default and is
+**Output shape never changes based on TTY** — only the default ceiling above does, and colour: output that is not going to a terminal is plain text even when `FORCE_COLOR` is set (`--ansi` forces colour; `NO_COLOR` is honoured). Text is the default and is
 the denser format; `--json` (JSONL, one record per line) is for `jq` and structural joins; `--format=paths`
 prints deduplicated file paths, for piping into another tool.
 
@@ -143,13 +145,15 @@ prints deduplicated file paths, for piping into another tool.
 | --- | --- |
 | `show <symbol>…` | several addresses at once; a file path is an address too; `--at file.php:line` for a position; `--without-bodies` for the skeleton. Exit `1` if any one is missing, and the missing are named |
 | `outline <file\|class>` | every declaration, no bodies |
-| `members <class>` | resolved through traits, parents, interfaces; each entry says where it came from. `--own` for declarations only; `--matching <regex>` filters by member name, and the header says how many the filter kept out of how many exist |
+| `members <class>` | resolved through traits, parents, interfaces; each entry says where it came from. `--own` for declarations only; `--matching <regex>` filters by member name, and the header says how many the filter kept out of how many exist. `members <class>::<member>` narrows to that one member |
 | `imports <file\|class>` | the `use` map, aliases resolved |
 | `locate <name>…` | several names at once — "which of these exists, and where" is usually the real question. `--kind=class\|interface\|trait\|enum\|function\|method\|property\|constant\|enum-case` |
 | `subclasses` / `implementors` / `traits-users` `<name>` | transitive by default; `--direct` for one level |
 | `overrides <symbol>` | every declaration of one member across the hierarchy, up and down |
 | `references-to <symbol>` | finds call sites written under another name too (a scope, an accessor). `--resolved-only` emits `resolved` alone — the set a rename may rewrite; `--strings` also searches string literals (slower, every hit `textual`) |
 | `callers-of <symbol>` / `calls-from <symbol>` | the call graph, one step, either direction |
+
+`references-to` and `callers-of` stop opening files after 60 seconds (`--time-limit N`, `0` for none) and answer with what they found. The header then says `incomplete, N files not searched` and a note repeats it, so treat the answer as a lower bound. On a terminal they draw a progress line on stderr; piped, they print nothing extra.
 | `query <pattern>` | structural search — see below |
 | `check [rules.json]` | saved rules against a baseline; exits 1 on anything new |
 

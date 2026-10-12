@@ -13,13 +13,16 @@ use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedCommand;
 use Vusys\Exocomp\Index\ResolvedMember;
+use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Index\UnreachableAncestor;
+use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\SymbolKind;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -86,19 +89,43 @@ final class MembersCommand extends IndexedCommand
             return $this->declaredOnly($ref, $context, $notes);
         }
 
+        return $this->listing($subject, $graph, $ref, $matching, $notes, $context);
+    }
+
+    /**
+     * @param  list<string>  $notes
+     */
+    private function listing(SymbolRecord $subject, SymbolGraph $graph, SymbolRef $ref, ?string $matching, array $notes, CommandContext $context, bool $redirected = false): Result
+    {
         $resolved = $graph->members($subject->fqn);
         $total = count($resolved['members']);
-        $members = $matching === null
-            ? $resolved['members']
-            : array_values(array_filter(
-                $resolved['members'],
-                static fn (ResolvedMember $member): bool => preg_match($matching, $member->record->name) === 1,
-            ));
+        $members = array_values(array_filter(
+            $resolved['members'],
+            static fn (ResolvedMember $member): bool => ($matching === null || preg_match($matching, $member->record->name) === 1)
+                && (! $ref->hasMember() || self::named($member->record, $ref)),
+        ));
+
+        // A member asked for by name and not found here is very often found on a trait, a
+        // subclass or a sibling — and when exactly one related class declares it, that is the
+        // answer rather than a second command for the caller to run.
+        if ($members === [] && $ref->hasMember() && ! $redirected) {
+            $elsewhere = new MemberElsewhere($graph)->find(SymbolRef::parse($subject->fqn.'::'.($ref->memberIsProperty ? '$' : '').$ref->member));
+            $answer = $elsewhere['answer'];
+            $declaring = $answer?->owner === null ? null : $graph->classLike($answer->owner);
+
+            if ($elsewhere['note'] !== null) {
+                $notes[] = $elsewhere['note'];
+            }
+
+            if ($declaring instanceof SymbolRecord) {
+                return $this->listing($declaring, $graph, $ref, $matching, $notes, $context, redirected: true);
+            }
+        }
 
         [$kept, $elided] = $context->budget->apply($members);
 
         return new Result(
-            header: $this->header($subject->path, $subject->fqn, count($members), $total, $matching),
+            header: $this->header($subject->path, $subject->fqn, count($members), $total, $matching ?? ($ref->hasMember() ? '' : null)),
             sections: $this->group($kept),
             unresolvedTitle: 'not reached',
             unresolved: $this->unreachable($subject->path, $resolved['unreachable']),
@@ -106,6 +133,21 @@ final class MembersCommand extends IndexedCommand
             notes: [...$notes, ...$context->notes()],
             found: $members !== [],
         );
+    }
+
+    /**
+     * The member an address names, by PHP's rules for that kind of member: a method's name
+     * folds case and nothing else's does.
+     */
+    private static function named(SymbolRecord $record, SymbolRef $ref): bool
+    {
+        if ($ref->memberIsProperty && $record->kind !== SymbolKind::Property) {
+            return false;
+        }
+
+        return $record->kind === SymbolKind::Method
+            ? strcasecmp($record->name, (string) $ref->member) === 0
+            : $record->name === $ref->member;
     }
 
     /**

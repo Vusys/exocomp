@@ -36,8 +36,11 @@ final class AnnotatedMembers implements MagicSource
 
     private readonly DocBlockTypes $docblocks;
 
-    /** @var array<string, array{methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}> */
+    /** @var array<string, array{fqn: string, methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}> */
     private array $annotations = [];
+
+    /** @var array<string, list<array{fqn: string, methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}>> */
+    private array $ancestries = [];
 
     public function __construct(
         private readonly ClassSource $source,
@@ -77,7 +80,7 @@ final class AnnotatedMembers implements MagicSource
         }
 
         $seen[] = Identifier::fold($ownerFqn);
-        $ancestry = $this->source->withAncestors($ownerFqn);
+        $ancestry = $this->ancestry($ownerFqn);
 
         foreach ($ancestry as $class) {
             $claim = $this->claim($class, $name, $kind);
@@ -90,8 +93,7 @@ final class AnnotatedMembers implements MagicSource
         // Mixins are searched only after every annotation in the ancestry has been, so that a
         // class's own account of itself wins over one it borrowed.
         foreach ($ancestry as $class) {
-            foreach ($this->read($class)['mixins'] as $mixin) {
-                $target = Analyser::qualify($mixin, $class->fqn, $class->analysis->imports);
+            foreach ($class['mixins'] as $target) {
                 $through = $this->throughMixin($target, $name, $kind, $seen);
 
                 if ($through instanceof MagicMember) {
@@ -133,10 +135,12 @@ final class AnnotatedMembers implements MagicSource
             : MagicMember::spelled($nested->declaration, $nested->type, Confidence::Inferred, $nested->reason.', reached through @mixin');
     }
 
-    private function claim(LoadedClass $class, string $name, SymbolKind $kind): ?MagicMember
+    /**
+     * @param  array{fqn: string, methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}  $class
+     */
+    private function claim(array $class, string $name, SymbolKind $kind): ?MagicMember
     {
-        $annotations = $this->read($class);
-        $tags = $kind === SymbolKind::Method ? $annotations['methods'] : $annotations['properties'];
+        $tags = $kind === SymbolKind::Method ? $class['methods'] : $class['properties'];
 
         foreach ($tags as $declared => $claim) {
             // Method names fold case in PHP and property names do not, which holds for the
@@ -145,28 +149,60 @@ final class AnnotatedMembers implements MagicSource
                 ? strcasecmp($declared, $name) === 0
                 : $declared === $name;
 
-            if (! $matches) {
-                continue;
+            if ($matches) {
+                return MagicMember::claimed($claim['type'], sprintf('%s on %s', $claim['tag'], $class['fqn']));
             }
-
-            $type = $claim['type'];
-
-            return MagicMember::claimed(
-                $type === null ? null : Analyser::qualify($type, $class->fqn, $class->analysis->imports),
-                sprintf('%s on %s', $claim['tag'], $class->fqn),
-            );
         }
 
         return null;
     }
 
     /**
-     * @return array{methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}
+     * Every annotation a class and its ancestors make, nearest first, with names already
+     * qualified — so the parsed classes can be let go.
+     *
+     * Kept per owner because it is asked once per member looked up, and a reference search
+     * looks up a member on the same receiver type hundreds of times. Asking the class source
+     * each time walked the ancestry again, and re-parsed whichever classes in it had been
+     * evicted since — `Model` and its traits, for every model receiver.
+     *
+     * @return list<array{fqn: string, methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}>
+     */
+    private function ancestry(string $ownerFqn): array
+    {
+        return $this->ancestries[Identifier::fold($ownerFqn)] ??= array_map(
+            $this->read(...),
+            $this->source->withAncestors($ownerFqn),
+        );
+    }
+
+    /**
+     * @return array{fqn: string, methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}
      */
     private function read(LoadedClass $class): array
     {
         $key = Identifier::fold($class->fqn);
 
-        return $this->annotations[$key] ??= $this->docblocks->members($class->node->getDocComment()?->getText() ?? '');
+        return $this->annotations[$key] ??= $this->qualified($class, $this->docblocks->members($class->node->getDocComment()?->getText() ?? ''));
+    }
+
+    /**
+     * @param  array{methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}  $annotations
+     * @return array{fqn: string, methods: array<string, array{type: ?string, tag: string}>, properties: array<string, array{type: ?string, tag: string}>, mixins: list<string>}
+     */
+    private function qualified(LoadedClass $class, array $annotations): array
+    {
+        $qualify = static fn (?string $name): ?string => $name === null ? null : Analyser::qualify($name, $class->fqn, $class->analysis->imports);
+        $types = static fn (array $tags): array => array_map(
+            static fn (array $claim): array => ['type' => $qualify($claim['type']), 'tag' => $claim['tag']],
+            $tags,
+        );
+
+        return [
+            'fqn' => $class->fqn,
+            'methods' => $types($annotations['methods']),
+            'properties' => $types($annotations['properties']),
+            'mixins' => array_map(static fn (string $mixin): string => (string) $qualify($mixin), $annotations['mixins']),
+        ];
     }
 }

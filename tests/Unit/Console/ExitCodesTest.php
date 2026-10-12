@@ -29,16 +29,27 @@ final class ExitCodesTest extends TestCase
         $this->assertStringContainsString('no declaration of "Fixtures\TierA\NoSuchClass"', $run->errors);
     }
 
-    public function test_a_missing_member_exits_one_and_suggests_where_to_look_next(): void
+    /**
+     * `describe()` is callable on Baseline because it inherits it. Saying "no" would be true of
+     * the file and useless to the caller, so the inherited declaration is the answer — with a
+     * note saying where it was found, because it is not where it was asked for.
+     */
+    public function test_an_inherited_member_is_answered_from_where_it_is_declared(): void
     {
         $run = Cli::inCorpus(['show', 'Fixtures\TierA\Baseline::describe']);
 
-        $this->assertSame(1, $run->exitCode);
-        $this->assertStringContainsString('declares no member "describe"', $run->errors);
+        $this->assertSame(0, $run->exitCode);
+        $this->assertStringContainsString('Fixtures\TierA\AbstractBase::describe', $run->output);
+        $this->assertStringContainsString('Baseline does not declare "describe" itself', $run->output);
+    }
 
-        // `describe()` really is callable on Baseline — it is inherited. Saying "no" without
-        // saying "it may be inherited, here is the command" would be true and useless.
-        $this->assertStringContainsString('exocomp members Fixtures\TierA\Baseline', $run->errors);
+    public function test_a_member_declared_nowhere_exits_one(): void
+    {
+        $run = Cli::inCorpus(['show', 'Fixtures\TierA\Baseline::noSuchMemberAnywhere']);
+
+        $this->assertSame(1, $run->exitCode);
+        $this->assertStringContainsString('declares no member "noSuchMemberAnywhere"', $run->errors);
+        $this->assertStringContainsString('exocomp locate noSuchMemberAnywhere', $run->errors);
     }
 
     public function test_a_malformed_address_exits_two(): void
