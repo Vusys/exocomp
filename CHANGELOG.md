@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`callers-of` and `references-to` on a common member name ran for minutes.** Every symbol lookup in the index was driven from the project's list of files rather than from the symbol, so each one walked the whole corpus. That was about 45 ms per lookup on a 7,000-file application, and a search for `create` makes thousands of them. Lookups now start from the symbol (`CROSS JOIN` fixes the order; planner statistics would not survive a fresh cache), and `symbols.fqn` has an index. Measured on one application across five searches that had been timing out: 62–191 s became 11–31 s, with byte-identical output.
+- **The parse cache evicted the classes used most.** It evicted in load order, so `Model` and its traits, walked for every model receiver, were re-parsed twenty times in a single search. It is now least-recently-used. Annotations, `__call` forwarders and `extends` clauses are kept per class after the parse is evicted.
+- **Colour escapes reached pipes when `FORCE_COLOR` was set.** Help, the command list and usage errors went through Symfony's formatter, which colours whenever `FORCE_COLOR` is set, wherever the output is going. Colour now needs a terminal on both stdout and stderr, or `--ansi`.
+
+### Added
+
+- **`--time-limit` on `callers-of` and `references-to`** (default 60 s, `0` for none). A search that reaches the limit stops opening files and answers with what it found. The header says it is incomplete and how many files were not searched, and a note (carried by `--json` too) repeats it. On a terminal, a progress line is drawn on stderr.
+- **A member not found where it was asked for is found where it is declared.** `show` answers a member inherited from a parent or trait rather than refusing. On `show`, `members <class>::<member>`, `callers-of` and `references-to`, a member the class does not have is answered from the one related class that declares it (a subclass, an implementor, a used trait, or a trait a subclass uses), with a note. If several related classes declare it, or only unrelated ones do, every declaration is listed with its relationship and the command exits `1`.
+- **`members <class>::<member>` narrows to that member.** It used to ignore the member half of the address.
+
+### Changed
+
+- `callers-of` and `references-to` exit `1` when the member provably does not exist on the class (its ancestry is readable to the end) and no related declaration could be answered instead. Every match in that case is a name, not a reference to anything asked about.
+
 ## [0.2.0] - 2026-09-16
 
 Six changes, every one of them traced to a specific failure in ten days of real agent

@@ -9,11 +9,13 @@ use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Query\Pattern;
 use Vusys\Exocomp\Query\Predicates;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
  * The base for commands that need the whole corpus rather than one file.
@@ -28,12 +30,120 @@ abstract class IndexedCommand extends ExocompCommand
 {
     use RefusesRevision;
 
+    /**
+     * Comfortably inside the two minutes an agent's shell commonly allows. A search cut off at
+     * the limit is reported as incomplete; one killed by the caller's timeout reports nothing.
+     */
+    protected const int DEFAULT_TIME_LIMIT = 60;
+
     protected function configure(): void
     {
         parent::configure();
 
         $this->addOption('no-sync', null, InputOption::VALUE_NONE, 'Answer from the index as it stands, without checking the working tree for changes');
         $this->addOption('vendor', null, InputOption::VALUE_NONE, 'Include dependencies when the index has to be brought up to date');
+    }
+
+    /**
+     * For the commands that search the corpus for references, whose cost is set by how common
+     * the name is rather than by how big the answer is: `create` is written in thousands of
+     * files, and every one of them has to be parsed and its receivers typed.
+     */
+    protected function addTimeLimitOption(): void
+    {
+        $this->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Stop opening files after this many seconds and answer with what was found, saying how much was not searched; 0 removes the limit', (string) self::DEFAULT_TIME_LIMIT);
+    }
+
+    protected function searchDeadline(InputInterface $input): ?float
+    {
+        $seconds = $this->intOption($input, 'time-limit', self::DEFAULT_TIME_LIMIT);
+
+        return $seconds > 0 ? microtime(true) + $seconds : null;
+    }
+
+    /**
+     * A progress line for a person watching a long search, redrawn in place. Only for a
+     * terminal: anything reading a pipe or a captured stream gets the result and nothing else.
+     *
+     * @return (callable(int, int): void)|null
+     */
+    protected function searchProgress(string $what): ?callable
+    {
+        if (! stream_isatty(STDERR)) {
+            return null;
+        }
+
+        $last = 0.0;
+
+        return static function (int $searched, int $of) use ($what, &$last): void {
+            $now = microtime(true);
+
+            if ($now - $last < 0.25 && $searched + 1 < $of) {
+                return;
+            }
+
+            $last = $now;
+            fwrite(STDERR, sprintf("\r\033[Ksearching %d/%d files that mention %s", $searched + 1, $of, $what));
+
+            if ($searched + 1 === $of) {
+                fwrite(STDERR, "\r\033[K");
+            }
+        };
+    }
+
+    /**
+     * What a search cut short by the time limit left out: a marker for the header, where the
+     * commands that search already say what they could not see, and a note — which `--json`
+     * carries too — saying how much and what to do about it.
+     *
+     * @return array{string, list<string>}
+     */
+    protected function incompleteSearch(int $unsearched, InputInterface $input): array
+    {
+        if ($unsearched === 0) {
+            return ['', []];
+        }
+
+        return [
+            sprintf('  — incomplete, %d file%s not searched', $unsearched, $unsearched === 1 ? '' : 's'),
+            [sprintf(
+                'stopped at the %ds time limit with %d candidate file%s not searched, so this is a lower bound (--time-limit N to raise it, 0 to remove it)',
+                $this->intOption($input, 'time-limit', self::DEFAULT_TIME_LIMIT),
+                $unsearched,
+                $unsearched === 1 ? '' : 's',
+            )],
+        ];
+    }
+
+    /**
+     * The member a search should be for. A member asked for on a class that neither declares
+     * nor inherits it is usually on a trait or a subclass instead; when exactly one related
+     * class declares it, the search is for that one, and the notes say so. Otherwise the
+     * question stands as asked, and the notes say where the name is declared.
+     *
+     * @param  list<string>  $notes
+     */
+    protected function searchTarget(SymbolRef $target, SymbolGraph $graph, array &$notes): SymbolRef
+    {
+        if (! $target->hasMember() || ! $graph->classLike($target->owner) instanceof SymbolRecord) {
+            return $target;
+        }
+
+        $found = new MemberElsewhere($graph)->find($target);
+
+        if ($found['reachable']) {
+            return $target;
+        }
+
+        if ($found['note'] !== null) {
+            $notes[] = $found['note'];
+        }
+
+        $answer = $found['answer'];
+
+        return $answer instanceof SymbolRecord && $answer->owner !== null
+            ? SymbolRef::parse($answer->owner.'::'.($target->memberIsProperty ? '$' : '').$target->member)
+            : $target;
     }
 
     /**

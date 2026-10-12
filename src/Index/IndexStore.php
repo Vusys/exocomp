@@ -305,15 +305,17 @@ final class IndexStore
             return $this->paths($root);
         }
 
-        $sql = 'SELECT DISTINCT f.path FROM files f';
-        $parameters = ['root' => $root];
+        // Driven from the first name rather than from the root: a root holds every file, a name
+        // a handful. See self::selection() for why the order is spelled out.
+        $sql = 'SELECT DISTINCT f.path FROM names n0 CROSS JOIN files f ON f.hash = n0.hash AND f.root = :root';
+        $parameters = ['root' => $root, 'name0' => Identifier::fold($names[0])];
 
-        foreach ($names as $index => $name) {
-            $sql .= " JOIN names n{$index} ON n{$index}.hash = f.hash AND n{$index}.lower_name = :name{$index}";
+        foreach (array_slice($names, 1, null, true) as $index => $name) {
+            $sql .= " CROSS JOIN names n{$index} ON n{$index}.hash = f.hash AND n{$index}.lower_name = :name{$index}";
             $parameters['name'.$index] = Identifier::fold($name);
         }
 
-        $sql .= ' WHERE f.root = :root ORDER BY f.path';
+        $sql .= ' WHERE n0.lower_name = :name0 ORDER BY f.path';
 
         $statement = $this->connection->prepare($sql);
         $statement->execute($parameters);
@@ -385,8 +387,8 @@ final class IndexStore
     {
         return $this->records(
             'SELECT f.path, s.* FROM edges e'
-            .' JOIN files f ON f.hash = e.hash AND f.root = :root'
-            .' JOIN symbols s ON s.hash = e.hash AND s.lower_fqn = e.lower_from'
+            .' CROSS JOIN files f ON f.hash = e.hash AND f.root = :root'
+            .' CROSS JOIN symbols s ON s.hash = e.hash AND s.lower_fqn = e.lower_from'
             .' WHERE e.kind = :kind AND e.lower_to = :target'
             .' ORDER BY f.path, s.line',
             ['root' => $root, 'kind' => $kind, 'target' => Identifier::fold($target)],
@@ -436,9 +438,19 @@ final class IndexStore
         ];
     }
 
+    /**
+     * Symbols first, then the file each sits in — never the other way round.
+     *
+     * Every lookup here narrows on a symbol column to a few rows, and the root narrows to every
+     * file in the project. Left to choose, SQLite's planner had no statistics to tell those apart
+     * and drove from the root, so each lookup walked the whole corpus: ~45 ms apiece on a
+     * 7,000-file application, which a reference search asks thousands of times. `CROSS JOIN` is
+     * SQLite's way of fixing the order, and unlike planner statistics it holds on a cache that
+     * has only just been built.
+     */
     private function selection(): string
     {
-        return 'SELECT f.path, s.* FROM symbols s JOIN files f ON f.hash = s.hash AND f.root = :root WHERE 1 = 1';
+        return 'SELECT f.path, s.* FROM symbols s CROSS JOIN files f ON f.hash = s.hash AND f.root = :root WHERE 1 = 1';
     }
 
     /**

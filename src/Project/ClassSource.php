@@ -38,8 +38,11 @@ final class ClassSource
     /** @var array<string, LoadedClass|null> */
     private array $loaded = [];
 
-    /** @var list<string> */
+    /** @var array<string, true> least recently used first */
     private array $order = [];
+
+    /** @var array<string, list<string>> */
+    private array $extends = [];
 
     /** @var list<string> */
     private array $notes = [];
@@ -61,13 +64,27 @@ final class ClassSource
         // stat. "I already looked and there is nothing" is a cached result too.
         if (! array_key_exists($key, $this->loaded)) {
             $this->remember($key, $this->read($fqn));
+        } elseif ($this->loaded[$key] instanceof LoadedClass) {
+            $this->touch($key);
         }
 
         return $this->loaded[$key];
     }
 
     /**
-     * Caches the result, evicting the oldest parse once the cap is reached.
+     * Marks a parse as recently used, so eviction takes the least recently used rather than the
+     * first loaded. With first-loaded order the classes asked about most — `Model` and its
+     * dozen-and-a-half traits, which every model receiver walks — were evicted as readily as a
+     * class met once, and one reference search re-parsed each of them twenty times.
+     */
+    private function touch(string $key): void
+    {
+        unset($this->order[$key]);
+        $this->order[$key] = true;
+    }
+
+    /**
+     * Caches the result, evicting the least recently used parse once the cap is reached.
      *
      * Misses are kept regardless: "I already looked and there is nothing" costs a key and saves
      * an index lookup, an autoload-map lookup and a stat every time it is asked again.
@@ -80,14 +97,11 @@ final class ClassSource
             return;
         }
 
-        $this->order[] = $key;
+        $this->touch($key);
 
         while (count($this->order) > self::RETAINED) {
-            $oldest = array_shift($this->order);
-
-            if (($this->loaded[$oldest] ?? null) instanceof LoadedClass) {
-                unset($this->loaded[$oldest]);
-            }
+            $oldest = array_key_first($this->order);
+            unset($this->order[$oldest], $this->loaded[$oldest]);
         }
     }
 
@@ -158,13 +172,27 @@ final class ClassSource
             return false;
         }
 
-        $class = $this->load($fqn);
+        return array_any($this->parentClassesOf($fqn), fn (string $parent): bool => $this->descendsFrom($parent, $ancestor, $depth + 1));
+    }
 
-        if (! $class instanceof LoadedClass) {
-            return false;
+    /**
+     * A class's `extends` clause, kept after its parse is evicted. It is a few names against a
+     * whole syntax tree, and "is this a model" asks it of the same framework ancestry for every
+     * receiver it meets — without this, each question re-parsed whichever of `Model` and its
+     * parents had been evicted since the last one.
+     *
+     * @return list<string>
+     */
+    private function parentClassesOf(string $fqn): array
+    {
+        $key = Identifier::fold($fqn);
+
+        if (! array_key_exists($key, $this->extends)) {
+            $class = $this->load($fqn);
+            $this->extends[$key] = $class instanceof LoadedClass ? $this->extendsOf($class) : [];
         }
 
-        return array_any($this->extendsOf($class), fn (string $parent): bool => $this->descendsFrom($parent, $ancestor, $depth + 1));
+        return $this->extends[$key];
     }
 
     /**

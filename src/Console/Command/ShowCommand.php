@@ -14,14 +14,16 @@ use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\ExocompCommand;
+use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
-use Vusys\Exocomp\Project\LocatedDeclaration;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Render\SkeletonRenderer;
 use Vusys\Exocomp\Source\SourceFile;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\FileAddress;
+use Vusys\Exocomp\Symbol\SymbolKind;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -43,6 +45,9 @@ use Vusys\Exocomp\Symbol\SymbolRef;
 #[AsCommand(name: 'show', description: 'Print the exact source of a named class, method, property or constant')]
 final class ShowCommand extends ExocompCommand
 {
+    /** @var list<string> */
+    private array $notes = [];
+
     protected function configure(): void
     {
         parent::configure();
@@ -109,7 +114,7 @@ final class ShowCommand extends ExocompCommand
             return new Result(
                 header: $found['header'],
                 body: $found['source'],
-                notes: $context->locator->notes(),
+                notes: [...$this->notes, ...$context->locator->notes()],
                 object: $found['object'],
             );
         }
@@ -152,7 +157,7 @@ final class ShowCommand extends ExocompCommand
             body: $blocks === [] ? null : implode("\n\n", $blocks),
             unresolvedTitle: 'not found',
             unresolved: $missing,
-            notes: $this->worthSaying($context->locator->notes(), $placed),
+            notes: [...$this->notes, ...$this->worthSaying($context->locator->notes(), $placed)],
             found: $missing === [],
             objects: $objects,
         );
@@ -205,7 +210,63 @@ final class ShowCommand extends ExocompCommand
         $ref = SymbolRef::parse($address);
         $owner = $context->locator->locateOwner($ref);
 
-        return $this->rendered($this->resolve($ref, $owner), $owner->analysis->file, $skeleton);
+        if (! $ref->hasMember()) {
+            return $this->rendered($owner->declaration, $owner->analysis->file, $skeleton);
+        }
+
+        $member = $owner->declaration->member((string) $ref->member, $ref->memberIsProperty);
+
+        if ($member instanceof Declaration) {
+            return $this->rendered($member, $owner->analysis->file, $skeleton);
+        }
+
+        [$elsewhere, $file] = $this->declaredOnAnother(SymbolRef::parse($owner->declaration->fqn.'::'.($ref->memberIsProperty ? '$' : '').$ref->member), $context);
+
+        return $this->rendered($elsewhere, $file, $skeleton);
+    }
+
+    /**
+     * A member the named class does not declare, found where it is declared.
+     *
+     * The index is read as it stands and never built for this, the same rule the namespace
+     * correction follows: a command that answers from one file must not acquire a corpus to
+     * improve a miss. A cold cache therefore says only what the file says.
+     *
+     * @return array{Declaration, SourceFile}
+     *
+     * @throws SymbolNotFound
+     */
+    private function declaredOnAnother(SymbolRef $ref, CommandContext $context): array
+    {
+        $miss = sprintf('%s declares no member "%s"', $ref->owner, (string) $ref->member);
+
+        try {
+            $found = new MemberElsewhere($context->index()->graph(validate: false))->find($ref);
+        } catch (RuntimeException) {
+            $found = ['answer' => null, 'reachable' => false, 'note' => null];
+        }
+
+        $answer = $found['answer'];
+
+        if ($answer instanceof SymbolRecord && $answer->owner !== null) {
+            try {
+                $declaring = $context->locator->locateOwner(SymbolRef::parse($answer->owner));
+                $member = $declaring->declaration->member($answer->name, $answer->kind === SymbolKind::Property);
+
+                if ($member instanceof Declaration) {
+                    $this->notes[] = (string) $found['note'];
+
+                    return [$member, $declaring->analysis->file];
+                }
+            } catch (SymbolNotFound) {
+                // The index remembered a declaration the working tree no longer has; report
+                // the miss as asked rather than an answer from a memory of the tree.
+            }
+        }
+
+        throw new SymbolNotFound((string) $ref, $found['note'] === null
+            ? sprintf('%s, nor does anything the index knows of (try: exocomp locate %s)', $miss, (string) $ref->member)
+            : $miss.' — '.$found['note']);
     }
 
     /**
@@ -341,28 +402,5 @@ final class ShowCommand extends ExocompCommand
                 'source' => $source,
             ],
         ];
-    }
-
-    private function resolve(SymbolRef $ref, LocatedDeclaration $owner): Declaration
-    {
-        if (! $ref->hasMember()) {
-            return $owner->declaration;
-        }
-
-        $member = $owner->declaration->member((string) $ref->member, $ref->memberIsProperty);
-
-        if ($member instanceof Declaration) {
-            return $member;
-        }
-
-        // Deliberately not a search of parents or traits: this build resolves only what a
-        // single file declares, and answering from a guess about inheritance would be the
-        // confidently-wrong failure this tool exists to avoid.
-        throw new SymbolNotFound((string) $ref, sprintf(
-            '%s declares no member "%s" (it may be inherited — try: exocomp members %s)',
-            $owner->declaration->fqn,
-            (string) $ref->member,
-            $owner->declaration->fqn,
-        ));
     }
 }

@@ -41,6 +41,7 @@ final class IndexSchema
             );
 
             CREATE INDEX IF NOT EXISTS files_hash ON files (hash);
+            CREATE INDEX IF NOT EXISTS files_hash_root ON files (hash, root);
 
             CREATE TABLE IF NOT EXISTS names (
                 hash TEXT NOT NULL,
@@ -83,6 +84,7 @@ final class IndexSchema
 
             CREATE INDEX IF NOT EXISTS symbols_hash ON symbols (hash);
             CREATE INDEX IF NOT EXISTS symbols_lower_fqn ON symbols (lower_fqn);
+            CREATE INDEX IF NOT EXISTS symbols_fqn ON symbols (fqn);
             CREATE INDEX IF NOT EXISTS symbols_lower_name ON symbols (lower_name);
             CREATE INDEX IF NOT EXISTS symbols_name ON symbols (name);
             CREATE INDEX IF NOT EXISTS symbols_lower_owner ON symbols (lower_owner);

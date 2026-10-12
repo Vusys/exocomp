@@ -1,6 +1,6 @@
 The declarations that name a member — and the fact that nothing declares it
 -----
-callers-of Fixtures\TierA\Support\Repository::findByUuid
+[exit=1] callers-of Fixtures\TierA\Support\Repository::findByUuid
 -----
 2 callers of Fixtures\TierA\Support\Repository::findByUuid
 

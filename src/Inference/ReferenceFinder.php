@@ -35,6 +35,10 @@ final class ReferenceFinder
     /** @var list<string> */
     private array $notes = [];
 
+    private int $unsearched = 0;
+
+    private bool $undeclared = false;
+
     public function __construct(
         private readonly Project $project,
         private readonly Index $index,
@@ -43,9 +47,13 @@ final class ReferenceFinder
     ) {}
 
     /**
+     * @param  float|null  $deadline  a `microtime(true)` past which no further file is opened; what
+     *                                was found is returned, and {@see self::unsearched()} says how
+     *                                much was not looked at
+     * @param  (callable(int $searched, int $of): void)|null  $progress
      * @return list<Reference>
      */
-    public function find(SymbolRef $target, bool $includeStrings = false): array
+    public function find(SymbolRef $target, bool $includeStrings = false, ?float $deadline = null, ?callable $progress = null): array
     {
         $graph = $this->index->graph();
         $magic = Magic::forProject($graph, new ClassSource($this->project, $graph, $this->locator), $this->project);
@@ -61,11 +69,24 @@ final class ReferenceFinder
 
         if ($undeclared !== null) {
             $this->notes[] = $undeclared;
+            $this->undeclared = true;
         }
 
         $references = [];
 
-        foreach ($this->candidates($shortName, $spellings, $this->shortName($target->owner)) as $path) {
+        $candidates = $this->candidates($shortName, $spellings, $this->shortName($target->owner));
+
+        foreach ($candidates as $searched => $path) {
+            if ($deadline !== null && microtime(true) > $deadline) {
+                $this->unsearched = count($candidates) - $searched;
+
+                break;
+            }
+
+            if ($progress !== null) {
+                $progress($searched, count($candidates));
+            }
+
             $absolute = $this->project->path($path);
 
             if (! is_file($absolute)) {
@@ -175,6 +196,24 @@ final class ReferenceFinder
     public function notes(): array
     {
         return $this->notes;
+    }
+
+    /**
+     * Whether the member searched for is provably declared nowhere in the class's ancestry —
+     * which makes every match a name rather than a reference to anything that was asked about.
+     */
+    public function searchedForNothing(): bool
+    {
+        return $this->undeclared;
+    }
+
+    /**
+     * How many candidate files were never opened because the deadline passed first. Anything
+     * other than zero means the answer is a lower bound, and must be reported as one.
+     */
+    public function unsearched(): int
+    {
+        return $this->unsearched;
     }
 
     /**
