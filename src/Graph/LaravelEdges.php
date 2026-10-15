@@ -263,7 +263,6 @@ final class LaravelEdges
     private function throughContainer(string $from, string $class, string $member, OutgoingCall $call): array
     {
         $record = $this->graph->classLike($class);
-        $bound = null;
 
         if ($record instanceof SymbolRecord) {
             // The index already knows what kind of thing this is and whether it is abstract.

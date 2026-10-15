@@ -88,12 +88,12 @@ final class Cli
 
     public static function laravelRoot(): string
     {
-        return dirname(__DIR__).'/Fixtures/laravel';
+        return __DIR__.'/../Fixtures/laravel';
     }
 
     public static function corpusRoot(): string
     {
-        return dirname(__DIR__).'/Fixtures/corpus';
+        return __DIR__.'/../Fixtures/corpus';
     }
 
     public static function corpusFile(string $relative): string
