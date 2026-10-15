@@ -1,9 +1,10 @@
 name: infection
 
+# Run by hand only (Actions tab, or `gh workflow run infection.yml`). A full run takes the best
+# part of an hour on one runner thread, which is a poor use of private-repository minutes on
+# every push; `composer infection` locally is faster and measures the same thing.
 on:
-  push:
-    branches: [master]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
