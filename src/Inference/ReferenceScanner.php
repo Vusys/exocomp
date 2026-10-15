@@ -193,7 +193,7 @@ final class ReferenceScanner extends NodeVisitorAbstract
             default => [null, null, ''],
         };
 
-        if ($name === null || $receiver === null) {
+        if (! $name instanceof Node || ! $receiver instanceof Node) {
             $this->declarationReference($node, $member);
 
             return;

@@ -94,6 +94,6 @@ final readonly class GoldenFixture
 
     public static function directory(): string
     {
-        return dirname(__DIR__).'/Fixtures/Golden';
+        return __DIR__.'/../Fixtures/Golden';
     }
 }

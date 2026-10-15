@@ -107,7 +107,7 @@ final class CallScanner extends NodeVisitorAbstract
         $owner = $keyword instanceof ResolvedType ? $keyword->fqn : Analyser::resolvedName($call->class);
 
         if ($owner === null) {
-            $this->record($call, 'static call', null, Confidence::Textual, $keyword instanceof ResolvedType ? $keyword->reason : 'static call on an unknown class');
+            $this->record($call, 'static call', null, Confidence::Textual, $keyword->reason);
 
             return;
         }
