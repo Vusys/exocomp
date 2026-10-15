@@ -40,9 +40,15 @@ final class IndexStore
         IndexSchema::apply($this->connection);
     }
 
+    /**
+     * Takes the write lock up front. A batch reads before it writes, and a deferred `BEGIN` would
+     * then have to upgrade its read to a write; in WAL mode that upgrade fails at once with
+     * "database is locked" if another process committed in between, without waiting out the
+     * busy timeout. The cache is shared by every project, so two concurrent runs hit that easily.
+     */
     public function beginBatch(): void
     {
-        $this->connection->beginTransaction();
+        $this->connection->exec('BEGIN IMMEDIATE');
     }
 
     public function commitBatch(): void

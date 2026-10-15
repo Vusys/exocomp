@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Concurrent runs no longer fail with "database is locked".** Every project shares one cache file, so two runs at once, in different projects or the same one, wrote to the same database. Each write batch started with a deferred `BEGIN`, read, and then wrote, and in WAL mode SQLite refuses to upgrade a read to a write if another process committed in between. It refuses at once and ignores the busy timeout. Batches now take the write lock when they start, with `BEGIN IMMEDIATE`, so the second run waits. Six projects each re-reading a changed file fifteen times in parallel failed 20 of 90 runs before the change and none after it.
+
 ## [0.4.0] - 2026-10-15
 
 Bumping the version changes the symbol cache's identity, so every project re-indexes once.
