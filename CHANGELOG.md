@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-15
+
+Bumping the version changes the symbol cache's identity, so every project re-indexes once.
+
+### Changed
+
+- **A long unresolved list is summarised by reason.** On a 7,000-file application, `references-to` for a service's `create` method printed `12358 references (1 resolved, 0 inferred, 12357 unresolved)` and then 12,357 lines, almost all `Model::factory()->create()`. The agent that ran it read the first line and went back to grep. With more than ten unresolved hits, `references-to` and `callers-of` now print one line per reason with its count and three examples, and `--all-unresolved` lists every hit. In `--json` each group is a record with its count, followed by its examples.
+- **The skill is rewritten around the moment to use it.** Of 481 PHP greps in 37 sessions, about 175 were the shapes exocomp answers better, and the skill was loaded in 1 session of about 68. The description now names those shapes: `grep -n 'function x'` then `sed -n`, `grep -rl 'class X'`, grepping a name for its callers, and guessing method names. It also says where grep is still the right tool. `SKILL.md` drops from 390 lines to 42, and the detail moves to `reference.md` beside it.
+- **A command line that does not parse exits `2`, and names what was probably meant.** It used to exit `1`, which this tool uses for "not found", so an invented `callers-of --depth 3` read as an empty answer. A misspelt option now gets the nearest real one, and an option that belongs to another command gets that command's name.
+
+### Added
+
+- **Calls proved not to be on the target are excluded, and the header counts them.** A call on a value that Eloquent's own API returned from a model cannot be a call on a class with no ancestor outside the indexed source. Eloquent only returns framework classes, or application classes that extend them. These calls are left out, the header gives the count (`…, 11666 excluded`), and a note states the rule. A callback, a `::class` argument, a value read out of the model, a scope, a macro, or an application method of that name on a framework subclass leaves the call unresolved instead. On the search above, 12,357 unresolved became 450, and the first screen answers the question: nothing calls it.
+- **Container lookups are typed.** `app(X::class)`, `resolve(X::class)`, `app()->make(X::class)`, `$this->app->make(X::class)` and `App::make(X::class)` return an `X` (`resolved`), or the class a provider binds `X` to (`inferred`). "The return type of app() was not read" was the commonest reason a hit went unresolved. `vendor/` is not needed, because the argument is the answer.
+
 ## [0.3.0] - 2026-10-15
 
 Bumping the version changes the symbol cache's identity, so every project re-indexes once.
