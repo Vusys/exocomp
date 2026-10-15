@@ -38,6 +38,13 @@
     // hundred lines of lightly tested code will trip it. That is the gate working. The reason
     // not to go to 73 is the one that kept it at 71 before: a threshold within a point of the
     // measurement makes the next commit a coin toss rather than a check.
+    //
+    // `timeout` is raised from Infection's default of 10 seconds because that number is also a
+    // filter: a mutant whose covering tests take longer than it to run is skipped, not tested.
+    // On CI's runner (one thread, xdebug) 1,130 of 8,108 mutants were skipped that way at 0.3.0,
+    // which put the score at 71.61% and failed the gate; the same tree measured 75.82% locally,
+    // where none were. A threshold that moves with the runner's speed is not measuring the tests.
+    "timeout": 60,
     "minMsi": 72,
     "minCoveredMsi": 72
 }

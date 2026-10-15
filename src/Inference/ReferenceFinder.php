@@ -6,6 +6,8 @@ namespace Vusys\Exocomp\Inference;
 
 use PhpParser\NodeTraverser;
 use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Framework\Laravel\Binding;
+use Vusys\Exocomp\Framework\Laravel\ContainerReader;
 use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
@@ -37,6 +39,8 @@ final class ReferenceFinder
 
     private int $unsearched = 0;
 
+    private int $excluded = 0;
+
     private bool $undeclared = false;
 
     public function __construct(
@@ -58,7 +62,13 @@ final class ReferenceFinder
         $graph = $this->index->graph();
         $magic = Magic::forProject($graph, new ClassSource($this->project, $graph, $this->locator), $this->project);
         $shortName = $this->shortName($target->hasMember() ? (string) $target->member : $target->owner);
-        $types = new TypeResolver($graph, $magic);
+        $source = new ClassSource($this->project, $graph, $this->locator);
+        $container = null;
+        $types = new TypeResolver($graph, $magic, static function (string $abstract) use (&$container, $graph, $source): ?Binding {
+            $container ??= new ContainerReader($graph, $source)->read();
+
+            return $container->concreteFor($abstract);
+        });
 
         // A member the framework lets you call by another name is mentioned by that other name
         // and no other, so the narrowing has to look for both. Getting this wrong would not
@@ -72,6 +82,7 @@ final class ReferenceFinder
             $this->undeclared = true;
         }
 
+        $eloquent = $target->hasMember() ? new EloquentChain($target->owner, $graph, $source, $magic) : null;
         $references = [];
 
         $candidates = $this->candidates($shortName, $spellings, $this->shortName($target->owner));
@@ -104,10 +115,11 @@ final class ReferenceFinder
                 continue;
             }
 
-            $scanner = new ReferenceScanner($target, $analysis, $graph, $types, $magic, $spellings, $undeclared === null, 'no declaration of this name');
+            $scanner = new ReferenceScanner($target, $analysis, $graph, $types, $magic, $spellings, $undeclared === null, 'no declaration of this name', $eloquent);
             new NodeTraverser($scanner)->traverse($statements);
 
             $references = [...$references, ...$scanner->references()];
+            $this->excluded += $scanner->excluded();
         }
 
         if ($includeStrings) {
@@ -205,6 +217,14 @@ final class ReferenceFinder
     public function searchedForNothing(): bool
     {
         return $this->undeclared;
+    }
+
+    /**
+     * How many calls were proved not to be on the target and left out — see {@see EloquentChain}.
+     */
+    public function excluded(): int
+    {
+        return $this->excluded;
     }
 
     /**

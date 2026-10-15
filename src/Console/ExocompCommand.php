@@ -63,7 +63,7 @@ abstract class ExocompCommand extends Command
             ->addOption('stdin', null, InputOption::VALUE_NONE, 'Read the file to analyse from standard input')
             ->addOption('as', null, InputOption::VALUE_REQUIRED, 'The path to report for --stdin input', '(stdin)')
             ->addOption('scan', null, InputOption::VALUE_NONE, 'If the name cannot be placed, read every file under the source roots to find it (slow; needed only for a class sharing a file with a differently-named sibling)')
-            ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Maximum records to emit; the remainder is reported, never dropped silently', '0')
+            ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Maximum records to emit; the remainder is reported, never dropped silently. Use this, not `| head`, which hides the cut and the exit code', '0')
             ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, sprintf('Approximate ceiling on output size; any cut is reported. Defaults to %d when output is not a terminal; 0 removes it', self::DEFAULT_MAX_TOKENS), '0');
     }
 

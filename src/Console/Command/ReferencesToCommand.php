@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedCommand;
+use Vusys\Exocomp\Inference\EloquentChain;
 use Vusys\Exocomp\Inference\Reference;
 use Vusys\Exocomp\Inference\ReferenceFinder;
 use Vusys\Exocomp\Output\Address;
@@ -36,6 +37,7 @@ final class ReferencesToCommand extends IndexedCommand
     {
         parent::configure();
         $this->addTimeLimitOption();
+        $this->addUnresolvedOption();
 
         $this
             ->addArgument('symbol', InputArgument::REQUIRED, 'A class or member address, e.g. "App\Models\Order::save"')
@@ -102,23 +104,33 @@ final class ReferencesToCommand extends IndexedCommand
         }
 
         [$incomplete, $incompleteNotes] = $this->incompleteSearch($finder->unsearched(), $input);
+        [$unresolved, $groups] = $this->unresolvedBlock(array_map(fn (Reference $r): Row => $this->row($r, $width, true), $unsure), $input);
+        $excluded = $finder->excluded();
 
         return new Result(
             header: sprintf(
-                '%d reference%s to %s  (%d resolved, %d inferred, %d unresolved)',
+                '%d reference%s to %s  (%d resolved, %d inferred, %d unresolved%s)',
                 count($references),
                 count($references) === 1 ? '' : 's',
                 (string) $target,
                 count($certain),
                 count($likely),
                 count($references) - count($certain) - count($likely),
+                $excluded === 0 ? '' : sprintf(', %d excluded', $excluded),
             ).$incomplete,
             sections: $sections,
             unresolvedTitle: 'unresolved',
-            unresolved: array_map(fn (Reference $r): Row => $this->row($r, $width, true), $unsure),
+            unresolved: $unresolved,
             elided: $elided,
-            notes: [...$notes, ...$finder->notes(), ...$incompleteNotes, ...$context->notes()],
+            notes: [
+                ...$notes,
+                ...$finder->notes(),
+                ...($excluded === 0 ? [] : [EloquentChain::explanation($excluded, $target->owner)]),
+                ...$incompleteNotes,
+                ...$context->notes(),
+            ],
             found: ! $finder->searchedForNothing(),
+            unresolvedGroups: $groups,
         );
     }
 

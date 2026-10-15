@@ -6,6 +6,8 @@ namespace Vusys\Exocomp\Tests\Unit\Console;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Vusys\Exocomp\Console\Application;
 use Vusys\Exocomp\Tests\Support\Cli;
 
@@ -17,6 +19,31 @@ final class ApplicationTest extends TestCase
 
         $this->assertSame(0, $run->exitCode);
         $this->assertStringContainsString(Application::VERSION, $run->output);
+    }
+
+    public function test_an_unknown_option_is_an_error_and_names_what_was_probably_meant(): void
+    {
+        $run = static function (string ...$arguments): array {
+            $application = new Application;
+            $application->setAutoExit(false);
+            $output = new BufferedOutput;
+
+            return [$application->run(new ArgvInput(['exocomp', ...array_values($arguments)]), $output), $output->fetch()];
+        };
+
+        [$misspeltExit, $misspelt] = $run('members', 'App\\X', '--matchin', 'x');
+        [$inventedExit, $invented] = $run('callers-of', 'App\\X::y', '--depth', '3');
+        [, $elsewhere] = $run('show', 'App\\X', '--max-nodes', '3');
+
+        // 2, not 1: this tool's 1 means "not found", and a command line that did not parse
+        // found nothing only in the sense that it never looked.
+        $this->assertSame(2, $misspeltExit);
+        $this->assertSame(2, $inventedExit);
+
+        $flat = static fn (string $text): string => (string) preg_replace('/\s+/', '', $text);
+        $this->assertStringContainsString($flat('Did you mean --matching?'), $flat($misspelt));
+        $this->assertStringContainsString($flat('callers-of answers one level'), $flat($invented));
+        $this->assertStringContainsString($flat('--max-nodes is an option of: reaches, graph.'), $flat($elsewhere));
     }
 
     public function test_it_registers_every_phase_zero_command(): void
