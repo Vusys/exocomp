@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Console;
 
 use Symfony\Component\Console\Application as SymfonyApplication;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Exception\RuntimeException as ConsoleRuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -70,6 +72,59 @@ final class Application extends SymfonyApplication
             new GraphNeighbourhoodCommand,
             new IndexCommand,
         ]);
+    }
+
+    /**
+     * A command line that does not parse is an error, exit 2, and says what was probably meant.
+     *
+     * Symfony exits 1 for these, which this tool's contract reserves for "not found" — so an
+     * invented `callers-of --depth 3` read as an empty answer. The suggestion is the nearest
+     * spelling among this command's own options, or failing that the commands that do take the
+     * option, since an invented flag is usually a feature that lives next door.
+     */
+    protected function doRunCommand(Command $command, InputInterface $input, OutputInterface $output): int
+    {
+        try {
+            return parent::doRunCommand($command, $input, $output);
+        } catch (ConsoleRuntimeException $error) {
+            // Not chained: the original would be rendered again beneath the replacement.
+            throw new ConsoleRuntimeException($this->suggest($error->getMessage(), $command), 2, $error);
+        }
+    }
+
+    private function suggest(string $message, Command $command): string
+    {
+        if (preg_match('/"--?([\w-]+)" option does not exist/', $message, $matches) !== 1) {
+            return $message;
+        }
+
+        $typed = $matches[1];
+        $own = array_keys($command->getDefinition()->getOptions());
+        $near = array_values(array_filter($own, static fn (string $name): bool => levenshtein($typed, $name) <= 2 || str_starts_with($name, $typed)));
+
+        if ($near !== []) {
+            return sprintf('%s Did you mean --%s?', $message, implode(' or --', $near));
+        }
+
+        $elsewhere = [];
+
+        foreach ($this->all() as $name => $other) {
+            if ($other !== $command && ! $other->isHidden() && $other->getDefinition()->hasOption($typed)) {
+                $elsewhere[$name] = true;
+            }
+        }
+
+        // The invention actually seen: a depth on a one-level search. Saying where depth lives
+        // is not enough on its own, because `graph` walks the other way.
+        $levels = in_array($command->getName(), ['callers-of', 'references-to'], true) && in_array($typed, ['depth', 'recursive', 'transitive', 'levels'], true)
+            ? sprintf(' %s answers one level: run it again on a caller to go further, or ask `reaches <from> <to>` whether a path exists.', $command->getName())
+            : '';
+
+        return match (true) {
+            $levels !== '' => $message.$levels,
+            $elsewhere === [] => sprintf('%s See `exocomp %s --help` for the options it takes.', $message, $command->getName()),
+            default => sprintf('%s --%s is an option of: %s.', $message, $typed, implode(', ', array_keys($elsewhere))),
+        };
     }
 
     /**

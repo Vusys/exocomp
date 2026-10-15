@@ -214,13 +214,19 @@ final class Walk
         $edges = [];
 
         foreach ($this->code->callsFrom($body) as $call) {
-            if ($call->target === null) {
-                // Unless the framework layer already supplied an edge from this very line: a
-                // call on `app(Reader::class)` has no declared type and never will, and the
-                // binding edge beside it is the answer rather than a consolation.
-                if (! isset($covered[$call->path.':'.$call->line.':'.$call->column])) {
-                    $this->stop(new Stop($node, Stop::UNRESOLVED, $call->path, $call->line, $call->column, $call->reason, $call->snippet));
+            // The framework layer already answered for this very call: a call on
+            // `app(Reader::class)` is typed as `Reader` now, but the binding edge beside it says
+            // where it actually lands, and following both would make one step two.
+            if (isset($covered[$call->path.':'.$call->line.':'.$call->column])) {
+                if ($call->target !== null) {
+                    $this->rerouted[Identifier::fold($call->target)] = true;
                 }
+
+                continue;
+            }
+
+            if ($call->target === null) {
+                $this->stop(new Stop($node, Stop::UNRESOLVED, $call->path, $call->line, $call->column, $call->reason, $call->snippet));
 
                 continue;
             }
@@ -228,7 +234,7 @@ final class Walk
             $edges[] = $this->edgeFor($node, $call);
             $indirections = $this->framework instanceof LaravelEdges ? $this->framework->indirections($node, $call) : [];
 
-            if ($indirections !== [] || isset($covered[$call->path.':'.$call->line.':'.$call->column])) {
+            if ($indirections !== []) {
                 $this->rerouted[Identifier::fold($call->target)] = true;
             }
 

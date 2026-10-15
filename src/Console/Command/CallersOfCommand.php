@@ -9,6 +9,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedCommand;
+use Vusys\Exocomp\Inference\EloquentChain;
 use Vusys\Exocomp\Inference\Reference;
 use Vusys\Exocomp\Inference\ReferenceFinder;
 use Vusys\Exocomp\Output\Address;
@@ -32,6 +33,7 @@ final class CallersOfCommand extends IndexedCommand
     {
         parent::configure();
         $this->addTimeLimitOption();
+        $this->addUnresolvedOption();
 
         $this->addArgument('symbol', InputArgument::REQUIRED, 'A member address, e.g. "App\Models\Order::save"');
     }
@@ -73,16 +75,26 @@ final class CallersOfCommand extends IndexedCommand
         [$kept, $elided] = $context->budget->apply($resolved);
 
         [$incomplete, $incompleteNotes] = $this->incompleteSearch($finder->unsearched(), $input);
+        [$unresolved, $groups] = $this->unresolvedBlock(array_map(fn (Reference $r): Row => $this->row($r, $width, true), $unsure), $input);
+        $excluded = $finder->excluded();
 
         return new Result(
             header: sprintf('%d caller%s of %s', count($callers), count($callers) === 1 ? '' : 's', (string) $target)
+                .($excluded === 0 ? '' : sprintf('  (%d call%s excluded)', $excluded, $excluded === 1 ? '' : 's'))
                 .$incomplete,
             sections: [new Section('', array_map(fn (Reference $r): Row => $this->row($r, $width), $kept))],
             unresolvedTitle: 'unresolved',
-            unresolved: array_map(fn (Reference $r): Row => $this->row($r, $width, true), $unsure),
+            unresolved: $unresolved,
             elided: $elided,
-            notes: [...$notes, ...$finder->notes(), ...$incompleteNotes, ...$context->notes()],
+            notes: [
+                ...$notes,
+                ...$finder->notes(),
+                ...($excluded === 0 ? [] : [EloquentChain::explanation($excluded, $target->owner)]),
+                ...$incompleteNotes,
+                ...$context->notes(),
+            ],
             found: ! $finder->searchedForNothing(),
+            unresolvedGroups: $groups,
         );
     }
 

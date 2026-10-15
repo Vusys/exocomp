@@ -50,6 +50,14 @@ final class JsonRenderer implements Renderer
             $lines[] = $this->encode($row->toArray() + ['unresolved' => true]);
         }
 
+        foreach ($result->unresolvedGroups as $group) {
+            $lines[] = $this->encode(['unresolved_reason' => $group->reason, 'count' => $group->count, 'examples' => count($group->examples)]);
+
+            foreach ($group->examples as $row) {
+                $lines[] = $this->encode($row->toArray() + ['unresolved' => true]);
+            }
+        }
+
         foreach ($result->notes as $note) {
             $lines[] = $this->encode(['note' => $note]);
         }

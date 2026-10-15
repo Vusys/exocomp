@@ -47,7 +47,9 @@ final class TextRenderer implements Renderer
             $lines[] = sprintf('… %d more (use --limit)', $result->elided);
         }
 
-        if ($result->unresolved !== []) {
+        if ($result->unresolvedGroups !== []) {
+            $lines = [...$lines, '', ...$this->renderGroups($result)];
+        } elseif ($result->unresolved !== []) {
             $lines = [...$lines, '', ...$this->renderUnresolved($result)];
         }
 
@@ -79,6 +81,34 @@ final class TextRenderer implements Renderer
             : str_pad((string) $row->line, self::LINE_COLUMN_WIDTH, ' ', STR_PAD_LEFT);
 
         return $line.'  '.$row->text;
+    }
+
+    /**
+     * The trailing block, summarised: one line per reason with its count, a few examples under
+     * each, and how to get the rest. The count leads so the size of each gap reads at a glance.
+     *
+     * @return list<string>
+     */
+    private function renderGroups(Result $result): array
+    {
+        $title = $result->unresolvedTitle === '' ? 'unresolved' : $result->unresolvedTitle;
+        $total = array_sum(array_map(static fn (UnresolvedGroup $group): int => $group->count, $result->unresolvedGroups));
+        $width = strlen((string) $total);
+        $lines = [sprintf('── %d %s, by reason (%d shown of each; --all-unresolved lists every one) ──', $total, $title, UnresolvedGroup::EXAMPLES)];
+
+        foreach ($result->unresolvedGroups as $group) {
+            $lines[] = str_pad((string) $group->count, $width, ' ', STR_PAD_LEFT).'  '.$group->reason;
+
+            foreach ($group->examples as $row) {
+                $lines[] = str_repeat(' ', $width + 2).$row->text;
+            }
+
+            if ($group->count > count($group->examples)) {
+                $lines[] = str_repeat(' ', $width + 2).sprintf('… %d more', $group->count - count($group->examples));
+            }
+        }
+
+        return $lines;
     }
 
     /**

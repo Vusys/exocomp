@@ -26,6 +26,9 @@ final readonly class Result
      *                                                              from `$object` so that asking for one address still yields a single
      *                                                              object, rather than a consumer's shape changing under it the day a
      *                                                              command learns to take two.
+     * @param  list<UnresolvedGroup>  $unresolvedGroups  the trailing block summarised by reason,
+     *                                                   in place of `$unresolved`, when there was
+     *                                                   too much of it to list
      */
     public function __construct(
         public string $header = '',
@@ -38,6 +41,7 @@ final readonly class Result
         public ?array $object = null,
         public bool $found = true,
         public array $objects = [],
+        public array $unresolvedGroups = [],
     ) {}
 
     /**
@@ -86,6 +90,7 @@ final readonly class Result
             object: $this->object,
             found: $this->found,
             objects: $this->objects,
+            unresolvedGroups: $this->unresolvedGroups,
         );
     }
 
@@ -115,7 +120,9 @@ final readonly class Result
     {
         $paths = [];
 
-        foreach ([...$this->rows(), ...$this->unresolved] as $row) {
+        $examples = array_merge([], ...array_map(static fn (UnresolvedGroup $group): array => $group->examples, $this->unresolvedGroups));
+
+        foreach ([...$this->rows(), ...$this->unresolved, ...$examples] as $row) {
             $paths[$row->file] = true;
         }
 

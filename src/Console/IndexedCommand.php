@@ -12,6 +12,7 @@ use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Row;
+use Vusys\Exocomp\Output\UnresolvedGroup;
 use Vusys\Exocomp\Query\Pattern;
 use Vusys\Exocomp\Query\Predicates;
 use Vusys\Exocomp\Symbol\Confidence;
@@ -52,6 +53,26 @@ abstract class IndexedCommand extends ExocompCommand
     protected function addTimeLimitOption(): void
     {
         $this->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Stop opening files after this many seconds and answer with what was found, saying how much was not searched; 0 removes the limit', (string) self::DEFAULT_TIME_LIMIT);
+    }
+
+    protected function addUnresolvedOption(): void
+    {
+        $this->addOption('all-unresolved', null, InputOption::VALUE_NONE, sprintf('List every unresolved hit, rather than a count per reason with %d examples each once there are more than %d', UnresolvedGroup::EXAMPLES, UnresolvedGroup::THRESHOLD));
+    }
+
+    /**
+     * The trailing block as rows, or summarised by reason when it would bury the answer.
+     *
+     * @param  list<Row>  $rows
+     * @return array{list<Row>, list<UnresolvedGroup>}
+     */
+    protected function unresolvedBlock(array $rows, InputInterface $input): array
+    {
+        if (count($rows) <= UnresolvedGroup::THRESHOLD || $this->boolOption($input, 'all-unresolved')) {
+            return [$rows, []];
+        }
+
+        return [[], UnresolvedGroup::summarise($rows)];
     }
 
     protected function searchDeadline(InputInterface $input): ?float

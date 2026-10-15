@@ -76,6 +76,14 @@ final class Magic
     }
 
     /**
+     * Whether anything in the corpus registers a macro under this name, on any class.
+     */
+    public function registersMacro(string $name): bool
+    {
+        return array_any($this->sources, static fn (MagicSource $source): bool => $source instanceof MacroRegistry && $source->registers($name));
+    }
+
+    /**
      * Every alternative spelling of a declared member's name, across all the rungs.
      *
      * @return list<string>

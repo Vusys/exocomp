@@ -12,6 +12,7 @@ use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
 use Vusys\Exocomp\Output\TextRenderer;
+use Vusys\Exocomp\Output\UnresolvedGroup;
 use Vusys\Exocomp\Symbol\Confidence;
 
 final class RenderersTest extends TestCase
@@ -41,6 +42,35 @@ final class RenderersTest extends TestCase
         ));
 
         $this->assertStringContainsString('… 47 more (use --limit)', $rendered);
+    }
+
+    public function test_a_large_unresolved_block_is_summarised_by_reason_with_the_names_taken_out(): void
+    {
+        $row = static fn (int $line, string $reason): Row => new Row('app/F.php', $line, 1, null, 'method call', 'app/F.php:'.$line.':1  call()', Confidence::Textual, $reason);
+        $rows = [
+            ...array_map(static fn (int $i): Row => $row($i, 'App\Models\M'.$i.' declares no factory(), and its ancestry leaves the indexed source at Illuminate\HasFactory'), range(1, 5)),
+            $row(9, 'receiver type unknown'),
+        ];
+
+        $groups = UnresolvedGroup::summarise($rows, examples: 2);
+        $rendered = (new TextRenderer)->render(new Result(header: 'h', unresolvedTitle: 'unresolved', unresolvedGroups: $groups));
+
+        $this->assertSame([
+            'h',
+            '',
+            '── 6 unresolved, by reason (3 shown of each; --all-unresolved lists every one) ──',
+            '5  <class> declares no <method>(), and its ancestry leaves the indexed source at <class>',
+            '   app/F.php:1:1  call()',
+            '   app/F.php:2:1  call()',
+            '   … 3 more',
+            '1  receiver type unknown',
+            '   app/F.php:9:1  call()',
+        ], explode("\n", $rendered));
+
+        // JSON carries the count with each group, so a consumer can tell a sample from the whole.
+        $json = (new JsonRenderer)->render(new Result(unresolvedGroups: $groups));
+        $this->assertStringContainsString('"unresolved_reason":"<class> declares no <method>()', $json);
+        $this->assertStringContainsString('"count":5,"examples":2', $json);
     }
 
     public function test_text_groups_what_it_will_not_answer_into_a_trailing_block_with_reasons(): void

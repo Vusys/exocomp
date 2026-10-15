@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Inference;
 
+use Closure;
 use PhpParser\Comment\Doc;
 use PhpParser\Node;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\Import;
+use Vusys\Exocomp\Analysis\LiteralValue;
+use Vusys\Exocomp\Framework\Laravel\Binding;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Symbol\Confidence;
@@ -34,7 +37,12 @@ final readonly class TypeResolver
 
     private Members $members;
 
-    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null)
+    /**
+     * @param  (Closure(string): ?Binding)|null  $boundTo  what the application's providers bind a
+     *                                                     class name to, asked only when a
+     *                                                     container lookup is actually met
+     */
+    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null, private ?Closure $boundTo = null)
     {
         $this->docblocks = new DocBlockTypes;
         $this->members = new Members($graph);
@@ -213,12 +221,17 @@ final readonly class TypeResolver
         }
 
         $owner = $this->typeOf($call->var, $scope, $imports);
+        $type = $owner->isKnown()
+            ? $this->returnTypeOf((string) $owner->fqn, $call->name->toString())
+            : ResolvedType::unknown($owner->reason);
 
-        if (! $owner->isKnown()) {
-            return ResolvedType::unknown($owner->reason);
+        // `app()->make(X::class)`, `$this->app->make(X::class)` and friends: the container's own
+        // signature says `mixed`, so this only steps in where nothing declared said otherwise.
+        if (! $type->isKnown() && in_array(strtolower($call->name->toString()), ['make', 'makewith'], true)) {
+            return $this->containerLookup($call, $scope) ?? $type;
         }
 
-        return $this->returnTypeOf((string) $owner->fqn, $call->name->toString());
+        return $type;
     }
 
     private function staticReturnType(Node\Expr\StaticCall $call, Scope $scope): ResolvedType
@@ -229,7 +242,43 @@ final readonly class TypeResolver
             return ResolvedType::unknown('static call on an unknown class');
         }
 
-        return $this->returnTypeOf($owner, $call->name->toString());
+        $type = $this->returnTypeOf($owner, $call->name->toString());
+
+        // `App::make(X::class)` — the facade, by its short name or its alias.
+        if (! $type->isKnown()
+            && in_array(strtolower($call->name->toString()), ['make', 'makewith'], true)
+            && ($owner === 'App' || str_ends_with($owner, '\\Facades\\App'))) {
+            return $this->containerLookup($call, $scope) ?? $type;
+        }
+
+        return $type;
+    }
+
+    /**
+     * A class pulled out of the container by name is an instance of that name, or of whatever
+     * the application's providers bind it to.
+     *
+     * This is the commonest way a Laravel application reaches a service, and the container's
+     * signature is `mixed` because it has to be — so without this, every one of those calls is
+     * unresolved for want of a fact written right there in the argument. It does not need the
+     * framework's source: the argument is the answer.
+     */
+    private function containerLookup(Node\Expr\FuncCall|Node\Expr\MethodCall|Node\Expr\NullsafeMethodCall|Node\Expr\StaticCall $call, Scope $scope): ?ResolvedType
+    {
+        $argument = $call->getArgs()[0]->value ?? null;
+        $class = $argument instanceof Node\Expr\ClassConstFetch ? LiteralValue::className($argument, $scope->classFqn) : null;
+
+        if ($class === null || in_array(strtolower($class), ['self', 'static', 'parent'], true)) {
+            return null;
+        }
+
+        $binding = $this->boundTo instanceof Closure ? ($this->boundTo)($class) : null;
+
+        if ($binding instanceof Binding && $binding->concrete !== null) {
+            return ResolvedType::of($binding->concrete, Confidence::weakest($binding->confidence, Confidence::Inferred), sprintf('resolved out of the container, where %s is bound to it', $class));
+        }
+
+        return ResolvedType::resolvedBy($class, 'resolved out of the container by class name');
     }
 
     private function returnTypeOf(string $ownerFqn, string $method): ResolvedType
@@ -259,6 +308,11 @@ final readonly class TypeResolver
     private function invocationReturnType(Node\Expr\FuncCall $call, Scope $scope, array $imports): ResolvedType
     {
         if ($call->name instanceof Node\Name) {
+            if ((Analyser::isGlobalFunction($call->name, 'app') || Analyser::isGlobalFunction($call->name, 'resolve'))
+                && ($found = $this->containerLookup($call, $scope)) instanceof ResolvedType) {
+                return $found;
+            }
+
             return $this->functionReturnType($call->name);
         }
 

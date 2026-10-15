@@ -992,6 +992,33 @@ the mutant is equivalent. Several arithmetic mutants on a recursion depth guard 
 the guard bounds a hierarchy no fixture is deep enough to reach — which is a fixture gap rather
 than a test gap, and a cheaper one to leave than to manufacture.
 
+## 0.4.0 — answers agents walked away from
+
+Taken from agent transcripts on a 7,000-file Laravel application, in the days after 0.3.0: 78 exocomp calls and 481 PHP greps across 37 sessions.
+
+**A common name.** `references-to` on a service's `create` took 36 seconds and printed `12358 references (1 resolved, 0 inferred, 12357 unresolved)`, then the 12,357 lines. Almost all were `Model::factory()->create()`. The agent read the header and went back to grep.
+
+| | before | after |
+| --- | ---: | ---: |
+| unresolved | 12,357 | 450 |
+| excluded, and counted in the header | — | 11,666 |
+| lines of output | 12,360 | 31 |
+
+The 450 that remain are summarised by reason: 224 Eloquent chains that pass through a method the application itself declares untyped (so they cannot be ruled out), 114 properties with no declared class type, 65 receivers of unknown type, and 43 framework facades. The resolved section holds only the declaration, which is the answer: nothing calls it.
+
+**Container lookups.** "The return type of app() was not read" was the commonest single reason a hit went unresolved. On one `createMany` search, 2 of the 10 unresolved callers were `app(X::class)->createMany()` on a different class. Typed, they drop out as unrelated, and 10 unresolved becomes 8.
+
+**The skill description.** The skill was loaded in 1 of about 68 sessions, so in practice the frontmatter `description` is all an agent sees. The old and new descriptions were each run on the same tasks with `claude -p`, with the user's global guidance in place:
+
+| | runs | used exocomp | exocomp first | exocomp ≥ grep | exocomp calls | grep calls | skill loaded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| direct questions, old | 12 | 12 | 12 | 10 | 38 | 13 | 0 |
+| direct questions, new | 12 | 12 | 12 | 12 | 34 | 7 | 0 |
+| incidental lookups, old | 8 | 8 | 5 | 5 | 33 | 29 | 0 |
+| incidental lookups, new | 8 | 8 | 6 | 4 | 34 | 32 | 0 |
+
+The direct questions sit at a ceiling: global guidance that names exocomp already gets it chosen first every time, and the new description only removed some follow-up greps. On longer tasks, where the lookup is incidental, there is no difference worth reporting at this sample size. The greps that survive in both are mostly topical discovery ("which files mention this integration and agents"), which grep should answer, and mid-task reads once a path is known: `sed -n X,Yp` a range, or `grep -n 'function a\|function b'` in one file. That second group is what the guidance should name next.
+
 ## Re-running this
 
 Point a checkout the corpus matches at the tool, then per command compare call count and output

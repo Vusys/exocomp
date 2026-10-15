@@ -53,6 +53,8 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
     private ?Members $members = null;
 
+    private int $excluded = 0;
+
     /**
      * @param  list<string>  $spellings  other names a call site may use for this member
      */
@@ -65,6 +67,7 @@ final class ReferenceScanner extends NodeVisitorAbstract
         private readonly array $spellings = [],
         private readonly bool $targetDeclared = true,
         private readonly string $undeclared = '',
+        private readonly ?EloquentChain $eloquent = null,
     ) {
         $this->scope = new Scope(null, null);
     }
@@ -116,6 +119,16 @@ final class ReferenceScanner extends NodeVisitorAbstract
     public function references(): array
     {
         return $this->references;
+    }
+
+    /**
+     * Calls with an unknown receiver that were proved not to be on the target, and so are
+     * neither listed nor unresolved. Counted, because a dropped hit nobody is told about is
+     * indistinguishable from one that was never there.
+     */
+    public function excluded(): int
+    {
+        return $this->excluded;
     }
 
     private function track(Node $node): void
@@ -216,6 +229,12 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
         if (! $type->isKnown()) {
             if ($spelled) {
+                return;
+            }
+
+            if ($this->eloquent?->excludes($receiver, $this->rootType(...)) === true) {
+                $this->excluded++;
+
                 return;
             }
 
@@ -327,6 +346,13 @@ final class ReferenceScanner extends NodeVisitorAbstract
         }
 
         return $this->targetKind;
+    }
+
+    private function rootType(Node $receiver): ResolvedType
+    {
+        return $receiver instanceof Node\Name
+            ? $this->staticReceiverType($receiver)
+            : $this->types->typeOf($receiver, $this->scope, $this->analysis->imports);
     }
 
     private function staticReceiverType(Node\Name $name): ResolvedType

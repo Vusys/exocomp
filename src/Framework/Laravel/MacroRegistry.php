@@ -82,6 +82,11 @@ final class MacroRegistry implements MagicSource
         return [];
     }
 
+    public function registers(string $name): bool
+    {
+        return isset($this->registry()[$name]);
+    }
+
     private function applies(string $ownerFqn, string $receiver): bool
     {
         return strcasecmp($ownerFqn, $receiver) === 0 || $this->source->descendsFrom($ownerFqn, $receiver);
