@@ -167,7 +167,12 @@ account of what is missing from it. Only `resolved` may ever be rewritten mechan
 Inference is deliberately narrow: declared parameter, property and return types, promoted
 properties, `$this`/`self`/`static`/`parent`, `new X`, assignment from an already-resolved call,
 enum cases, and docblocks — which are always `inferred`, never `resolved`, because an
-annotation is a claim about the code rather than a fact of it. Anything else is reported as
+annotation is a claim about the code rather than a fact of it. A method declared to return
+`static` or `self` returns the receiver's class or the declaring one. On a model, the chains
+Eloquent's API hands back are followed too: `Order::factory()->create()`,
+`Order::query()->where(...)->first()`, `foreach (Order::all() as $order)`. That's a closed list
+of builder, factory and collection methods, always `inferred`, because it is the framework's
+convention rather than a declaration that was read. Anything else is reported as
 unknown with a reason. That is not a gap to be closed later; it is what makes partial inference
 safe to ship.
 

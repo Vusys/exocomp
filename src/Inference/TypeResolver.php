@@ -37,6 +37,8 @@ final readonly class TypeResolver
 
     private Members $members;
 
+    private ?EloquentReturns $eloquent;
+
     /**
      * @param  (Closure(string): ?Binding)|null  $boundTo  what the application's providers bind a
      *                                                     class name to, asked only when a
@@ -46,6 +48,7 @@ final readonly class TypeResolver
     {
         $this->docblocks = new DocBlockTypes;
         $this->members = new Members($graph);
+        $this->eloquent = $magic instanceof Magic ? new EloquentReturns($graph, $this->members, $magic) : null;
     }
 
     /**
@@ -111,6 +114,27 @@ final readonly class TypeResolver
             $expression instanceof Node\Expr\Clone_ => $this->typeOf($expression->expr, $scope, $imports),
             default => ResolvedType::unknown('expression kind carries no declared type'),
         };
+    }
+
+    /**
+     * Records the type of a `foreach` value variable, where the iterable is something whose
+     * elements are known: a collection of a model, as Eloquent hands back.
+     *
+     * @param  list<Import>  $imports
+     */
+    public function observeForeach(Node\Stmt\Foreach_ $foreach, Scope $scope, array $imports): void
+    {
+        $name = $this->variableName($foreach->valueVar);
+
+        if ($name === null || ! $this->eloquent instanceof EloquentReturns) {
+            return;
+        }
+
+        $element = $this->eloquent->elementOf($this->typeOf($foreach->expr, $scope, $imports));
+
+        if ($element instanceof ResolvedType) {
+            $scope->set($name, $element);
+        }
     }
 
     /**
@@ -221,9 +245,22 @@ final readonly class TypeResolver
         }
 
         $owner = $this->typeOf($call->var, $scope, $imports);
+        $name = $call->name->toString();
+
+        // A builder, factory or collection of a model: a framework class the index does not
+        // hold, so the next link is read off Eloquent's API rather than looked up.
+        if ($owner->wrapper !== null) {
+            return $this->eloquent?->step($owner, $name, $call)
+                ?? ResolvedType::unknown(sprintf('%s() on %s is not a method this tool knows the result of', $name, $owner->wrapper));
+        }
+
         $type = $owner->isKnown()
-            ? $this->returnTypeOf((string) $owner->fqn, $call->name->toString())
+            ? $this->returnTypeOf((string) $owner->fqn, $name)
             : ResolvedType::unknown($owner->reason);
+
+        if (! $type->isKnown() && $owner->isKnown()) {
+            $type = $this->eloquent?->fromInstance((string) $owner->fqn, $name) ?? $type;
+        }
 
         // `app()->make(X::class)`, `$this->app->make(X::class)` and friends: the container's own
         // signature says `mixed`, so this only steps in where nothing declared said otherwise.
@@ -243,6 +280,10 @@ final readonly class TypeResolver
         }
 
         $type = $this->returnTypeOf($owner, $call->name->toString());
+
+        if (! $type->isKnown()) {
+            $type = $this->eloquent?->fromModel($owner, $call->name->toString(), $call) ?? $type;
+        }
 
         // `App::make(X::class)` — the facade, by its short name or its alias.
         if (! $type->isKnown()
@@ -290,9 +331,18 @@ final readonly class TypeResolver
                 ?? ResolvedType::unknown($this->whyNoMethod($ownerFqn, $method));
         }
 
-        return $member->typeFqn === null
-            ? ResolvedType::unknown('method declares no class-like return type')
-            : ResolvedType::declared($member->typeFqn);
+        if ($member->typeFqn === null) {
+            return ResolvedType::unknown('method declares no class-like return type');
+        }
+
+        // A fluent method declares `static` or `self`, which name a class only relative to the
+        // call: `static` is the receiver's class, `self` the class that declares the method.
+        // Taken literally, they named a class called "static" and every chain stopped there.
+        return match (strtolower($member->typeFqn)) {
+            'static' => ResolvedType::declared($ownerFqn),
+            'self' => ResolvedType::declared($member->owner ?? $ownerFqn),
+            default => ResolvedType::declared($member->typeFqn),
+        };
     }
 
     /**

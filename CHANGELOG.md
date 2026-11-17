@@ -6,8 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Eloquent chains are typed as the model they hand back.** `User::factory()->create()`, `User::find($id)`, `Order::query()->where(...)->latest()->first()`, `foreach (Order::all() as $order)` and `$orders->first()` now give their receiver the model, as `inferred`. Measured on a real application, these were 79% of the receivers `references-to` could not type. The model's own local scopes and its factory's `static` state methods are followed. Anything outside a closed list of builder, factory and collection methods (a macro, `when()`, a callback) still stays unknown (#11).
+
 ### Fixed
 
+- **A method declared to return `static` or `self` continues the chain.** The return type was taken literally, as a class called `static`, so every fluent chain through one stopped there. `static` is now the receiver's class and `self` the declaring class.
 - **`model` lists a model's attribute defaults.** `$attributes` was read but its facts went to a group the output never rendered, so every default was silently dropped. A literal `null` default was also reported as "the cast is computed". Defaults now have their own `attribute defaults` group (`--only attributes`), `null` is a value, and an expression the reader doesn't evaluate is declined as "the default is computed". Found on a real app's `User` model.
 - **`model`'s notes line up.** A fact with no value didn't pad its name, so its note started in a different column from the lines around it.
 - **`schema` counts the indexes written on a column.** A table whose indexes were all inline (`->unique()`, `id()`) reported "0 indexes" beside columns marked `unique`. Inline `unique`, `index`, `primary`, `fullText` and `spatialIndex`, and the primary key that `id()` and the `*increments` types carry, are now indexes of the table. A foreign key isn't, since it's a constraint that only some drivers index (#6).

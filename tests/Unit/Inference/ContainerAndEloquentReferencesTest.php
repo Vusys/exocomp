@@ -53,10 +53,14 @@ final class ContainerAndEloquentReferencesTest extends TestCase
         $this->assertNull($this->in('App\Services\EnrolmentCallers::unrelated'));
     }
 
-    public function test_eloquent_chains_on_a_model_are_excluded_and_counted(): void
+    public function test_eloquent_chains_on_a_model_are_not_references(): void
     {
         $this->assertNull($this->in('App\Services\EnrolmentCallers::eloquent'));
-        $this->assertSame(4, $this->finder->excluded());
+
+        // Four of the five chains are typed outright (as Order, or as the relation `lines()`
+        // declares), so they are calls on an unrelated class like any other. `toBase()` is a
+        // link the typing does not name, so that one is left to the exclusion proof, and counted.
+        $this->assertSame(1, $this->finder->excluded());
     }
 
     public function test_a_chain_with_a_way_out_stays_unresolved(): void
