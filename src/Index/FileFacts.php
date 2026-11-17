@@ -77,6 +77,7 @@ final readonly class FileFacts
             'type_fqn' => $declaration->typeFqn,
             'inferred_fqn' => $declaration->inferredFqn,
             'inferred_reason' => $declaration->inferredReason,
+            'inferred_elements' => $declaration->inferredElements === [] ? null : json_encode($declaration->inferredElements, JSON_THROW_ON_ERROR),
         ];
     }
 

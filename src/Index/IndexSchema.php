@@ -18,7 +18,7 @@ use PDO;
  */
 final class IndexSchema
 {
-    public const int VERSION = 6;
+    public const int VERSION = 7;
 
     public static function apply(PDO $connection): void
     {
@@ -81,7 +81,8 @@ final class IndexSchema
                 has_body INTEGER NOT NULL,
                 type_fqn TEXT,
                 inferred_fqn TEXT,
-                inferred_reason TEXT
+                inferred_reason TEXT,
+                inferred_elements TEXT
             );
 
             CREATE INDEX IF NOT EXISTS symbols_hash ON symbols (hash);

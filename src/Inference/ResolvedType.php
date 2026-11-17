@@ -20,6 +20,8 @@ final readonly class ResolvedType
      * @param  ?string  $wrapper  for a framework object that stands for models — a query builder,
      *                            a factory, a collection — which of those it is
      *                            ({@see EloquentReturns}); the model it stands for is `$model`
+     * @param  array<string, string>  $elements  for an array, the class a docblock gives its
+     *                                           element at each key, `*` for any key
      */
     private function __construct(
         public ?string $fqn,
@@ -27,7 +29,34 @@ final readonly class ResolvedType
         public string $reason,
         public ?string $wrapper = null,
         public ?string $model = null,
+        public array $elements = [],
     ) {}
+
+    /**
+     * An array whose elements a docblock names. The array itself is no class, so this is not a
+     * known type: only what is read out of it is.
+     *
+     * @param  array<string, string>  $elements
+     */
+    public static function arrayOf(array $elements, string $tag): self
+    {
+        return new self(null, Confidence::Textual, sprintf('an array documented by %s', $tag), elements: $elements);
+    }
+
+    /**
+     * The element at $key, or with no key (a `foreach`, a computed index) the one class every
+     * element is documented as.
+     */
+    public function element(?string $key): ?self
+    {
+        $fqn = ($key === null ? null : $this->elements[$key] ?? null) ?? $this->elements['*'] ?? null;
+
+        if ($fqn === null && $key === null && count(array_unique(array_map(strtolower(...), $this->elements))) === 1) {
+            $fqn = array_values($this->elements)[0] ?? null;
+        }
+
+        return $fqn === null ? null : self::inferred($fqn, 'an element of '.$this->reason);
+    }
 
     /**
      * A builder, factory or collection of a known model, which Eloquent's API turns back into

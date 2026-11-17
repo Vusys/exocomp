@@ -88,6 +88,41 @@ final readonly class BodyTypes
     }
 
     /**
+     * What the docblock of an array property or method says its elements are: `@var Page[]`,
+     * `@return array{book: Book, page: Page}`. Only where nothing native names a class, and only
+     * from the docblock, because the code building an array rarely says what goes in it.
+     *
+     * @param  list<Import>  $imports
+     * @return array<string, array<string, string>> member name (`$prop` or `method`) to elements
+     */
+    public function elementsOf(Stmt\ClassLike $class, string $classFqn, array $imports): array
+    {
+        $found = [];
+
+        foreach ($class->stmts as $statement) {
+            if ($statement instanceof Stmt\Property) {
+                [$key, $type, $tag] = ['$'.$statement->props[0]->name->toString(), $statement->type, 'var'];
+            } elseif ($statement instanceof ClassMethod) {
+                [$key, $type, $tag] = [$statement->name->toString(), $statement->returnType, 'return'];
+            } else {
+                continue;
+            }
+
+            if ($type instanceof Node && (! $type instanceof Node\Identifier || ! in_array($type->toLowerString(), ['array', 'iterable'], true))) {
+                continue;
+            }
+
+            $elements = $this->docblocks->elements($statement->getDocComment()?->getText() ?? '')[$tag];
+
+            if ($elements !== []) {
+                $found[$key] = array_map(static fn (string $name): string => Analyser::qualify($name, $classFqn, $imports), $elements);
+            }
+        }
+
+        return $found;
+    }
+
+    /**
      * @param  array<string, ClassMethod>  $methods
      * @return ?array{string, string}
      */

@@ -97,6 +97,7 @@ final readonly class TypeResolver
         }
 
         $documented = $this->documented($function);
+        $elementsDocumented = null;
 
         foreach ($function->getParams() as $param) {
             $name = $this->variableName($param->var);
@@ -117,6 +118,14 @@ final readonly class TypeResolver
 
             if ($fromDoc !== null) {
                 $scope->set($name, ResolvedType::inferred($this->qualify($fromDoc, $classFqn, $imports), '@param'));
+
+                continue;
+            }
+
+            $elements = ($elementsDocumented ??= $this->docblocks->elements($function->getDocComment()?->getText() ?? ''))['params'][$name] ?? [];
+
+            if ($elements !== []) {
+                $scope->set($name, ResolvedType::arrayOf($this->qualifyAll($elements, $classFqn, $imports), '@param'));
             }
         }
 
@@ -151,15 +160,21 @@ final readonly class TypeResolver
     }
 
     /**
-     * `$orders[0]`, on a collection of a known model, is one of its models.
+     * `$orders[0]`, on a collection of a known model, is one of its models; `$chain['book']`, on
+     * an array documented as `array{book: Book}`, is a Book.
      *
      * @param  list<Import>  $imports
      */
     private function elementType(Node\Expr\ArrayDimFetch $fetch, Scope $scope, array $imports): ResolvedType
     {
-        $element = $this->eloquent?->elementOf($this->typeOf($fetch->var, $scope, $imports));
+        $array = $this->typeOf($fetch->var, $scope, $imports);
+        $key = match (true) {
+            $fetch->dim instanceof Node\Scalar\String_, $fetch->dim instanceof Node\Scalar\Int_ => (string) $fetch->dim->value,
+            default => null,
+        };
 
-        return $element ?? ResolvedType::unknown('an element of something whose elements are not known');
+        return $this->eloquent?->elementOf($array) ?? $array->element($key)
+            ?? ResolvedType::unknown('an element of something whose elements are not known');
     }
 
     /**
@@ -213,7 +228,8 @@ final readonly class TypeResolver
 
     /**
      * Records the type of a `foreach` value variable, where the iterable is something whose
-     * elements are known: a collection of a model, as Eloquent hands back.
+     * elements are known: a collection of a model, as Eloquent hands back, or an array a
+     * docblock documents.
      *
      * @param  list<Import>  $imports
      */
@@ -221,14 +237,17 @@ final readonly class TypeResolver
     {
         $name = $this->variableName($foreach->valueVar);
 
-        if ($name === null || ! $this->eloquent instanceof EloquentReturns) {
+        if ($name === null) {
             return;
         }
 
         $snapshot = clone $scope;
-        $eloquent = $this->eloquent;
 
-        $scope->setLazy($name, fn (): ?ResolvedType => $eloquent->elementOf($this->typeOf($foreach->expr, $snapshot, $imports)) ?? $snapshot->get($name));
+        $scope->setLazy($name, function () use ($foreach, $snapshot, $imports, $name): ?ResolvedType {
+            $iterable = $this->typeOf($foreach->expr, $snapshot, $imports);
+
+            return $this->eloquent?->elementOf($iterable) ?? $iterable->element(null) ?? $snapshot->get($name);
+        });
     }
 
     /**
@@ -253,14 +272,20 @@ final readonly class TypeResolver
         $scope->setLazy($name, function () use ($assign, $snapshot, $imports, $documented, $name): ?ResolvedType {
             $type = $this->typeOf($assign->expr, $snapshot, $imports);
 
-            if ($type->isKnown()) {
+            if ($type->isKnown() || $type->elements !== []) {
                 return $type;
             }
 
             $fromDoc = $documented === null ? null : ($this->docblocks->read($documented)['var'] ?? null);
 
-            return $fromDoc !== null
-                ? ResolvedType::inferred($this->qualify($fromDoc, $snapshot->classFqn, $imports), '@var')
+            if ($fromDoc !== null) {
+                return ResolvedType::inferred($this->qualify($fromDoc, $snapshot->classFqn, $imports), '@var');
+            }
+
+            $elements = $documented === null ? [] : $this->docblocks->elements($documented)['var'];
+
+            return $elements !== []
+                ? ResolvedType::arrayOf($this->qualifyAll($elements, $snapshot->classFqn, $imports), '@var')
                 : $snapshot->get($name);
         });
     }
@@ -455,9 +480,13 @@ final readonly class TypeResolver
             return ResolvedType::declared($this->relativeTo($member->typeFqn, $member, $ownerFqn));
         }
 
-        return $member->inferredFqn === null
+        if ($member->inferredFqn !== null) {
+            return ResolvedType::inferred($this->relativeTo($member->inferredFqn, $member, $ownerFqn), (string) $member->inferredReason);
+        }
+
+        return $member->inferredElements === []
             ? null
-            : ResolvedType::inferred($this->relativeTo($member->inferredFqn, $member, $ownerFqn), (string) $member->inferredReason);
+            : ResolvedType::arrayOf($member->inferredElements, $member->kind === SymbolKind::Method ? '@return' : '@var');
     }
 
     private function relativeTo(string $type, SymbolRecord $member, string $ownerFqn): string
@@ -761,6 +790,10 @@ final readonly class TypeResolver
         foreach ($this->docblocks->read($comment->getText())['vars'] as $variable => $type) {
             $scope->set($variable, ResolvedType::inferred($this->qualify($type, $scope->classFqn, $imports), '@var'));
         }
+
+        foreach ($this->docblocks->elements($comment->getText())['vars'] as $variable => $elements) {
+            $scope->set($variable, ResolvedType::arrayOf($this->qualifyAll($elements, $scope->classFqn, $imports), '@var'));
+        }
     }
 
     /**
@@ -780,6 +813,16 @@ final readonly class TypeResolver
     private function qualify(string $name, ?string $classFqn, array $imports): string
     {
         return Analyser::qualify($name, $classFqn, $imports);
+    }
+
+    /**
+     * @param  array<string, string>  $names
+     * @param  list<Import>  $imports
+     * @return array<string, string>
+     */
+    private function qualifyAll(array $names, ?string $classFqn, array $imports): array
+    {
+        return array_map(fn (string $name): string => $this->qualify($name, $classFqn, $imports), $names);
     }
 
     private function variableName(Node $node): ?string

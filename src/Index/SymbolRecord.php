@@ -17,6 +17,9 @@ use Vusys\Exocomp\Symbol\SymbolKind;
  */
 final readonly class SymbolRecord
 {
+    /**
+     * @param  array<string, string>  $inferredElements  see {@see Declaration}
+     */
     public function __construct(
         public string $path,
         public string $fqn,
@@ -34,6 +37,7 @@ final readonly class SymbolRecord
         public ?string $typeFqn = null,
         public ?string $inferredFqn = null,
         public ?string $inferredReason = null,
+        public array $inferredElements = [],
     ) {}
 
     public function isClassLike(): bool
