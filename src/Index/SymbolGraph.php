@@ -295,18 +295,20 @@ final class SymbolGraph
             }
 
             foreach ($this->store->edgesFrom($this->root, $current) as $edge) {
-                $key = Identifier::fold($edge['to']);
+                $next = Identifier::fold($edge['to']);
 
-                if (isset($seen[$key])) {
+                if (isset($seen[$next])) {
                     continue;
                 }
 
-                $seen[$key] = true;
+                $seen[$next] = true;
                 $queue[] = [$edge['to'], $this->originFor($edge['kind'], $via)];
             }
         }
 
-        return $found;
+        // Memoised: the walk is a query per step, and a reference search asks it of the same
+        // receiver classes thousands of times.
+        return $this->memoisedAncestors[$key] = $found;
     }
 
     /**

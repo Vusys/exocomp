@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **`SymbolGraph::ancestorsOf()` is memoised as intended.** The memo was read but never written, and a loop variable shadowed its key, so each call re-walked the hierarchy with an index query per step. That was about 16,000 queries in one reference search on a 1,600-file app.
 - **A relation built into a variable and returned through a helper is followed.** `$relation = $this->hasMany(Page::class)->orderBy(…); return $this->ordered($relation);`, as BookStack writes its relations, named no target in what it returned. Where the method declares a relation return type and every relation factory call in its body names one class, that class is the target.
 
 ## [0.5.0] - 2026-11-17

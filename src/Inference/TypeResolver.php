@@ -16,6 +16,7 @@ use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\InstalledFunctions;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
@@ -41,6 +42,9 @@ final readonly class TypeResolver
 
     private ?EloquentReturns $eloquent;
 
+    /** @var \ArrayObject<string, ResolvedType|null> what {@see beyondTheIndex()} found, per class and method */
+    private \ArrayObject $beyond;
+
     /**
      * @param  (Closure(string): ?Binding)|null  $boundTo  what the application's providers bind a
      *                                                     class name to, asked only when a
@@ -55,6 +59,7 @@ final readonly class TypeResolver
         $this->docblocks = new DocBlockTypes;
         $this->members = new Members($graph);
         $this->eloquent = $magic instanceof Magic ? new EloquentReturns($graph, $this->members, $magic) : null;
+        $this->beyond = new \ArrayObject;
     }
 
     /**
@@ -534,10 +539,27 @@ final readonly class TypeResolver
      */
     private function beyondTheIndex(string $ownerFqn, string $method): ?ResolvedType
     {
-        if (! $this->source instanceof ClassSource || $this->graph->members($ownerFqn)['unreachable'] === []) {
+        if (! $this->source instanceof ClassSource) {
             return null;
         }
 
+        $key = Identifier::fold($ownerFqn.'::'.$method);
+
+        if ($this->beyond->offsetExists($key)) {
+            return $this->beyond[$key];
+        }
+
+        // A model's framework methods are Eloquent's, which {@see EloquentReturns} answers by
+        // convention; walking `Model` and its traits for each one cost more than it found.
+        if ($this->magic?->isModel($ownerFqn) === true || $this->graph->members($ownerFqn)['unreachable'] === []) {
+            return $this->beyond[$key] = null;
+        }
+
+        return $this->beyond[$key] = $this->declaredBeyondTheIndex($ownerFqn, $method);
+    }
+
+    private function declaredBeyondTheIndex(string $ownerFqn, string $method): ?ResolvedType
+    {
         foreach ($this->source->withAncestors($ownerFqn) as $class) {
             $node = $class->node->getMethod($method);
 
