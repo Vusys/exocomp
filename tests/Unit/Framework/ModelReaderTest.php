@@ -111,6 +111,24 @@ final class ModelReaderTest extends TestCase
         $this->assertNotContains('newHasMany', $names);
     }
 
+    public function test_attribute_defaults_are_read_including_a_literal_null(): void
+    {
+        $this->assertSame('open', $this->fact('Ledger', 'attributes', 'status')->value);
+        $this->assertSame('null', $this->fact('Ledger', 'attributes', 'closed_at')->value);
+    }
+
+    public function test_a_computed_attribute_default_is_declined_as_a_default(): void
+    {
+        $declined = array_values(array_filter(
+            $this->read('Ledger')->declined,
+            static fn (ModelFact $fact): bool => $fact->group === 'attributes',
+        ));
+
+        $this->assertCount(1, $declined);
+        $this->assertSame('grace_seconds', $declined[0]->name);
+        $this->assertSame('the default is computed', $declined[0]->note);
+    }
+
     public function test_an_annotation_says_what_backs_it(): void
     {
         $this->assertStringEndsWith('— backed by an accessor', (string) $this->fact('Order', 'annotated', 'display_name')->note);

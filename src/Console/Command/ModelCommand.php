@@ -48,6 +48,7 @@ final class ModelCommand extends IndexedFrameworkCommand
         ['relation', 'relations'],
         ['accessor', 'accessors'],
         ['casts', 'casts'],
+        ['attributes', 'attribute defaults'],
         ['fillable', 'fillable'],
         ['guarded', 'guarded'],
         ['hidden', 'hidden'],
@@ -173,7 +174,8 @@ final class ModelCommand extends IndexedFrameworkCommand
      */
     private function row(ModelFact $fact, int $width, bool $withNote = true): Row
     {
-        $label = $fact->value === null ? $fact->name : sprintf('%-22s %s', $fact->name, $fact->value);
+        // Padded even with no value, so a note lines up with the values above and below it.
+        $label = sprintf('%-22s %s', $fact->name, $fact->value ?? '');
         $text = rtrim(str_pad(Address::of($fact->path, $fact->line), $width).'  '.$label.($withNote && $fact->note !== null ? '   '.$fact->note : ''));
 
         return new Row(
