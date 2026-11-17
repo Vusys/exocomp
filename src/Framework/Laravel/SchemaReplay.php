@@ -574,7 +574,9 @@ final class SchemaReplay
         }
 
         if ($method === 'id') {
-            $table->add(new Column($this->firstName($arguments) ?? 'id', 'id', [], $modifiers, $path, $line));
+            $name = $this->firstName($arguments) ?? 'id';
+            $table->add(new Column($name, 'id', [], $modifiers, $path, $line));
+            $this->addInlineIndexes($table, $name, 'id', $modifiers, $path, $line);
 
             return;
         }
@@ -587,6 +589,32 @@ final class SchemaReplay
 
         if ($name !== null) {
             $table->add(new Column($name, $spelling, $this->extraArguments($arguments), $modifiers, $path, $line));
+            $this->addInlineIndexes($table, $name, $method, $modifiers, $path, $line);
+        }
+    }
+
+    /**
+     * The indexes a column definition creates on its own: `->unique()` and its siblings, and the
+     * primary key that `id()` and the `*increments` types carry. Left out, a table whose only
+     * indexes were written inline reported none, beside columns marked `unique`.
+     *
+     * A foreign key is not counted: it is a constraint, and only some drivers index it.
+     *
+     * @param  list<string>  $modifiers
+     */
+    private function addInlineIndexes(Table $table, string $column, string $method, array $modifiers, string $path, int $line): void
+    {
+        if ($method === 'id' || str_ends_with($method, 'increments')) {
+            $table->indexes[] = ['kind' => 'primary', 'columns' => [$column], 'path' => $path, 'line' => $line];
+        }
+
+        foreach ($modifiers as $modifier) {
+            $kind = strtolower(explode('(', $modifier, 2)[0]);
+
+            if (in_array($kind, ['unique', 'index', 'primary', 'fulltext', 'spatialindex'], true)
+                && ($kind !== 'primary' || ! str_ends_with($method, 'increments'))) {
+                $table->indexes[] = ['kind' => $kind, 'columns' => [$column], 'path' => $path, 'line' => $line];
+            }
         }
     }
 
