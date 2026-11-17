@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-17
+
+Code written before native types is followed. An untyped property or method takes its class from what the class's own code assigns or returns, and from its docblock only where the code doesn't settle it. On Matomo, unresolved receivers in the dogfood run went from 547 to 331.
+
+Bumping the version and the index schema changes the symbol cache's identity, so every project re-indexes once.
+
 ### Added
 
 - **A property or method with no native class type is typed from its class's code, then from its docblock.** Code written before native types stopped at "property has no declared class type" or "method declares no class-like return type" on every chain through it. Where every assignment to `$this->prop` in the class names one class (`new`, a typed parameter, `$this`), that class is the property's type. Where every `return` names one class (those, plus a typed property or a same-class method's declared type), it is the method's. Only where the code doesn't settle it are `@var` and `@return` read. Both answers are `inferred`, never `resolved`, with the evidence as the reason. The index schema moves to v6, so every project re-indexes once.
