@@ -84,6 +84,10 @@ final class ReferenceScanner extends NodeVisitorAbstract
             $this->types->observeAssignment($node, $this->scope, $this->analysis->imports);
         }
 
+        if ($node instanceof Node\Stmt\Foreach_) {
+            $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
+        }
+
         if ($this->target->hasMember()) {
             $this->memberReference($node);
 

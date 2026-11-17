@@ -16,11 +16,28 @@ use Vusys\Exocomp\Symbol\Confidence;
  */
 final readonly class ResolvedType
 {
+    /**
+     * @param  ?string  $wrapper  for a framework object that stands for models — a query builder,
+     *                            a factory, a collection — which of those it is
+     *                            ({@see EloquentReturns}); the model it stands for is `$model`
+     */
     private function __construct(
         public ?string $fqn,
         public Confidence $confidence,
         public string $reason,
+        public ?string $wrapper = null,
+        public ?string $model = null,
     ) {}
+
+    /**
+     * A builder, factory or collection of a known model, which Eloquent's API turns back into
+     * that model. The object itself is a framework class the index does not hold, so this is
+     * what lets a chain like `Order::query()->where(...)->first()` end at `Order`.
+     */
+    public static function wrapping(string $fqn, string $wrapper, string $model, string $reason): self
+    {
+        return new self($fqn, Confidence::Inferred, $reason, $wrapper, $model);
+    }
 
     /**
      * Established from a declaration: a parameter type, a property type, a return type, `$this`.

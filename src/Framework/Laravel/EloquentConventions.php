@@ -170,7 +170,7 @@ final class EloquentConventions implements MagicSource
             : [Confidence::Inferred, $reason.', by convention — the installed framework could not be read to confirm it'];
     }
 
-    private function isModel(string $fqn): bool
+    public function isModel(string $fqn): bool
     {
         // Detected from the hierarchy rather than from framework detection: a class descending
         // from the model base class is one whether or not the checkout looks like an application.

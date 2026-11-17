@@ -65,6 +65,21 @@ final class Magic
         return new self($sources);
     }
 
+    /**
+     * Whether a class is an Eloquent model, as far as the Laravel rung can tell. False with no
+     * Laravel rung installed, so nothing framework-specific is assumed of a plain library.
+     */
+    public function isModel(string $fqn): bool
+    {
+        foreach ($this->sources as $source) {
+            if ($source instanceof EloquentConventions) {
+                return $source->isModel($fqn);
+            }
+        }
+
+        return false;
+    }
+
     public function method(string $ownerFqn, string $name): ?MagicMember
     {
         return $this->resolve($ownerFqn, $name, SymbolKind::Method);

@@ -54,6 +54,10 @@ final class CallScanner extends NodeVisitorAbstract
             $this->types->observeAssignment($node, $this->scope, $this->analysis->imports);
         }
 
+        if ($node instanceof Node\Stmt\Foreach_) {
+            $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
+        }
+
         match (true) {
             $node instanceof Node\Expr\MethodCall,
             $node instanceof Node\Expr\NullsafeMethodCall => $this->methodCall($node),

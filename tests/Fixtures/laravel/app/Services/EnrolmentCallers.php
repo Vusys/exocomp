@@ -58,6 +58,10 @@ final class EnrolmentCallers
 
         // Declared by the application, on the model — but declared to return a relation.
         Order::query()->first()->lines()->create([]);
+
+        // A builder method the chain typing does not name, so the receiver stays untyped and
+        // only the exclusion proof can settle it.
+        Order::query()->toBase()->create([]);
     }
 
     /**

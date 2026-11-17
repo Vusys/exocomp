@@ -68,6 +68,10 @@ final class MatchCollector extends NodeVisitorAbstract
             $this->types->observeAssignment($node, $this->scope, $this->analysis->imports);
         }
 
+        if ($node instanceof Node\Stmt\Foreach_ && $this->types instanceof TypeResolver && $this->analysis instanceof FileAnalysis) {
+            $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
+        }
+
         $captures = new Captures;
 
         if ($this->matcher->matches($this->pattern->root, $node, $captures)) {
