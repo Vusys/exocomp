@@ -76,6 +76,35 @@ final class InvoiceChains
         (new ReportQuery)->since('2026-01-01')->latest()->invoice()->send();
     }
 
+    /** The method's own parameter, used after a closure has come and gone. */
+    public function afterClosure(Invoice $invoice): void
+    {
+        array_map(static fn (int $id): int => $id, [1]);
+        $invoice->send();
+    }
+
+    /** An arrow function sees the scope it is written in. */
+    public function insideArrow(Invoice $invoice): void
+    {
+        array_map(fn (): mixed => $invoice->send(), [1]);
+    }
+
+    /** A closure sees what it `use`s. */
+    public function insideClosureUse(Invoice $invoice): void
+    {
+        array_map(function () use ($invoice): void {
+            $invoice->send();
+        }, [1]);
+    }
+
+    /** And nothing it does not: without `use`, this `$invoice` is a different, undefined variable. */
+    public function insideClosureWithoutUse(Invoice $invoice): void
+    {
+        array_map(function (): void {
+            $invoice->send();
+        }, [1]);
+    }
+
     /** A callback's result can be anything at all. */
     public function escapes(): void
     {

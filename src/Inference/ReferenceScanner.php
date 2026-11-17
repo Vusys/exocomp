@@ -43,6 +43,9 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
     private Scope $scope;
 
+    /** @var list<Scope> the scopes a closure or nested function was entered from */
+    private array $enclosing = [];
+
     /** @var array<string, bool> */
     private array $relatedness = [];
 
@@ -111,7 +114,7 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
         if ($node instanceof Node\FunctionLike) {
             array_pop($this->functions);
-            $this->scope = $this->scopeFor(null);
+            $this->scope = array_pop($this->enclosing) ?? $this->scopeFor(null);
         }
 
         return null;
@@ -147,16 +150,17 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
         if ($node instanceof Node\FunctionLike) {
             $this->functions[] = $this->functionName($node);
-            $this->scope = $this->scopeFor($node);
+            $this->enclosing[] = $this->scope;
+            $this->scope = $this->scopeFor($node, $this->scope);
         }
     }
 
-    private function scopeFor(?Node\FunctionLike $function): Scope
+    private function scopeFor(?Node\FunctionLike $function, ?Scope $enclosing = null): Scope
     {
         $class = $this->classes === [] ? null : $this->classes[count($this->classes) - 1];
         $parent = $class === null ? null : $this->parentOf($class);
 
-        return $this->types->scopeFor($class, $parent, $function, $this->analysis->imports);
+        return $this->types->scopeFor($class, $parent, $function, $this->analysis->imports, $enclosing);
     }
 
     private function parentOf(string $classFqn): ?string
