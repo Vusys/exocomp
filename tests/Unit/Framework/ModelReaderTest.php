@@ -87,6 +87,30 @@ final class ModelReaderTest extends TestCase
         $this->assertSame('belongsTo  App\Models\Node', $this->fact('Category', 'relation', 'template')->value);
     }
 
+    public function test_a_relation_of_a_custom_class_is_declined_with_what_it_extends(): void
+    {
+        $declined = $this->declinedRelation('Ledger', 'entries');
+
+        $this->assertSame('hasMany', $declined->value);
+        $this->assertSame(Confidence::Inferred, $declined->confidence);
+        $this->assertStringContainsString('HistoryMany extends Illuminate\Database\Eloquent\Relations\HasMany', (string) $declined->note);
+        $this->assertStringContainsString('built by historyMany(), which is given App\Models\Order', (string) $declined->note);
+    }
+
+    public function test_a_method_returning_a_class_that_is_not_a_relation_is_left_alone(): void
+    {
+        $names = array_map(static fn (ModelFact $fact): string => $fact->name, [...$this->read('Ledger')->group('relation'), ...$this->read('Ledger')->declined]);
+
+        $this->assertNotContains('owner', $names);
+    }
+
+    public function test_an_override_of_an_eloquent_relation_factory_is_not_a_relation(): void
+    {
+        $names = array_map(static fn (ModelFact $fact): string => $fact->name, [...$this->read('Ledger')->group('relation'), ...$this->read('Ledger')->declined]);
+
+        $this->assertNotContains('newHasMany', $names);
+    }
+
     public function test_a_relation_is_found_through_a_chained_call(): void
     {
         $this->assertSame('hasMany  App\Models\OrderLine', $this->fact('Order', 'relation', 'lines')->value);
@@ -187,6 +211,17 @@ final class ModelReaderTest extends TestCase
     private function fact(string $short, string $group, string $name): ModelFact
     {
         return $this->pick($this->read($short), $group, $name);
+    }
+
+    private function declinedRelation(string $short, string $name): ModelFact
+    {
+        foreach ($this->read($short)->declined as $fact) {
+            if ($fact->group === 'relation' && $fact->name === $name) {
+                return $fact;
+            }
+        }
+
+        $this->fail("no declined relation named {$name} on {$short}");
     }
 
     private function pick(EloquentModel $model, string $group, string $name): ModelFact

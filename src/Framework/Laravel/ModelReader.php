@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Framework\Laravel;
 
 use PhpParser\Node;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Param;
 use PhpParser\NodeFinder;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\LiteralValue;
@@ -225,7 +227,7 @@ final class ModelReader
         }
     }
 
-    private function scalarProperty(LoadedClass $class, string $name, Node\Expr $default, int $line, bool $isOwn): void
+    private function scalarProperty(LoadedClass $class, string $name, Expr $default, int $line, bool $isOwn): void
     {
         // Nearest declaration wins, exactly as PHP resolves it — a parent's `$connection` is
         // only the answer when the model itself does not set one.
@@ -236,7 +238,7 @@ final class ModelReader
         $value = LiteralValue::scalar($default);
         $this->claimed[$name] = true;
 
-        if ($value === null && ! $default instanceof Node\Expr\ConstFetch) {
+        if ($value === null && ! $default instanceof Expr\ConstFetch) {
             $this->declined[] = new ModelFact('attribute', $name, null, Confidence::Textual, $class->path, $line, 'declared here, but its value is computed', $class->fqn);
 
             return;
@@ -254,7 +256,7 @@ final class ModelReader
         );
     }
 
-    private function listProperty(LoadedClass $class, string $name, Node\Expr $default, int $line): void
+    private function listProperty(LoadedClass $class, string $name, Expr $default, int $line): void
     {
         if (isset($this->claimed[$name])) {
             return;
@@ -262,7 +264,7 @@ final class ModelReader
 
         $this->claimed[$name] = true;
 
-        if (! $default instanceof Node\Expr\Array_) {
+        if (! $default instanceof Expr\Array_) {
             $this->declined[] = new ModelFact($name, $name, null, Confidence::Textual, $class->path, $line, 'declared here, but not as a literal array', $class->fqn);
 
             return;
@@ -285,7 +287,7 @@ final class ModelReader
         }
     }
 
-    private function mapProperty(LoadedClass $class, string $name, Node\Expr $default): void
+    private function mapProperty(LoadedClass $class, string $name, Expr $default): void
     {
         if (isset($this->claimed[$name])) {
             return;
@@ -295,7 +297,7 @@ final class ModelReader
         $this->recordPairs($class, $name, $default);
     }
 
-    private function recordPairs(LoadedClass $class, string $name, Node\Expr $expression): void
+    private function recordPairs(LoadedClass $class, string $name, Expr $expression): void
     {
         foreach (LiteralValue::pairs($expression) as $pair) {
             if ($pair['value'] === null) {
@@ -322,7 +324,7 @@ final class ModelReader
         }
 
         foreach (new NodeFinder()->findInstanceOf([$method], Node\Stmt\Return_::class) as $return) {
-            if ($return->expr instanceof Node\Expr\Array_) {
+            if ($return->expr instanceof Expr\Array_) {
                 $this->claimed['casts()'] = true;
                 $this->recordPairs($class, 'casts', $return->expr);
             }
@@ -335,6 +337,14 @@ final class ModelReader
             $name = $method->name->toString();
 
             if (isset($this->claimed['relation:'.strtolower($name)])) {
+                continue;
+            }
+
+            // Eloquent reaches a relation as `$model->name` or `$model->name()`, so only a
+            // public method that needs no arguments can be one. The framework's own relation
+            // factories (`newBelongsTo()`, `newHasMany()`, …) return relation types too, and
+            // a trait that overrides them has declared no relations at all.
+            if (! $method->isPublic() || $this->hasRequiredParameter($method)) {
                 continue;
             }
 
@@ -357,7 +367,7 @@ final class ModelReader
     private function returnedRelation(Node\Stmt\ClassMethod $method): ?MethodCall
     {
         foreach (new NodeFinder()->findInstanceOf([$method], Node\Stmt\Return_::class) as $return) {
-            $call = $return->expr instanceof Node\Expr ? $this->relationCall($return->expr) : null;
+            $call = $return->expr instanceof Expr ? $this->relationCall($return->expr) : null;
 
             if ($call instanceof MethodCall) {
                 return $call;
@@ -400,10 +410,10 @@ final class ModelReader
      * made it a relation. Reading only the outermost call would see `orderBy` and conclude the
      * method was not a relation at all.
      */
-    private function relationCall(Node\Expr $expression): ?MethodCall
+    private function relationCall(Expr $expression): ?MethodCall
     {
         while ($expression instanceof MethodCall) {
-            if ($expression->var instanceof Node\Expr\Variable
+            if ($expression->var instanceof Expr\Variable
                 && $expression->var->name === 'this'
                 && $expression->name instanceof Node\Identifier
                 && in_array(strtolower($expression->name->toString()), self::RELATIONS, true)) {
@@ -438,6 +448,8 @@ final class ModelReader
         $kind = Analyser::resolvedName($returns);
 
         if (! str_starts_with($kind, self::RELATION_NAMESPACE)) {
+            $this->recordCustomRelation($class, $method, $name, $kind);
+
             return;
         }
 
@@ -453,6 +465,77 @@ final class ModelReader
             'derived from another relation, so the related class is not named in this method',
             $class->fqn,
         );
+    }
+
+    /**
+     * A relation of a class the framework does not ship: a package's `BitemporalMany extends
+     * HasMany`, built by a factory of its own. What makes it a relation is its ancestry, so that
+     * is checked rather than assumed from the name. Its target is passed to a factory this
+     * reader does not model, so it is declined, with the core relation it extends and the class
+     * it is handed, rather than left out. Left out, a model's most important relations vanish
+     * without a word.
+     */
+    private function recordCustomRelation(LoadedClass $class, Node\Stmt\ClassMethod $method, string $name, string $returnFqn): void
+    {
+        $core = null;
+
+        foreach ($this->source->withAncestors($returnFqn) as $ancestor) {
+            if (str_starts_with($ancestor->fqn, self::RELATION_NAMESPACE)) {
+                $core = $ancestor->fqn;
+
+                break;
+            }
+        }
+
+        if ($core === null) {
+            return;
+        }
+
+        $this->claimed['relation:'.strtolower($name)] = true;
+        $note = 'a custom relation ('.Dispatched::shortName($returnFqn).' extends '.$core.')';
+
+        $factory = $this->returnedThisCall($method);
+
+        if ($factory instanceof MethodCall && $factory->name instanceof Node\Identifier) {
+            $self = $this->selfOf[Identifier::fold($class->fqn)] ?? $class->fqn;
+            $arguments = $factory->getArgs();
+            $given = $arguments === [] ? null : LiteralValue::className($arguments[0]->value, selfFqn: $self, staticFqn: $this->modelFqn, parentFqn: $this->parentOf($self));
+            $note .= ' built by '.$factory->name->toString().'()'.($given === null ? '' : ', which is given '.$given);
+        }
+
+        $this->declined[] = new ModelFact(
+            'relation',
+            $name,
+            lcfirst(substr($core, strlen(self::RELATION_NAMESPACE))),
+            Confidence::Inferred,
+            $class->path,
+            $method->getStartLine(),
+            $note.' — a factory this reader does not model, so the related class is not read',
+            $class->fqn,
+        );
+    }
+
+    /** The `$this->x(...)` call a method returns, if it returns one. */
+    private function returnedThisCall(Node\Stmt\ClassMethod $method): ?MethodCall
+    {
+        foreach (new NodeFinder()->findInstanceOf([$method], Node\Stmt\Return_::class) as $return) {
+            $expression = $return->expr;
+
+            while ($expression instanceof MethodCall) {
+                if ($expression->var instanceof Expr\Variable && $expression->var->name === 'this') {
+                    return $expression;
+                }
+
+                $expression = $expression->var;
+            }
+        }
+
+        return null;
+    }
+
+    private function hasRequiredParameter(Node\Stmt\ClassMethod $method): bool
+    {
+        return array_any($method->params, fn (Param $param): bool => ! $param->default instanceof Expr && ! $param->variadic);
     }
 
     private function recordRelation(LoadedClass $class, string $name, MethodCall $call, int $line): void
@@ -490,7 +573,7 @@ final class ModelReader
         }
 
         // `X::class` is checkable and a class-string is not, so they are not equally known.
-        $literal = $arguments[0]->value instanceof Node\Expr\ClassConstFetch;
+        $literal = $arguments[0]->value instanceof Expr\ClassConstFetch;
 
         $this->facts[] = new ModelFact(
             'relation',
@@ -511,7 +594,7 @@ final class ModelReader
      */
     private function readScopeCalls(LoadedClass $class): void
     {
-        foreach (new NodeFinder()->findInstanceOf([$class->node], Node\Expr\StaticCall::class) as $call) {
+        foreach (new NodeFinder()->findInstanceOf([$class->node], Expr\StaticCall::class) as $call) {
             if (! $call->name instanceof Node\Identifier || strcasecmp($call->name->toString(), 'addGlobalScope') !== 0) {
                 continue;
             }
@@ -522,7 +605,7 @@ final class ModelReader
         foreach (new NodeFinder()->findInstanceOf([$class->node], MethodCall::class) as $call) {
             if ($call->name instanceof Node\Identifier
                 && strcasecmp($call->name->toString(), 'addGlobalScope') === 0
-                && $call->var instanceof Node\Expr\Variable
+                && $call->var instanceof Expr\Variable
                 && $call->var->name === 'this') {
                 $this->recordScope($class, $call->getArgs(), $call->getStartLine());
             }
@@ -540,7 +623,7 @@ final class ModelReader
             return;
         }
 
-        $target = $first instanceof Node\Expr\New_ && $first->class instanceof Node\Name
+        $target = $first instanceof Expr\New_ && $first->class instanceof Node\Name
             ? Analyser::resolvedName($first->class)
             : LiteralValue::className($first);
 
@@ -587,7 +670,7 @@ final class ModelReader
     /**
      * @return list<string>
      */
-    private function attributeTargets(Node\Expr $expression): array
+    private function attributeTargets(Expr $expression): array
     {
         $single = LiteralValue::className($expression);
 
@@ -595,7 +678,7 @@ final class ModelReader
             return [$single];
         }
 
-        if (! $expression instanceof Node\Expr\Array_) {
+        if (! $expression instanceof Expr\Array_) {
             return [];
         }
 
