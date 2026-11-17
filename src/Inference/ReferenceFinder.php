@@ -69,7 +69,7 @@ final class ReferenceFinder
             $container ??= new ContainerReader($graph, $source)->read();
 
             return $container->concreteFor($abstract);
-        }, InstalledFunctions::forProject($this->project));
+        }, InstalledFunctions::forProject($this->project), $source);
 
         // A member the framework lets you call by another name is mentioned by that other name
         // and no other, so the narrowing has to look for both. Getting this wrong would not

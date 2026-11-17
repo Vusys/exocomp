@@ -6,6 +6,7 @@ namespace Vusys\Exocomp\Framework\Laravel;
 
 use PhpParser\Node;
 use PhpParser\NodeFinder;
+use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\MagicMember;
@@ -105,7 +106,34 @@ final class EloquentConventions implements MagicSource
             }
         }
 
-        return $this->relations[$key] = null;
+        // Built into a variable and returned through a helper — `$relation = $this->hasMany(…);
+        // return $this->ordered($relation);` — the factory call is still in the body. Taken only
+        // where the method says it returns a relation and every factory call in it names one class.
+        $returns = $node->getReturnType();
+
+        if (! $returns instanceof Node\Name || ! str_starts_with(Analyser::resolvedName($returns), 'Illuminate\\Database\\Eloquent\\Relations\\')) {
+            return $this->relations[$key] = null;
+        }
+
+        $found = null;
+
+        foreach (new NodeFinder()->findInstanceOf([$node], Node\Expr\MethodCall::class) as $call) {
+            if (! $call->var instanceof Node\Expr\Variable || $call->var->name !== 'this' || ! $call->name instanceof Node\Identifier
+                || ! in_array($factory = strtolower($call->name->toString()), ModelReader::RELATIONS, true)) {
+                continue;
+            }
+
+            $first = $call->getArgs()[0]->value ?? null;
+            $target = $first === null ? null : LiteralValue::className($first, selfFqn: (string) $owner, staticFqn: $modelFqn);
+
+            if ($target === null || ($found !== null && strcasecmp($found[0], $target) !== 0)) {
+                return $this->relations[$key] = null;
+            }
+
+            $found = [$target, $factory];
+        }
+
+        return $this->relations[$key] = $found;
     }
 
     public function method(string $ownerFqn, string $name): ?MagicMember

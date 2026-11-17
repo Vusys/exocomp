@@ -18,6 +18,19 @@ final class Client extends Model
         return $this->hasMany(Invoice::class)->latest();
     }
 
+    /** Built into a variable and returned through a helper, as BookStack writes its ordered relations. */
+    public function drafts(): HasMany
+    {
+        $relation = $this->hasMany(Invoice::class)->latest();
+
+        return $this->ordered($relation);
+    }
+
+    private function ordered(HasMany $relation): HasMany
+    {
+        return $relation;
+    }
+
     public function latestInvoice(): HasOne
     {
         return $this->hasOne(Invoice::class);

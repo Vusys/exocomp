@@ -13,6 +13,7 @@ use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Framework\Laravel\Binding;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\InstalledFunctions;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolKind;
@@ -46,8 +47,10 @@ final readonly class TypeResolver
      *                                                     container lookup is actually met
      * @param  ?InstalledFunctions  $installed  the functions installed packages declare, asked
      *                                          when a function is not in the index
+     * @param  ?ClassSource  $source  reads a class the index does not hold, so a method declared
+     *                                in a framework parent or trait can be found and typed
      */
-    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null, private ?Closure $boundTo = null, private ?InstalledFunctions $installed = null)
+    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null, private ?Closure $boundTo = null, private ?InstalledFunctions $installed = null, private ?ClassSource $source = null)
     {
         $this->docblocks = new DocBlockTypes;
         $this->members = new Members($graph);
@@ -136,9 +139,22 @@ final readonly class TypeResolver
             $expression instanceof Node\Expr\Assign => $this->typeOf($expression->expr, $scope, $imports),
             $expression instanceof Node\Expr\Clone_ => $this->typeOf($expression->expr, $scope, $imports),
             $expression instanceof Node\Expr\Ternary => $this->ternaryType($expression, $scope, $imports),
+            $expression instanceof Node\Expr\ArrayDimFetch => $this->elementType($expression, $scope, $imports),
             $expression instanceof Node\Expr\BinaryOp\Coalesce => $this->eitherType($expression->left, $expression->right, $scope, $imports),
             default => ResolvedType::unknown('expression kind carries no declared type'),
         };
+    }
+
+    /**
+     * `$orders[0]`, on a collection of a known model, is one of its models.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function elementType(Node\Expr\ArrayDimFetch $fetch, Scope $scope, array $imports): ResolvedType
+    {
+        $element = $this->eloquent?->elementOf($this->typeOf($fetch->var, $scope, $imports));
+
+        return $element ?? ResolvedType::unknown('an element of something whose elements are not known');
     }
 
     /**
@@ -414,6 +430,7 @@ final readonly class TypeResolver
 
         if (! $member instanceof SymbolRecord) {
             return $this->magically($ownerFqn, $method, SymbolKind::Method)
+                ?? $this->beyondTheIndex($ownerFqn, $method)
                 ?? ResolvedType::unknown($this->whyNoMethod($ownerFqn, $method));
         }
 
@@ -507,6 +524,52 @@ final readonly class TypeResolver
      * found" reads as "this call is broken". It is not: it is a call the tool cannot see the
      * far end of, which is a fact about the tool.
      */
+    /**
+     * A method the index does not hold, found where the class's ancestry leaves the corpus: a
+     * framework parent or trait, read from `vendor/`. `$this->guard()` in a controller using
+     * `AuthenticatesUsers` is declared there, and its `@return` says what it gives back.
+     *
+     * A single native class type is the answer; failing that, a single class in `@return`, which
+     * is a claim and so `inferred`. Anything else leaves the call unknown, as before.
+     */
+    private function beyondTheIndex(string $ownerFqn, string $method): ?ResolvedType
+    {
+        if (! $this->source instanceof ClassSource || $this->graph->members($ownerFqn)['unreachable'] === []) {
+            return null;
+        }
+
+        foreach ($this->source->withAncestors($ownerFqn) as $class) {
+            $node = $class->node->getMethod($method);
+
+            if (! $node instanceof Node\Stmt\ClassMethod) {
+                continue;
+            }
+
+            $native = self::classLikeTypeOf($node->getReturnType());
+
+            if ($native !== null) {
+                return match (strtolower($native)) {
+                    'static' => ResolvedType::declared($ownerFqn),
+                    'self' => ResolvedType::declared($class->fqn),
+                    default => ResolvedType::declared($native),
+                };
+            }
+
+            $documented = $this->documented($node)['return'] ?? null;
+
+            if (is_string($documented) && ! in_array(strtolower($documented), ['static', 'self', '$this'], true)) {
+                return ResolvedType::inferred(
+                    $this->qualify($documented, $class->fqn, $class->analysis->imports),
+                    sprintf('the @return of %s::%s(), read where it is declared', $class->fqn, $method),
+                );
+            }
+
+            return ResolvedType::unknown(sprintf('%s::%s(), read where it is declared, returns no single class', $class->fqn, $method));
+        }
+
+        return null;
+    }
+
     private function whyNoMethod(string $ownerFqn, string $method): string
     {
         // A class that declares `__call` answers to names it does not declare, so "declares no
