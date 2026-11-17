@@ -74,8 +74,8 @@ final class IndexStore
         $symbol = $this->prepare('put_symbol', <<<'SQL'
             INSERT INTO symbols (hash, fqn, lower_fqn, name, lower_name, kind, owner, lower_owner,
                                  line, end_line, col, span_line, signature, full_signature,
-                                 modifiers, promoted, has_body, type_fqn)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 modifiers, promoted, has_body, type_fqn, inferred_fqn, inferred_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             SQL);
 
         foreach ($facts->symbols as $row) {
@@ -104,6 +104,8 @@ final class IndexStore
                 ($row['promoted'] ?? false) === true ? 1 : 0,
                 ($row['has_body'] ?? false) === true ? 1 : 0,
                 isset($row['type_fqn']) && is_string($row['type_fqn']) ? $row['type_fqn'] : null,
+                isset($row['inferred_fqn']) && is_string($row['inferred_fqn']) ? $row['inferred_fqn'] : null,
+                isset($row['inferred_reason']) && is_string($row['inferred_reason']) ? $row['inferred_reason'] : null,
             ]);
         }
 
@@ -490,6 +492,8 @@ final class IndexStore
                 isPromoted: $this->number($row['promoted']) === 1,
                 hasBody: $this->number($row['has_body']) === 1,
                 typeFqn: isset($row['type_fqn']) && is_string($row['type_fqn']) ? $row['type_fqn'] : null,
+                inferredFqn: isset($row['inferred_fqn']) && is_string($row['inferred_fqn']) ? $row['inferred_fqn'] : null,
+                inferredReason: isset($row['inferred_reason']) && is_string($row['inferred_reason']) ? $row['inferred_reason'] : null,
             );
         }
 

@@ -124,6 +124,8 @@ final readonly class DeclarationScan
                 isPromoted: $declaration->isPromoted,
                 hasBody: $declaration->hasBody,
                 typeFqn: $declaration->typeFqn,
+                inferredFqn: $declaration->inferredFqn,
+                inferredReason: $declaration->inferredReason,
             );
         }
 

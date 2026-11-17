@@ -308,9 +308,8 @@ final readonly class TypeResolver
         $member = $this->member((string) $owner->fqn, $name, SymbolKind::Property);
 
         if ($member instanceof SymbolRecord) {
-            return $member->typeFqn === null
-                ? ResolvedType::unknown('property has no declared class type')
-                : ResolvedType::declared($member->typeFqn);
+            return $this->memberType($member, (string) $owner->fqn)
+                ?? ResolvedType::unknown('property has no declared class type');
         }
 
         return $this->eloquent?->fromRelationProperty((string) $owner->fqn, $name)
@@ -328,9 +327,8 @@ final readonly class TypeResolver
 
         $member = $this->member($owner, $fetch->name->toString(), SymbolKind::Property);
 
-        return $member?->typeFqn === null
-            ? ResolvedType::unknown('static property has no declared class type')
-            : ResolvedType::declared($member->typeFqn);
+        return ($member instanceof SymbolRecord ? $this->memberType($member, $owner) : null)
+            ?? ResolvedType::unknown('static property has no declared class type');
     }
 
     /**
@@ -439,17 +437,35 @@ final readonly class TypeResolver
                 ?? ResolvedType::unknown($this->whyNoMethod($ownerFqn, $method));
         }
 
-        if ($member->typeFqn === null) {
-            return ResolvedType::unknown('method declares no class-like return type');
+        return $this->memberType($member, $ownerFqn)
+            ?? ResolvedType::unknown('method declares no class-like return type');
+    }
+
+    /**
+     * A property's or method's declared class, or failing that the one its class's code or
+     * docblock implies (BodyTypes), which is only ever inferred.
+     *
+     * A fluent method declares `static` or `self`, which name a class only relative to the call:
+     * `static` is the receiver's class, `self` the class that declares the method. Taken
+     * literally, they named a class called "static" and every chain stopped there.
+     */
+    private function memberType(SymbolRecord $member, string $ownerFqn): ?ResolvedType
+    {
+        if ($member->typeFqn !== null) {
+            return ResolvedType::declared($this->relativeTo($member->typeFqn, $member, $ownerFqn));
         }
 
-        // A fluent method declares `static` or `self`, which name a class only relative to the
-        // call: `static` is the receiver's class, `self` the class that declares the method.
-        // Taken literally, they named a class called "static" and every chain stopped there.
-        return match (strtolower($member->typeFqn)) {
-            'static' => ResolvedType::declared($ownerFqn),
-            'self' => ResolvedType::declared($member->owner ?? $ownerFqn),
-            default => ResolvedType::declared($member->typeFqn),
+        return $member->inferredFqn === null
+            ? null
+            : ResolvedType::inferred($this->relativeTo($member->inferredFqn, $member, $ownerFqn), (string) $member->inferredReason);
+    }
+
+    private function relativeTo(string $type, SymbolRecord $member, string $ownerFqn): string
+    {
+        return match (strtolower($type)) {
+            'static' => $ownerFqn,
+            'self' => $member->owner ?? $ownerFqn,
+            default => $type,
         };
     }
 

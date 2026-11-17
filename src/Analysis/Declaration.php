@@ -29,6 +29,9 @@ final readonly class Declaration
      *                            Null for scalars, unions and anything else, because a receiver
      *                            cannot be resolved through those and pretending otherwise is
      *                            how a tool starts guessing.
+     * @param  ?string  $inferredFqn  where nothing native declares a class, the one the class's own
+     *                                code or docblock implies (see BodyTypes), with the evidence in
+     *                                $inferredReason. Never a declaration: it is read as inferred.
      */
     public function __construct(
         public SymbolKind $kind,
@@ -51,6 +54,8 @@ final readonly class Declaration
         public bool $isPromoted = false,
         public bool $hasBody = false,
         public ?string $typeFqn = null,
+        public ?string $inferredFqn = null,
+        public ?string $inferredReason = null,
     ) {}
 
     public function isClassLike(): bool

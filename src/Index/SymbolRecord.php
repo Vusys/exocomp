@@ -32,6 +32,8 @@ final readonly class SymbolRecord
         public bool $isPromoted,
         public bool $hasBody,
         public ?string $typeFqn = null,
+        public ?string $inferredFqn = null,
+        public ?string $inferredReason = null,
     ) {}
 
     public function isClassLike(): bool
