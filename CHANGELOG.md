@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **`static::class` in a trait names the model, not the trait.** `model` reported a tree trait's `belongsTo(static::class)` as a resolved relation to the trait itself, which was confidently wrong. Now `static::class` names the model being read, `self::class` names the class that uses the trait (directly or through another trait), and `parent::class` names that class's parent. Where the parent is outside the readable ancestry, it's declined rather than answered with the class itself (#3).
+
 - **Concurrent runs no longer fail with "database is locked".** Every project shares one cache file, so two runs at once, in different projects or the same one, wrote to the same database. Each write batch started with a deferred `BEGIN`, read, and then wrote, and in WAL mode SQLite refuses to upgrade a read to a write if another process committed in between. It refuses at once and ignores the busy timeout. Batches now take the write lock when they start, with `BEGIN IMMEDIATE`, so the second run waits. Six projects each re-reading a changed file fifteen times in parallel failed 20 of 90 runs before the change and none after it.
 
 ## [0.4.0] - 2026-10-15

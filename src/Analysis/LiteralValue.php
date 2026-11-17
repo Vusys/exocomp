@@ -33,24 +33,37 @@ final class LiteralValue
      * one. Both forms appear constantly in framework code and both name a class; only the
      * first is checkable by the engine, which is why the caller is told which it got.
      *
-     * @param  ?string  $selfFqn  the class the expression is written in, so `self::class` can be
-     *                            answered with a name rather than with the word "self"
+     * The name resolver cannot know what `self`, `static` and `parent` mean, so a caller that
+     * does passes them in. In a trait, `self` is the class that uses the trait, not the trait;
+     * `static` is the class the question is about; `parent` is the parent of `self`.
+     *
+     * @param  ?string  $selfFqn  what `self::class` names, so it is answered with a name rather
+     *                            than with the word "self"
+     * @param  ?string  $staticFqn  what `static::class` names; defaults to `$selfFqn`
+     * @param  ?string  $parentFqn  what `parent::class` names. When `$selfFqn` is given and this
+     *                              is not, `parent::class` is not answered rather than guessed
      */
-    public static function className(Node\Expr $expression, ?string $selfFqn = null): ?string
-    {
+    public static function className(
+        Node\Expr $expression,
+        ?string $selfFqn = null,
+        ?string $staticFqn = null,
+        ?string $parentFqn = null,
+    ): ?string {
         if ($expression instanceof Node\Expr\ClassConstFetch
             && $expression->class instanceof Node\Name
             && $expression->name instanceof Node\Identifier
             && strcasecmp($expression->name->toString(), 'class') === 0) {
             $resolved = Analyser::resolvedName($expression->class);
 
-            // `self::class` and `static::class` name the class they are written in, and the
-            // name resolver cannot know which that is. Returning the literal word would put
-            // "self" where a fully-qualified name belongs — a self-referencing relation would
-            // report a class called `self` that does not exist.
-            return in_array(strtolower($resolved), ['self', 'static', 'parent'], true)
-                ? ($selfFqn ?? $resolved)
-                : $resolved;
+            // Returning the literal word would put "self" where a fully-qualified name belongs
+            // — a self-referencing relation would report a class called `self` that does not
+            // exist. Without a caller's answer, the word is all there is.
+            return match (strtolower($resolved)) {
+                'self' => $selfFqn ?? $resolved,
+                'static' => $staticFqn ?? $selfFqn ?? $resolved,
+                'parent' => $parentFqn ?? ($selfFqn === null ? $resolved : null),
+                default => $resolved,
+            };
         }
 
         if ($expression instanceof Node\Scalar\String_ && str_contains($expression->value, '\\')) {
