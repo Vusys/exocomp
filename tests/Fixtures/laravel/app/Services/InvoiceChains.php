@@ -136,6 +136,14 @@ final class InvoiceChains
         $client->latestInvoice->send();
     }
 
+    /** Reassigned from itself: typed against the binding before, not the one being made. */
+    public function reassigned(): void
+    {
+        $invoice = Invoice::find(1);
+        $invoice = $invoice->fresh();
+        $invoice->send();
+    }
+
     /** The narrowing written inline. */
     public function narrowed(mixed $value): void
     {

@@ -204,11 +204,10 @@ final readonly class TypeResolver
             return;
         }
 
-        $element = $this->eloquent->elementOf($this->typeOf($foreach->expr, $scope, $imports));
+        $snapshot = clone $scope;
+        $eloquent = $this->eloquent;
 
-        if ($element instanceof ResolvedType) {
-            $scope->set($name, $element);
-        }
+        $scope->setLazy($name, fn (): ?ResolvedType => $eloquent->elementOf($this->typeOf($foreach->expr, $snapshot, $imports)) ?? $snapshot->get($name));
     }
 
     /**
@@ -224,22 +223,25 @@ final readonly class TypeResolver
             return;
         }
 
-        $type = $this->typeOf($assign->expr, $scope, $imports);
+        // Worked out only when the variable is used, against the scope as it stood here — a
+        // copy, so a later assignment (`$a = $a->next()`) reads the binding before it. An
+        // assignment that establishes nothing leaves the earlier binding, as it always has.
+        $snapshot = clone $scope;
         $documented = $this->docblockOf($assign);
 
-        if (! $type->isKnown() && $documented !== null) {
-            $fromDoc = $this->docblocks->read($documented)['var'] ?? null;
+        $scope->setLazy($name, function () use ($assign, $snapshot, $imports, $documented, $name): ?ResolvedType {
+            $type = $this->typeOf($assign->expr, $snapshot, $imports);
 
-            if ($fromDoc !== null) {
-                $scope->set($name, ResolvedType::inferred($this->qualify($fromDoc, $scope->classFqn, $imports), '@var'));
-
-                return;
+            if ($type->isKnown()) {
+                return $type;
             }
-        }
 
-        if ($type->isKnown()) {
-            $scope->set($name, $type);
-        }
+            $fromDoc = $documented === null ? null : ($this->docblocks->read($documented)['var'] ?? null);
+
+            return $fromDoc !== null
+                ? ResolvedType::inferred($this->qualify($fromDoc, $snapshot->classFqn, $imports), '@var')
+                : $snapshot->get($name);
+        });
     }
 
     private function variableType(Node\Expr\Variable $variable, Scope $scope): ResolvedType
