@@ -15,6 +15,7 @@ use Vusys\Exocomp\Inference\Magic;
 use Vusys\Exocomp\Inference\OutgoingCall;
 use Vusys\Exocomp\Inference\TypeResolver;
 use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\InstalledFunctions;
 use Vusys\Exocomp\Project\LoadedClass;
 use Vusys\Exocomp\Project\Project;
 use Vusys\Exocomp\Project\SymbolLocator;
@@ -101,7 +102,7 @@ final class CodeEdges
         // caches that make the whole thing affordable — a fresh resolver per body threw away
         // every memoised member lookup and re-confirmed the framework's conventions each time,
         // which cost a hundred-endpoint sweep about as long again as it had taken in total.
-        $types = $this->types ??= new TypeResolver($this->graph, Magic::forProject($this->graph, $this->source, $this->project));
+        $types = $this->types ??= new TypeResolver($this->graph, Magic::forProject($this->graph, $this->source, $this->project), null, InstalledFunctions::forProject($this->project));
         $scope = $types->scopeFor($body->classFqn, $body->parentFqn, $body->node, $body->analysis->imports);
         $scanner = new CallScanner($body->analysis, $types, $scope, $this->graph);
 

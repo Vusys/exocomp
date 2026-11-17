@@ -12,6 +12,7 @@ use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\InstalledFunctions;
 use Vusys\Exocomp\Project\Project;
 use Vusys\Exocomp\Project\SymbolLocator;
 use Vusys\Exocomp\Source\ParseFailure;
@@ -68,7 +69,7 @@ final class ReferenceFinder
             $container ??= new ContainerReader($graph, $source)->read();
 
             return $container->concreteFor($abstract);
-        });
+        }, InstalledFunctions::forProject($this->project));
 
         // A member the framework lets you call by another name is mentioned by that other name
         // and no other, so the narrowing has to look for both. Getting this wrong would not

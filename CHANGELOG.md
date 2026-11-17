@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Installed packages' helper functions are typed.** `request()->user()` stopped at "the return type of request() was not read", because the helpers live in `vendor/`. The files Composer autoloads (`autoload_files.php`) are now read the first time a function isn't in the index. A native return type naming one class is used as declared. A docblock `@return ($key is null ? Request : mixed)` is evaluated against the call: an argument left out or passed as `null` takes the first branch. On a real app this excluded the `request()->user()` calls that buried every model's `user` relation (#13).
+- **Eloquent's convention outranks a generated annotation.** laravel-ide-helper's `@method static UserFactory factory()` and `@method static Builder|User query()` name the bare framework class, so a chain read through them stopped at the factory or builder. A model's static call or framework method now takes Eloquent's typing unless the model really declares the method.
 - **Eloquent chains are typed as the model they hand back.** `User::factory()->create()`, `User::find($id)`, `Order::query()->where(...)->latest()->first()`, `foreach (Order::all() as $order)` and `$orders->first()` now give their receiver the model, as `inferred`. Measured on a real application, these were 79% of the receivers `references-to` could not type. The model's own local scopes and its factory's `static` state methods are followed. Anything outside a closed list of builder, factory and collection methods (a macro, `when()`, a callback) still stays unknown (#11).
 
 ### Fixed
