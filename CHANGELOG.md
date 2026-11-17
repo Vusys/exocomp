@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-17
+
+Calls into the framework are followed. A method declared only in a vendor parent or trait is typed from its declaration, BookStack-style relations returned through a helper name their target, and an ancestry lookup that re-walked the hierarchy on every call is memoised. On BookStack, unresolved receivers in the dogfood run went from 324 to 216.
+
+Bumping the version changes the symbol cache's identity, so every project re-indexes once.
+
 ### Added
 
 - **A method declared in a framework parent or trait is typed from its declaration.** `$this->guard()` in a controller using `AuthenticatesUsers` stopped at "declares no guard(), and its ancestry leaves the indexed source". Where the index and the magic layer have nothing, the ancestry is now read on into `vendor/`. A single native class return type is the answer, and failing that a single class in `@return`, as `inferred`. That's the rest of #13.
