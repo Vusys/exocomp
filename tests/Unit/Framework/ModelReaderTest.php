@@ -111,6 +111,19 @@ final class ModelReaderTest extends TestCase
         $this->assertNotContains('newHasMany', $names);
     }
 
+    public function test_an_annotation_says_what_backs_it(): void
+    {
+        $this->assertStringEndsWith('— backed by an accessor', (string) $this->fact('Order', 'annotated', 'display_name')->note);
+    }
+
+    public function test_an_annotation_with_no_schema_to_check_says_it_was_not_checked(): void
+    {
+        $note = (string) $this->fact('Order', 'annotated', 'legacy_code')->note;
+
+        $this->assertStringContainsString('@property on App\Models\Order', $note);
+        $this->assertStringEndsWith('not checked against the migrations', $note);
+    }
+
     public function test_a_relation_is_found_through_a_chained_call(): void
     {
         $this->assertSame('hasMany  App\Models\OrderLine', $this->fact('Order', 'relation', 'lines')->value);

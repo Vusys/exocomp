@@ -43,6 +43,19 @@ final class ModelReader
     /** @var list<string> */
     private const array MAPS = ['casts', 'attributes'];
 
+    /** @var array<string, string> what each fact group is called when it backs an attribute */
+    private const array BACKER_LABELS = [
+        'accessor' => 'an accessor',
+        'relation' => 'a relation',
+        'casts' => 'a cast',
+        'fillable' => '$fillable',
+        'guarded' => '$guarded',
+        'hidden' => '$hidden',
+        'visible' => '$visible',
+        'appends' => '$appends',
+        'dates' => '$dates',
+    ];
+
     /** Where the framework keeps the types a relation method declares it returns. */
     private const string RELATION_NAMESPACE = 'Illuminate\\Database\\Eloquent\\Relations\\';
 
@@ -83,6 +96,17 @@ final class ModelReader
 
     /** @var array<string, LoadedClass> the ancestry by folded name */
     private array $loaded = [];
+
+    /**
+     * What backs each attribute name (normalised), as reconciliation found it: "a cast",
+     * "a column" and so on. Read back into each annotation's note.
+     *
+     * @var array<string, list<string>>
+     */
+    private array $backedBy = [];
+
+    /** Whether the annotations were checked against a complete migration history. */
+    private bool $schemaChecked = false;
 
     private readonly DocBlockTypes $docblocks;
 
@@ -151,7 +175,10 @@ final class ModelReader
 
         $this->readTraits($own);
         $this->resolveTable($own, $schema);
+        $this->backedBy = [];
+        $this->schemaChecked = false;
         $this->reconcile($own, $schema, $this->unreadableAncestry($chain));
+        $this->describeAnnotations();
 
         return new EloquentModel(
             fqn: $own->fqn,
@@ -833,7 +860,7 @@ final class ModelReader
         foreach ($this->facts as $fact) {
             match ($fact->group) {
                 'annotated' => $claimed[$fact->name] = true,
-                'accessor', 'relation', 'casts', 'fillable', 'guarded', 'hidden', 'visible', 'appends', 'dates' => $accounted[$this->normalise($fact->name)] = true,
+                'accessor', 'relation', 'casts', 'fillable', 'guarded', 'hidden', 'visible', 'appends', 'dates' => $accounted[$this->backs($fact->name, self::BACKER_LABELS[$fact->group])] = true,
                 default => null,
             };
         }
@@ -844,7 +871,7 @@ final class ModelReader
 
         foreach ($own->node->getProperties() as $property) {
             foreach ($property->props as $item) {
-                $accounted[$this->normalise($item->name->toString())] = true;
+                $accounted[$this->backs($item->name->toString(), 'a property')] = true;
             }
         }
 
@@ -853,7 +880,7 @@ final class ModelReader
         // would report the commonest polymorphic shape in Laravel as a stale annotation.
         foreach ($this->declined as $fact) {
             if ($fact->group === 'relation') {
-                $accounted[$this->normalise($fact->name)] = true;
+                $accounted[$this->backs($fact->name, 'a relation')] = true;
             }
         }
 
@@ -872,9 +899,10 @@ final class ModelReader
         }
 
         $columns = $found->columns;
+        $this->schemaChecked = true;
 
         foreach ($columns as $column) {
-            $accounted[$this->normalise($column->name)] = true;
+            $accounted[$this->backs($column->name, 'a column')] = true;
         }
 
         $unaccounted = array_values(array_filter(
@@ -896,6 +924,55 @@ final class ModelReader
                 ? '; the model was read to the end of its ancestry, so these are claims nothing backs'
                 : sprintf('; %s could not be read, so a relation or accessor declared there would look the same', implode(', ', array_slice($unreadable, 0, 3))),
         );
+    }
+
+    /**
+     * Record that $label backs the attribute $name, and return its normalised name.
+     */
+    private function backs(string $name, string $label): string
+    {
+        $key = $this->normalise($name);
+
+        if (! in_array($label, $this->backedBy[$key] ?? [], true)) {
+            $this->backedBy[$key][] = $label;
+        }
+
+        return $key;
+    }
+
+    /**
+     * Say on each annotation what backs it, now that reconciliation knows. Written when the
+     * docblock is read, the note could only say "checked by nothing", which read as "nothing
+     * backs this" even beside the cast that does.
+     */
+    private function describeAnnotations(): void
+    {
+        foreach ($this->facts as $index => $fact) {
+            if ($fact->group !== 'annotated') {
+                continue;
+            }
+
+            $backers = $this->backedBy[$this->normalise($fact->name)] ?? [];
+            $claim = explode(' — ', (string) $fact->note, 2)[0];
+
+            $detail = match (true) {
+                $backers !== [] => 'backed by '.implode(' and ', $backers),
+                $this->isRelationAggregate($fact->name) => 'a relation aggregate, such as withCount() adds',
+                $this->schemaChecked => 'backed by nothing the model or its migrations declare',
+                default => 'a claim about the model, not checked against the migrations',
+            };
+
+            $this->facts[$index] = new ModelFact(
+                $fact->group,
+                $fact->name,
+                $fact->value,
+                $fact->confidence,
+                $fact->path,
+                $fact->line,
+                $claim.' — '.$detail,
+                $fact->declaredBy,
+            );
+        }
     }
 
     /**

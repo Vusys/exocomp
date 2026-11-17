@@ -137,6 +137,16 @@ final class SchemaReplayTest extends TestCase
         $this->assertStringContainsString('is not there', $replay->notes()[0]);
     }
 
+    public function test_an_index_written_on_a_column_is_an_index_of_the_table(): void
+    {
+        $indexes = array_map(
+            static fn (array $index): string => $index['kind'].' '.implode(',', $index['columns']),
+            $this->table('customers')->indexes,
+        );
+
+        $this->assertSame(['primary id', 'unique email'], $indexes);
+    }
+
     private function replay(): SchemaReplay
     {
         $root = Cli::laravelRoot();
