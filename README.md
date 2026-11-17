@@ -172,7 +172,8 @@ annotation is a claim about the code rather than a fact of it. A method declared
 Eloquent's API hands back are followed too: `Order::factory()->create()`,
 `Order::query()->where(...)->first()`, `foreach (Order::all() as $order)`. That's a closed list
 of builder, factory and collection methods, always `inferred`, because it is the framework's
-convention rather than a declaration that was read. Anything else is reported as
+convention rather than a declaration that was read. And a global helper an installed package
+declares, such as `request()`, is typed from its declaration in `vendor/`. Anything else is reported as
 unknown with a reason. That is not a gap to be closed later; it is what makes partial inference
 safe to ship.
 

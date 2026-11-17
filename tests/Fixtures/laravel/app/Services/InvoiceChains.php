@@ -105,6 +105,24 @@ final class InvoiceChains
         }, [1]);
     }
 
+    /** The framework's `request()` helper, which returns the request when given no key. */
+    public function requestUser(): void
+    {
+        request()->user();
+    }
+
+    /** Given a key it returns the input, which could be anything. */
+    public function requestInput(): void
+    {
+        request('invoice')->user();
+    }
+
+    /** A helper with a native return type. */
+    public function helperDeclared(): void
+    {
+        fixture_now()->user();
+    }
+
     /** A callback's result can be anything at all. */
     public function escapes(): void
     {

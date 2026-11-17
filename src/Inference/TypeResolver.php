@@ -13,6 +13,7 @@ use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Framework\Laravel\Binding;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Project\InstalledFunctions;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
@@ -43,8 +44,10 @@ final readonly class TypeResolver
      * @param  (Closure(string): ?Binding)|null  $boundTo  what the application's providers bind a
      *                                                     class name to, asked only when a
      *                                                     container lookup is actually met
+     * @param  ?InstalledFunctions  $installed  the functions installed packages declare, asked
+     *                                          when a function is not in the index
      */
-    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null, private ?Closure $boundTo = null)
+    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null, private ?Closure $boundTo = null, private ?InstalledFunctions $installed = null)
     {
         $this->docblocks = new DocBlockTypes;
         $this->members = new Members($graph);
@@ -278,7 +281,7 @@ final readonly class TypeResolver
             ? $this->returnTypeOf((string) $owner->fqn, $name)
             : ResolvedType::unknown($owner->reason);
 
-        if (! $type->isKnown() && $owner->isKnown()) {
+        if ($owner->isKnown() && (! $type->isKnown() || $type->confidence !== Confidence::Resolved)) {
             $type = $this->eloquent?->fromInstance((string) $owner->fqn, $name) ?? $type;
         }
 
@@ -301,7 +304,10 @@ final readonly class TypeResolver
 
         $type = $this->returnTypeOf($owner, $call->name->toString());
 
-        if (! $type->isKnown()) {
+        // Eloquent's convention outranks an annotation, never a declaration. The generated
+        // `@method static Builder|Order query()` blocks name the bare framework class, which
+        // knows nothing of the model, so read literally they ended every chain at `query()`.
+        if (! $type->isKnown() || $type->confidence !== Confidence::Resolved) {
             $type = $this->eloquent?->fromModel($owner, $call->name->toString(), $call) ?? $type;
         }
 
@@ -383,7 +389,7 @@ final readonly class TypeResolver
                 return $found;
             }
 
-            return $this->functionReturnType($call->name);
+            return $this->functionReturnType($call->name, $call);
         }
 
         $receiver = $this->typeOf($call->name, $scope, $imports);
@@ -505,12 +511,22 @@ final readonly class TypeResolver
      * file to read it from, so the answer there is that its return type was not read rather
      * than that it has none.
      */
-    private function functionReturnType(Node\Name $name): ResolvedType
+    private function functionReturnType(Node\Name $name, Node\Expr\FuncCall $call): ResolvedType
     {
-        foreach ($this->graph->byFqn(ltrim(Analyser::resolvedName($name), '\\')) as $record) {
+        $fqn = ltrim(Analyser::resolvedName($name), '\\');
+
+        foreach ($this->graph->byFqn($fqn) as $record) {
             if ($record->kind === SymbolKind::FunctionDecl && $record->typeFqn !== null) {
                 return ResolvedType::declared($record->typeFqn);
             }
+        }
+
+        // An unqualified call in a namespace falls back to the global function, as PHP does.
+        $installed = $this->installed?->returnType($fqn, $call)
+            ?? ($name->isQualified() || $name->isFullyQualified() ? null : $this->installed?->returnType($name->getLast(), $call));
+
+        if ($installed instanceof ResolvedType) {
+            return $installed;
         }
 
         return ResolvedType::unknown(sprintf('the return type of %s() was not read — no declaration of it is indexed', $name->getLast()));
