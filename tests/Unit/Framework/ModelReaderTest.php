@@ -68,6 +68,25 @@ final class ModelReaderTest extends TestCase
         $this->assertSame(Confidence::Resolved, $customer->confidence);
     }
 
+    public function test_static_class_in_a_trait_names_the_model_being_read(): void
+    {
+        $parent = $this->fact('Category', 'relation', 'parent');
+
+        $this->assertSame('belongsTo  App\Models\Category', $parent->value);
+        $this->assertSame(Confidence::Resolved, $parent->confidence);
+        $this->assertSame('hasMany  App\Models\Category', $this->fact('Category', 'relation', 'children')->value);
+    }
+
+    public function test_self_class_in_a_trait_names_the_class_that_uses_it(): void
+    {
+        $this->assertSame('belongsTo  App\Models\Node', $this->fact('Category', 'relation', 'origin')->value);
+    }
+
+    public function test_parent_class_names_the_parent_of_the_declaring_class(): void
+    {
+        $this->assertSame('belongsTo  App\Models\Node', $this->fact('Category', 'relation', 'template')->value);
+    }
+
     public function test_a_relation_is_found_through_a_chained_call(): void
     {
         $this->assertSame('hasMany  App\Models\OrderLine', $this->fact('Order', 'relation', 'lines')->value);

@@ -16,6 +16,7 @@ use Vusys\Exocomp\Inference\DocBlockTypes;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\LoadedClass;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\Identifier;
 
 /**
  * Reads an Eloquent model the way someone reading the file would, and further.
@@ -67,6 +68,20 @@ final class ModelReader
     /** @var list<string> */
     private array $notes = [];
 
+    /** The model being read: what `static::class` names anywhere in its ancestry. */
+    private string $modelFqn = '';
+
+    /**
+     * For each class and trait in the ancestry (folded name), the class `self` names there:
+     * the class itself, or for a trait the class that uses it.
+     *
+     * @var array<string, string>
+     */
+    private array $selfOf = [];
+
+    /** @var array<string, LoadedClass> the ancestry by folded name */
+    private array $loaded = [];
+
     private readonly DocBlockTypes $docblocks;
 
     public function __construct(
@@ -115,6 +130,12 @@ final class ModelReader
         $this->notes = [];
 
         $own = $chain[0];
+        $this->modelFqn = $own->fqn;
+        $this->loaded = [];
+        foreach ($chain as $class) {
+            $this->loaded[Identifier::fold($class->fqn)] = $class;
+        }
+        $this->selfOf = $this->selfClasses($chain);
 
         foreach ($chain as $class) {
             $this->readProperties($class, $class->fqn === $own->fqn);
@@ -138,6 +159,49 @@ final class ModelReader
             declined: $this->declined,
             notes: [...$this->source->notes(), ...$this->notes],
         );
+    }
+
+    /**
+     * What `self` names in each class and trait of the ancestry. A class is its own `self`; a
+     * trait's is the class that pulled it in, directly or through another trait. The chain is
+     * walked breadth-first from the model, so the first class to use a trait is the nearest.
+     *
+     * @param  list<LoadedClass>  $chain
+     * @return array<string, string>
+     */
+    private function selfClasses(array $chain): array
+    {
+        $selfOf = [];
+
+        foreach ($chain as $class) {
+            $key = Identifier::fold($class->fqn);
+
+            if (! $class->node instanceof Node\Stmt\Trait_) {
+                $selfOf[$key] = $class->fqn;
+            }
+
+            if (! isset($selfOf[$key])) {
+                continue;
+            }
+
+            foreach ($class->node->getTraitUses() as $use) {
+                foreach ($use->traits as $trait) {
+                    $selfOf[Identifier::fold(Analyser::resolvedName($trait))] ??= $selfOf[$key];
+                }
+            }
+        }
+
+        return $selfOf;
+    }
+
+    /** The parent `parent` names inside $selfFqn, if the ancestry holds it. */
+    private function parentOf(string $selfFqn): ?string
+    {
+        $class = $this->loaded[Identifier::fold($selfFqn)] ?? null;
+
+        return $class?->node instanceof Node\Stmt\Class_ && $class->node->extends instanceof Node\Name
+            ? Analyser::resolvedName($class->node->extends)
+            : null;
     }
 
     private function readProperties(LoadedClass $class, bool $isOwn): void
@@ -411,7 +475,13 @@ final class ModelReader
             return;
         }
 
-        $target = $arguments === [] ? null : LiteralValue::className($arguments[0]->value, $class->fqn);
+        $self = $this->selfOf[Identifier::fold($class->fqn)] ?? $class->fqn;
+        $target = $arguments === [] ? null : LiteralValue::className(
+            $arguments[0]->value,
+            selfFqn: $self,
+            staticFqn: $this->modelFqn,
+            parentFqn: $this->parentOf($self),
+        );
 
         if ($target === null) {
             $this->declined[] = new ModelFact('relation', $name, $kind, Confidence::Textual, $class->path, $line, 'the related class is not named literally', $class->fqn);
