@@ -2,23 +2,26 @@ References grouped by how sure the tool is, with the impostor excluded
 -----
 references-to Fixtures\TierD\Notifier::send
 -----
-14 references to Fixtures\TierD\Notifier::send  (8 resolved, 4 inferred, 2 unresolved)
-src/TierD/CallSites.php:18:16     $this->notifier->send('hello')
-src/TierD/CallSites.php:24:16     $this->loud->send('hello')
-src/TierD/CallSites.php:44:16     $made->send('hello')
-src/TierD/CallSites.php:63:16     $given->send('hello')
-src/TierD/CallSites.php:73:16     $given->SEND('hello')
-src/TierD/Notifier.php:16:5       public function send(string $message): bool { return true; }
-src/TierD/Notifier.php:27:5       public function send(string $message): bool { return parent::send(strtoupper($message)); }
-src/TierD/Notifier.php:29:16      parent::send(strtoupper($message))
+17 references to Fixtures\TierD\Notifier::send  (8 resolved, 7 inferred, 2 unresolved)
+src/TierD/CallSites.php:18:16      $this->notifier->send('hello')
+src/TierD/CallSites.php:24:16      $this->loud->send('hello')
+src/TierD/CallSites.php:44:16      $made->send('hello')
+src/TierD/CallSites.php:63:16      $given->send('hello')
+src/TierD/CallSites.php:73:16      $given->SEND('hello')
+src/TierD/Notifier.php:16:5        public function send(string $message): bool { return true; }
+src/TierD/Notifier.php:27:5        public function send(string $message): bool { return parent::send(strtoupper($message)); }
+src/TierD/Notifier.php:29:16       parent::send(strtoupper($message))
 
-inferred (4)
-src/TierD/CallSites.php:51:16     $thing->send('hello')
-src/TierD/MagicCallers.php:45:16  $this->annotated->current->send('hello')
-src/TierD/MagicCallers.php:57:16  $this->mixin->send('hello')
-src/TierD/MagicCallers.php:63:16  $this->forwarder->send('hello')
+inferred (7)
+src/TierD/CallSites.php:51:16      $thing->send('hello')
+src/TierD/LegacyCallers.php:26:16  $this->notifier->send('hello')
+src/TierD/LegacyCallers.php:32:16  $this->documented->send('hello')
+src/TierD/LegacyCallers.php:38:16  $this->notifier()->send('hello')
+src/TierD/MagicCallers.php:45:16   $this->annotated->current->send('hello')
+src/TierD/MagicCallers.php:57:16   $this->mixin->send('hello')
+src/TierD/MagicCallers.php:63:16   $this->forwarder->send('hello')
 
 ── 2 unresolved ──
-src/TierD/CallSites.php:36:16     $anything->send('hello')   receiver type unknown
-src/TierD/Magic.php:99:16         $handler?->send($name)     receiver type unknown
+src/TierD/CallSites.php:36:16      $anything->send('hello')   receiver type unknown
+src/TierD/Magic.php:99:16          $handler?->send($name)     receiver type unknown
 note: 1 file could not be parsed and is not in the index (see: exocomp index --status)

@@ -37,9 +37,12 @@ final class DeclarationCollector
 
     private readonly SignatureRenderer $signatures;
 
+    private readonly BodyTypes $bodyTypes;
+
     public function __construct(private readonly SourceFile $file)
     {
         $this->signatures = new SignatureRenderer($file);
+        $this->bodyTypes = new BodyTypes;
     }
 
     /**
@@ -187,11 +190,12 @@ final class DeclarationCollector
     {
         $members = [];
         $traits = [];
+        $inferred = $this->bodyTypes->of($node, $fqn, $this->imports);
 
         foreach ($node->stmts as $statement) {
             match (true) {
-                $statement instanceof Stmt\ClassMethod => $members = [...$members, ...$this->methodMembers($statement, $fqn)],
-                $statement instanceof Stmt\Property => $members = [...$members, ...$this->propertyMembers($statement, $fqn)],
+                $statement instanceof Stmt\ClassMethod => $members = [...$members, ...$this->methodMembers($statement, $fqn, $inferred)],
+                $statement instanceof Stmt\Property => $members = [...$members, ...$this->propertyMembers($statement, $fqn, $inferred)],
                 $statement instanceof Stmt\ClassConst => $members = [...$members, ...$this->constantMembers($statement, $fqn)],
                 $statement instanceof Stmt\EnumCase => $members[] = $this->enumCaseMember($statement, $fqn),
                 $statement instanceof Stmt\TraitUse => $traits = [...$traits, ...$this->resolvedNames($statement->traits)],
@@ -245,9 +249,10 @@ final class DeclarationCollector
     }
 
     /**
+     * @param  array<string, array{string, string}>  $inferred  from BodyTypes
      * @return list<Declaration>
      */
-    private function methodMembers(Stmt\ClassMethod $node, string $ownerFqn): array
+    private function methodMembers(Stmt\ClassMethod $node, string $ownerFqn, array $inferred): array
     {
         $method = new Declaration(
             kind: SymbolKind::Method,
@@ -265,6 +270,8 @@ final class DeclarationCollector
             modifiers: SignatureRenderer::modifiers($node->flags),
             hasBody: $node->stmts !== null,
             typeFqn: self::classLikeTypeOf($node->returnType),
+            inferredFqn: $inferred[$node->name->toString()][0] ?? null,
+            inferredReason: $inferred[$node->name->toString()][1] ?? null,
         );
 
         return [$method, ...$this->promotedMembers($node, $ownerFqn)];
@@ -315,9 +322,10 @@ final class DeclarationCollector
     }
 
     /**
+     * @param  array<string, array{string, string}>  $inferred  from BodyTypes
      * @return list<Declaration>
      */
-    private function propertyMembers(Stmt\Property $node, string $ownerFqn): array
+    private function propertyMembers(Stmt\Property $node, string $ownerFqn, array $inferred): array
     {
         $properties = [];
 
@@ -342,6 +350,8 @@ final class DeclarationCollector
                 modifiers: SignatureRenderer::modifiers($node->flags),
                 hasBody: $node->hooks !== [],
                 typeFqn: self::classLikeTypeOf($node->type),
+                inferredFqn: $inferred['$'.$name][0] ?? null,
+                inferredReason: $inferred['$'.$name][1] ?? null,
             );
         }
 

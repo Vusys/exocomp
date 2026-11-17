@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A property or method with no native class type is typed from its class's code, then from its docblock.** Code written before native types stopped at "property has no declared class type" or "method declares no class-like return type" on every chain through it. Where every assignment to `$this->prop` in the class names one class (`new`, a typed parameter, `$this`), that class is the property's type. Where every `return` names one class (those, plus a typed property or a same-class method's declared type), it is the method's. Only where the code doesn't settle it are `@var` and `@return` read. Both answers are `inferred`, never `resolved`, with the evidence as the reason. The index schema moves to v6, so every project re-indexes once.
+
 ## [0.6.0] - 2026-11-17
 
 Calls into the framework are followed. A method declared only in a vendor parent or trait is typed from its declaration, BookStack-style relations returned through a helper name their target, and an ancestry lookup that re-walked the hierarchy on every call is memoised. On BookStack, unresolved receivers in the dogfood run went from 324 to 216.

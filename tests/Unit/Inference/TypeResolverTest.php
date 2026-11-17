@@ -13,7 +13,8 @@ use Vusys\Exocomp\Tests\Support\Cli;
  * What the inference engine reads, and — more importantly — where it stops.
  *
  * A general PHP type engine is a very large thing, and most of that bulk exists to recover
- * types from code that never wrote them down. This one reads only what is written, and every
+ * types from code that never wrote them down. This one reads what is written, plus the narrow
+ * reading of a class's own assignments and returns that BodyTypes does, and every
  * test that asserts an *unknown* result is as much the specification as the ones that assert a
  * type: a receiver the tool cannot know and claims to know is worse than one it admits to.
  */
@@ -32,6 +33,20 @@ final class TypeResolverTest extends TestCase
     public function test_an_instantiation_resolves_the_variable_it_is_assigned_to(): void
     {
         $this->assertResolvedIn('Fixtures\TierD\NotifierCallers::fromNew');
+    }
+
+    public function test_an_untyped_property_and_return_are_inferred_from_the_class_code(): void
+    {
+        foreach (['viaAssignedProperty' => 'every assignment in the class', 'viaVarTag' => '@var', 'viaUntypedReturn' => 'every return in its body'] as $method => $reason) {
+            $call = array_values(array_filter(
+                $this->callsFrom('Fixtures\TierD\LegacyCallers', $method),
+                static fn (OutgoingCall $c): bool => $c->target === 'Fixtures\TierD\Notifier::send',
+            ));
+
+            $this->assertCount(1, $call, $method);
+            $this->assertSame(Confidence::Inferred, $call[0]->confidence, $method);
+            $this->assertStringContainsString($reason, $call[0]->reason, $method);
+        }
     }
 
     public function test_a_method_return_type_resolves_a_chained_call(): void

@@ -75,6 +75,8 @@ final readonly class FileFacts
             'promoted' => $declaration->isPromoted,
             'has_body' => $declaration->hasBody,
             'type_fqn' => $declaration->typeFqn,
+            'inferred_fqn' => $declaration->inferredFqn,
+            'inferred_reason' => $declaration->inferredReason,
         ];
     }
 
