@@ -42,8 +42,8 @@ final readonly class TypeResolver
 
     private ?EloquentReturns $eloquent;
 
-    /** @var \ArrayObject<string, ResolvedType|null> what {@see beyondTheIndex()} found, per class and method */
-    private \ArrayObject $beyond;
+    /** What {@see beyondTheIndex()} found, per class and method. */
+    private TypeMemo $beyond;
 
     /**
      * @param  (Closure(string): ?Binding)|null  $boundTo  what the application's providers bind a
@@ -59,7 +59,7 @@ final readonly class TypeResolver
         $this->docblocks = new DocBlockTypes;
         $this->members = new Members($graph);
         $this->eloquent = $magic instanceof Magic ? new EloquentReturns($graph, $this->members, $magic) : null;
-        $this->beyond = new \ArrayObject;
+        $this->beyond = new TypeMemo;
     }
 
     /**
@@ -545,22 +545,22 @@ final readonly class TypeResolver
 
         $key = Identifier::fold($ownerFqn.'::'.$method);
 
-        if ($this->beyond->offsetExists($key)) {
-            return $this->beyond[$key];
+        if ($this->beyond->has($key)) {
+            return $this->beyond->get($key);
         }
 
         // A model's framework methods are Eloquent's, which {@see EloquentReturns} answers by
         // convention; walking `Model` and its traits for each one cost more than it found.
         if ($this->magic?->isModel($ownerFqn) === true || $this->graph->members($ownerFqn)['unreachable'] === []) {
-            return $this->beyond[$key] = null;
+            return $this->beyond->set($key, null);
         }
 
-        return $this->beyond[$key] = $this->declaredBeyondTheIndex($ownerFqn, $method);
+        return $this->beyond->set($key, $this->declaredBeyondTheIndex($this->source, $ownerFqn, $method));
     }
 
-    private function declaredBeyondTheIndex(string $ownerFqn, string $method): ?ResolvedType
+    private function declaredBeyondTheIndex(ClassSource $source, string $ownerFqn, string $method): ?ResolvedType
     {
-        foreach ($this->source->withAncestors($ownerFqn) as $class) {
+        foreach ($source->withAncestors($ownerFqn) as $class) {
             $node = $class->node->getMethod($method);
 
             if (! $node instanceof Node\Stmt\ClassMethod) {
