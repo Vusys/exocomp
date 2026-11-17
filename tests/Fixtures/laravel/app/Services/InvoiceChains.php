@@ -117,6 +117,18 @@ final class InvoiceChains
         $client->invoices()->where('total', '>', 0)->first()->send();
     }
 
+    public function relationThroughHelper(Client $client): void
+    {
+        $client->drafts()->first()->send();
+    }
+
+    /** An element of a collection, by index. */
+    public function collectionIndex(): void
+    {
+        $invoices = Invoice::all();
+        $invoices[0]->send();
+    }
+
     /** Read as an attribute, a to-many relation is a collection of its models. */
     public function relationProperty(Client $client): void
     {

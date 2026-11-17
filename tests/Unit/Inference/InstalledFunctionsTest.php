@@ -10,6 +10,7 @@ use Vusys\Exocomp\Inference\Reference;
 use Vusys\Exocomp\Inference\ReferenceFinder;
 use Vusys\Exocomp\Project\AutoloadMap;
 use Vusys\Exocomp\Project\Project;
+use Vusys\Exocomp\Project\SymbolLocator;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolRef;
 use Vusys\Exocomp\Tests\Support\Cli;
@@ -27,14 +28,27 @@ final class InstalledFunctionsTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         $project = Project::at(Cli::laravelRoot());
-        $index = Index::open($project, AutoloadMap::forProject($project));
+        $map = AutoloadMap::forProject($project);
+        $index = Index::open($project, $map);
         $index->sync();
 
-        foreach (new ReferenceFinder($project, $index)->find(SymbolRef::parse('App\Models\Invoice::user')) as $reference) {
+        // With a locator, as the commands build it, so a class the index does not hold is readable.
+        foreach (new ReferenceFinder($project, $index, locator: new SymbolLocator($project, $map))->find(SymbolRef::parse('App\Models\Invoice::user')) as $reference) {
             if (str_starts_with($reference->context, 'App\Services\InvoiceChains::')) {
                 self::$byMethod[substr($reference->context, strlen('App\Services\InvoiceChains::'))] = $reference;
             }
+
+            if (str_starts_with($reference->context, 'App\Http\Controllers\SessionController::')) {
+                self::$byMethod['session:'.substr($reference->context, strlen('App\Http\Controllers\SessionController::'))] = $reference;
+            }
         }
+    }
+
+    public function test_a_method_declared_in_a_framework_trait_is_typed_from_its_declaration(): void
+    {
+        // `guard()` lives in a vendor trait and says it returns the request, so `->user()` on
+        // it is the request's, not the model's.
+        $this->assertArrayNotHasKey('session:check', self::$byMethod);
     }
 
     public function test_a_helper_typed_by_its_conditional_return_is_not_a_call_on_the_model(): void

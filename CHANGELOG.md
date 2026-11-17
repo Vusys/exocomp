@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A method declared in a framework parent or trait is typed from its declaration.** `$this->guard()` in a controller using `AuthenticatesUsers` stopped at "declares no guard(), and its ancestry leaves the indexed source". Where the index and the magic layer have nothing, the ancestry is now read on into `vendor/`. A single native class return type is the answer, and failing that a single class in `@return`, as `inferred`. That's the rest of #13.
+- **An element of a collection, by index.** `$orders[0]` on a collection of a known model is that model.
+
+### Fixed
+
+- **`SymbolGraph::ancestorsOf()` is memoised as intended.** The memo was read but never written, and a loop variable shadowed its key, so each call re-walked the hierarchy with an index query per step. That was about 16,000 queries in one reference search on a 1,600-file app.
+- **A relation built into a variable and returned through a helper is followed.** `$relation = $this->hasMany(Page::class)->orderBy(…); return $this->ordered($relation);`, as BookStack writes its relations, named no target in what it returned. Where the method declares a relation return type and every relation factory call in its body names one class, that class is the target.
+
 ## [0.5.0] - 2026-11-17
 
 The Laravel references release. Measured on a real application, `references-to` left 394 receivers unresolved over eight model members, and this release takes that to 13 with nothing previously resolved lost. Eloquent chains, relations, closures, the framework's helper functions and ide-helper annotations are all followed now, and a search on a common name runs about 2.5× faster. `model` and `schema` stop dropping relations, defaults and indexes they used to leave out.
