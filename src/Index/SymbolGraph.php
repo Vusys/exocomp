@@ -244,6 +244,29 @@ final class SymbolGraph
     }
 
     /**
+     * A corpus class's `extends` clause, from the index. Null for a class the corpus does not
+     * declare, whose source has to be read to answer.
+     *
+     * @return list<string>|null
+     */
+    public function extendsOf(string $fqn): ?array
+    {
+        if (! $this->classLike($fqn) instanceof SymbolRecord) {
+            return null;
+        }
+
+        $parents = [];
+
+        foreach ($this->store->edgesFrom($this->root, $fqn) as $edge) {
+            if ($edge['kind'] === 'extends') {
+                $parents[] = $edge['to'];
+            }
+        }
+
+        return $parents;
+    }
+
+    /**
      * Ancestors reachable from a class, mapped to how they were reached. Breadth-first and
      * cycle-guarded, because a malformed hierarchy must produce a wrong answer rather than a
      * hang.

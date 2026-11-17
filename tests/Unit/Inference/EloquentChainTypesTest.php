@@ -50,7 +50,7 @@ final class EloquentChainTypesTest extends TestCase
     {
         return [
             ['factory'], ['factoryState'], ['factoryMany'], ['find'], ['findMany'], ['query'], ['assigned'], ['foreachAll'], ['foreachGet'], ['instance'],
-            ['relationCreate'], ['relationQuery'], ['relationProperty'], ['relationForeach'], ['toOneProperty'],
+            ['relationCreate'], ['relationQuery'], ['relationProperty'], ['relationForeach'], ['toOneProperty'], ['reassigned'],
         ];
     }
 

@@ -188,6 +188,14 @@ final class ClassSource
         $key = Identifier::fold($fqn);
 
         if (! array_key_exists($key, $this->extends)) {
+            // The index already holds a corpus class's parents. Reading them from there spares a
+            // parse of every application class a reference search asks "is this a model" of.
+            $indexed = $this->graph->extendsOf($fqn);
+
+            if ($indexed !== null) {
+                return $this->extends[$key] = $indexed;
+            }
+
             $class = $this->load($fqn);
             $this->extends[$key] = $class instanceof LoadedClass ? $this->extendsOf($class) : [];
         }

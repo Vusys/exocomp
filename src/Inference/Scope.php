@@ -14,7 +14,14 @@ namespace Vusys\Exocomp\Inference;
  */
 final class Scope
 {
-    /** @var array<string, ResolvedType> */
+    /**
+     * A type, or how to work it out the first time it is asked for. Most variables a body
+     * assigns are never the receiver of the call being searched for, so typing each assignment
+     * as it is met paid for a great deal of inference — a class's whole ancestry read for its
+     * `@method` tags — that nothing used.
+     *
+     * @var array<string, ResolvedType|\Closure(): ?ResolvedType>
+     */
     private array $variables = [];
 
     public function __construct(
@@ -27,9 +34,31 @@ final class Scope
         $this->variables[$variable] = $type;
     }
 
+    /**
+     * Binds a variable to a type worked out only if something asks for it.
+     *
+     * @param  \Closure(): ?ResolvedType  $type  null when the binding establishes nothing
+     */
+    public function setLazy(string $variable, \Closure $type): void
+    {
+        $this->variables[$variable] = $type;
+    }
+
     public function get(string $variable): ?ResolvedType
     {
-        return $this->variables[$variable] ?? null;
+        $binding = $this->variables[$variable] ?? null;
+
+        if ($binding instanceof \Closure) {
+            $binding = $binding();
+
+            if ($binding === null) {
+                unset($this->variables[$variable]);
+            } else {
+                $this->variables[$variable] = $binding;
+            }
+        }
+
+        return $binding;
     }
 
     /**

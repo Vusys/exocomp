@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`references-to` and `callers-of` are about 2.5× faster on a common name.** Every assignment in every candidate file used to be typed as it was met, though most variables are never the receiver of the call being searched for. Each one could read a class's whole ancestry, often through `vendor/`, for its `@method` tags. A variable's type is now worked out the first time it's used, against the scope as it stood at the assignment. On a 568-file Laravel app, eight model-member searches went from 41.6 s to 16 s, and peak memory halved, with byte-identical output. A corpus class's parents are also read from the index rather than by parsing its file.
+
 ### Added
 
 - **Relations continue a chain to the model they point at.** `$user->posts()->create(...)`, `->latest()->first()`, `$user->posts->first()`, `foreach ($user->posts as $post)` and a to-one `$post->author` now reach the related model, read from the relation method's own `return $this->hasMany(Post::class)`. It only applies where the method is declared to return one of the framework's relation classes; a custom relation class keeps its own methods. `inferred`.
