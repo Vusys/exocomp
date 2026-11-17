@@ -37,6 +37,9 @@ final class MatchCollector extends NodeVisitorAbstract
 
     private Scope $scope;
 
+    /** @var list<Scope> the scopes a closure or nested function was entered from */
+    private array $enclosing = [];
+
     public function __construct(
         private readonly Pattern $pattern,
         private readonly SourceFile $file,
@@ -61,7 +64,8 @@ final class MatchCollector extends NodeVisitorAbstract
 
         if ($node instanceof Node\FunctionLike) {
             $this->functions[] = [$node, $this->nameOf($node)];
-            $this->scope = $this->scopeFor($node);
+            $this->enclosing[] = $this->scope;
+            $this->scope = $this->scopeFor($node, $this->scope);
         }
 
         if ($node instanceof Node\Expr\Assign && $this->types instanceof TypeResolver && $this->analysis instanceof FileAnalysis) {
@@ -107,6 +111,7 @@ final class MatchCollector extends NodeVisitorAbstract
 
         if ($node instanceof Node\FunctionLike) {
             array_pop($this->functions);
+            $this->scope = array_pop($this->enclosing) ?? new Scope(null, null);
         }
 
         return null;
@@ -120,7 +125,7 @@ final class MatchCollector extends NodeVisitorAbstract
         return $this->matches;
     }
 
-    private function scopeFor(Node\FunctionLike $function): Scope
+    private function scopeFor(Node\FunctionLike $function, Scope $enclosing): Scope
     {
         if (! $this->types instanceof TypeResolver || ! $this->analysis instanceof FileAnalysis) {
             return new Scope(null, null);
@@ -128,7 +133,7 @@ final class MatchCollector extends NodeVisitorAbstract
 
         $class = $this->classes === [] ? null : $this->classes[count($this->classes) - 1][1];
 
-        return $this->types->scopeFor($class, null, $function, $this->analysis->imports);
+        return $this->types->scopeFor($class, null, $function, $this->analysis->imports, $enclosing);
     }
 
     /**

@@ -55,14 +55,34 @@ final readonly class TypeResolver
      * Builds the scope for one function body: `$this`, the parameters, and the promoted
      * properties a constructor introduces.
      *
+     * A closure is also given what it can see of the scope it is written in, `$enclosing`.
+     * Without that, every variable the method had established was lost inside a `map()` or a
+     * `transaction()` callback, as if the closure were a method of its own.
+     *
      * @param  list<Import>  $imports
      */
-    public function scopeFor(?string $classFqn, ?string $parentFqn, ?Node\FunctionLike $function, array $imports): Scope
+    public function scopeFor(?string $classFqn, ?string $parentFqn, ?Node\FunctionLike $function, array $imports, ?Scope $enclosing = null): Scope
     {
         $scope = new Scope($classFqn, $parentFqn);
 
         if (! $function instanceof Node\FunctionLike) {
             return $scope;
+        }
+
+        if ($enclosing instanceof Scope && $function instanceof Node\Expr\ArrowFunction) {
+            $scope->inherit($enclosing);
+        }
+
+        if ($enclosing instanceof Scope && $function instanceof Node\Expr\Closure) {
+            $used = [];
+
+            foreach ($function->uses as $use) {
+                if (is_string($use->var->name)) {
+                    $used[] = $use->var->name;
+                }
+            }
+
+            $scope->inherit($enclosing, $used);
         }
 
         $documented = $this->documented($function);

@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **A closure no longer wipes out the method it is written in.** Leaving any closure or arrow function reset the scope to empty, so after the first `map(fn …)` in a method, every parameter and variable it had typed was unknown. A controller's `$request->user()` after a callback was "receiver type unknown". The enclosing scope is now restored. Inside, an arrow function sees the enclosing scope and a `function () use (…)` sees what it `use`s, as PHP gives them. On a real app this settled another 22% of the unresolved receivers that #11 left.
 - **A method declared to return `static` or `self` continues the chain.** The return type was taken literally, as a class called `static`, so every fluent chain through one stopped there. `static` is now the receiver's class and `self` the declaring class.
 - **`model` lists a model's attribute defaults.** `$attributes` was read but its facts went to a group the output never rendered, so every default was silently dropped. A literal `null` default was also reported as "the cast is computed". Defaults now have their own `attribute defaults` group (`--only attributes`), `null` is a value, and an expression the reader doesn't evaluate is declined as "the default is computed". Found on a real app's `User` model.
 - **`model`'s notes line up.** A fact with no value didn't pad its name, so its note started in a different column from the lines around it.

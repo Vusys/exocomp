@@ -25,6 +25,9 @@ final class EloquentChainTypesTest extends TestCase
     /** @var array<string, Reference> */
     private static array $byMethod = [];
 
+    /** @var list<Reference> references inside a closure, in source order */
+    private static array $inClosures = [];
+
     public static function setUpBeforeClass(): void
     {
         $project = Project::at(Cli::laravelRoot());
@@ -32,10 +35,14 @@ final class EloquentChainTypesTest extends TestCase
         $index->sync();
 
         foreach (new ReferenceFinder($project, $index)->find(SymbolRef::parse('App\Models\Invoice::send')) as $reference) {
-            if (str_starts_with($reference->context, 'App\Services\InvoiceChains::')) {
+            if ($reference->context === 'App\Services\InvoiceChains::{closure}') {
+                self::$inClosures[] = $reference;
+            } elseif (str_starts_with($reference->context, 'App\Services\InvoiceChains::')) {
                 self::$byMethod[substr($reference->context, strlen('App\Services\InvoiceChains::'))] = $reference;
             }
         }
+
+        usort(self::$inClosures, static fn (Reference $a, Reference $b): int => $a->line <=> $b->line);
     }
 
     /** @return list<array{string}> */
@@ -59,6 +66,23 @@ final class EloquentChainTypesTest extends TestCase
 
         $this->assertInstanceOf(Reference::class, $reference);
         $this->assertSame(Confidence::Resolved, $reference->confidence);
+    }
+
+    public function test_a_method_keeps_its_scope_after_a_closure(): void
+    {
+        $reference = self::$byMethod['afterClosure'] ?? null;
+
+        $this->assertInstanceOf(Reference::class, $reference);
+        $this->assertSame(Confidence::Resolved, $reference->confidence);
+    }
+
+    public function test_a_closure_sees_what_php_gives_it_of_the_enclosing_scope(): void
+    {
+        // insideArrow, insideClosureUse, insideClosureWithoutUse, in that order.
+        $this->assertSame(
+            [Confidence::Resolved, Confidence::Resolved, Confidence::Textual],
+            array_map(static fn (Reference $reference): Confidence => $reference->confidence, self::$inClosures),
+        );
     }
 
     /** @return list<array{string}> */

@@ -33,6 +33,22 @@ final class Scope
     }
 
     /**
+     * Takes what a closure can see of the scope it is written in: everything, for an arrow
+     * function, which captures by value automatically; only the named variables, for a
+     * `function () use ($a, $b)`.
+     *
+     * @param  ?list<string>  $only
+     */
+    public function inherit(self $enclosing, ?array $only = null): void
+    {
+        foreach ($enclosing->variables as $name => $type) {
+            if ($only === null || in_array($name, $only, true)) {
+                $this->variables[$name] = $type;
+            }
+        }
+    }
+
+    /**
      * `$this` and `self` are the same class here; `static` is deliberately treated as the
      * declaring class too. Late static binding could make it a subclass, so a reference found
      * through it is reported at the declaring class — which is where the declaration a caller
