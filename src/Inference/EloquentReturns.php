@@ -137,6 +137,40 @@ final readonly class EloquentReturns
             : ResolvedType::inferred($model, sprintf('%s() returns the model, by Eloquent convention', $method));
     }
 
+    /** Relation factories that hold many models, read as an attribute into a collection. */
+    private const array TO_MANY = ['hasmany', 'belongstomany', 'hasmanythrough', 'morphmany', 'morphtomany', 'morphedbymany'];
+
+    /**
+     * `$user->posts()`: a relation, which forwards to a query builder of the model it points at,
+     * so `->create()`, `->latest()->first()` and the rest end at that model.
+     */
+    public function fromRelation(string $model, string $method): ?ResolvedType
+    {
+        $relation = $this->magic->relationTarget($model, $method);
+
+        return $relation === null
+            ? null
+            : ResolvedType::wrapping(self::BUILDER_FQN, self::BUILDER, $relation[0], sprintf('%s() is a %s relation to %s, by Eloquent convention', $method, $relation[1], $relation[0]));
+    }
+
+    /**
+     * `$user->posts`, a relation read as an attribute: the related models, or the one model.
+     */
+    public function fromRelationProperty(string $model, string $property): ?ResolvedType
+    {
+        $relation = $this->magic->relationTarget($model, $property);
+
+        if ($relation === null) {
+            return null;
+        }
+
+        [$target, $factory] = $relation;
+
+        return in_array($factory, self::TO_MANY, true)
+            ? ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $target, sprintf('the %s relation %s, read as an attribute, by Eloquent convention', $factory, $property))
+            : ResolvedType::inferred($target, sprintf('the %s relation %s, read as an attribute, by Eloquent convention', $factory, $property));
+    }
+
     /**
      * One link of a chain whose receiver is a builder, factory or collection of a model.
      */
