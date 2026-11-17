@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-17
+
+The Laravel references release. Measured on a real application, `references-to` left 394 receivers unresolved over eight model members, and this release takes that to 13 with nothing previously resolved lost. Eloquent chains, relations, closures, the framework's helper functions and ide-helper annotations are all followed now, and a search on a common name runs about 2.5× faster. `model` and `schema` stop dropping relations, defaults and indexes they used to leave out.
+
+Bumping the version changes the symbol cache's identity, so every project re-indexes once.
+
 ### Changed
 
 - **`references-to` and `callers-of` are about 2.5× faster on a common name.** Every assignment in every candidate file used to be typed as it was met, though most variables are never the receiver of the call being searched for. Each one could read a class's whole ancestry, often through `vendor/`, for its `@method` tags. A variable's type is now worked out the first time it's used, against the scope as it stood at the assignment. On a 568-file Laravel app, eight model-member searches went from 41.6 s to 16 s, and peak memory halved, with byte-identical output. A corpus class's parents are also read from the index rather than by parsing its file.
@@ -29,7 +35,6 @@ All notable changes to this project are documented here. The format follows
 - **A relation of a custom class is reported, not dropped.** A method returning a package's own relation class (`BitemporalMany extends HasMany`) appeared nowhere in `model`'s output, so a model's main relations could vanish without a word. It's recognised by its ancestry and declined with the core relation it extends, the factory that builds it, and the class it's given (#4).
 - **Overrides of Eloquent's relation factories are not relations.** A trait overriding `newBelongsTo()`, `newHasMany()` and the rest was reported as declaring those relations. Only a public method with no required parameters can be a relation, which is all Eloquent can use as one (#5).
 - **`static::class` in a trait names the model, not the trait.** `model` reported a tree trait's `belongsTo(static::class)` as a resolved relation to the trait itself, which was confidently wrong. Now `static::class` names the model being read, `self::class` names the class that uses the trait (directly or through another trait), and `parent::class` names that class's parent. Where the parent is outside the readable ancestry, it's declined rather than answered with the class itself (#3).
-
 - **Concurrent runs no longer fail with "database is locked".** Every project shares one cache file, so two runs at once, in different projects or the same one, wrote to the same database. Each write batch started with a deferred `BEGIN`, read, and then wrote, and in WAL mode SQLite refuses to upgrade a read to a write if another process committed in between. It refuses at once and ignores the busy timeout. Batches now take the write lock when they start, with `BEGIN IMMEDIATE`, so the second run waits. Six projects each re-reading a changed file fifteen times in parallel failed 20 of 90 runs before the change and none after it.
 
 ## [0.4.0] - 2026-10-15
@@ -155,7 +160,7 @@ source roots have grown, so a cache built under 0.1.0 is missing rows.
   were read. `--no-sync` opts out and says it has, so the faster answer can never claim the
   stronger guarantee.
 
-## [0.1.0]
+## [0.1.0] - 2026-09-11
 
 ### Added
 
