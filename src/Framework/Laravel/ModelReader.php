@@ -328,7 +328,8 @@ final class ModelReader
     {
         foreach (LiteralValue::pairs($expression) as $pair) {
             if ($pair['value'] === null) {
-                $this->declined[] = new ModelFact($name, $pair['key'], null, Confidence::Textual, $class->path, $pair['line'], 'the cast is computed', $class->fqn);
+                $what = $name === 'attributes' ? 'the default' : 'the cast';
+                $this->declined[] = new ModelFact($name, $pair['key'], null, Confidence::Textual, $class->path, $pair['line'], $what.' is computed', $class->fqn);
 
                 continue;
             }

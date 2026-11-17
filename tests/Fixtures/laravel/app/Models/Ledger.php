@@ -15,6 +15,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 final class Ledger extends Model
 {
+    /** Default attribute values: a literal, a literal null, and an expression the reader does not evaluate. */
+    protected $attributes = [
+        'status' => 'open',
+        'closed_at' => null,
+        'grace_seconds' => 60 * 60,
+    ];
+
     public function entries(): HistoryMany
     {
         return $this->historyMany(Order::class);

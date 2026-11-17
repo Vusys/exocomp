@@ -125,6 +125,12 @@ final class LiteralValue
 
             $value = self::className($item->value) ?? self::scalar($item->value);
 
+            // A literal `null` is a value, and only a computed one is unknown. Both come back from
+            // scalar() as null, so the literal is told apart here.
+            if ($value === null && $item->value instanceof Node\Expr\ConstFetch && strcasecmp($item->value->name->toString(), 'null') === 0) {
+                $value = 'null';
+            }
+
             $pairs[] = [
                 'key' => $key,
                 'value' => $value === null ? null : (is_bool($value) ? ($value ? 'true' : 'false') : (string) $value),
