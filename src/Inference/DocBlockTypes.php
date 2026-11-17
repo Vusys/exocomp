@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Inference;
 
+use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprIntegerNode;
+use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\MethodTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\MixinTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\ParamTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\PropertyTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\ReturnTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\VarTagValueNode;
+use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
+use PHPStan\PhpDocParser\Ast\Type\ArrayTypeNode;
+use PHPStan\PhpDocParser\Ast\Type\GenericTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\NullableTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
@@ -30,7 +35,8 @@ use PHPStan\PhpDocParser\ParserConfig;
  *
  * That decision is narrow on purpose: a single class-like name, or a nullable one. Anything
  * else — a union, a generic, an array shape — cannot name one receiver, and picking a member
- * of it would be a guess.
+ * of it would be a guess. An array type is read only for what it says of its elements
+ * ({@see elements()}), never as a receiver itself.
  */
 final readonly class DocBlockTypes
 {
@@ -155,6 +161,94 @@ final readonly class DocBlockTypes
         }
 
         return ['methods' => $methods, 'properties' => $properties, 'mixins' => $mixins];
+    }
+
+    /**
+     * The classes the same tags document an array's elements as.
+     *
+     * `Page[]`, `list<Page>`, `array<string, Page>` and `iterable<Page>` name the element at any
+     * key, kept under `*`; `array{book: Book, page: Page}` names one per key. An element that is
+     * not a single class is left out, as {@see read()} leaves out a type that is not one.
+     *
+     * @return array{params: array<string, array<string, string>>, return: array<string, string>, var: array<string, string>, vars: array<string, array<string, string>>}
+     */
+    public function elements(string $docblock): array
+    {
+        $found = ['params' => [], 'return' => [], 'var' => [], 'vars' => []];
+
+        if (trim($docblock) === '') {
+            return $found;
+        }
+
+        foreach ($this->parser->parse(new TokenIterator($this->lexer->tokenize($docblock)))->getTags() as $tag) {
+            $value = $tag->value;
+
+            if ($value instanceof ParamTagValueNode) {
+                $elements = self::elementsOf($value->type);
+
+                if ($elements !== []) {
+                    $found['params'][ltrim($value->parameterName, '$')] = $elements;
+                }
+            } elseif ($value instanceof ReturnTagValueNode && $found['return'] === []) {
+                $found['return'] = self::elementsOf($value->type);
+            } elseif ($value instanceof VarTagValueNode) {
+                $elements = self::elementsOf($value->type);
+
+                if ($found['var'] === []) {
+                    $found['var'] = $elements;
+                }
+
+                if ($elements !== [] && $value->variableName !== '') {
+                    $found['vars'][ltrim($value->variableName, '$')] = $elements;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function elementsOf(TypeNode $type): array
+    {
+        if ($type instanceof NullableTypeNode) {
+            return self::elementsOf($type->type);
+        }
+
+        $any = match (true) {
+            $type instanceof ArrayTypeNode => $type->type,
+            $type instanceof GenericTypeNode && $type->type instanceof IdentifierTypeNode && in_array(strtolower($type->type->name), ['array', 'list', 'non-empty-array', 'non-empty-list', 'iterable'], true) => $type->genericTypes[array_key_last($type->genericTypes)] ?? null,
+            default => null,
+        };
+
+        if ($any instanceof TypeNode) {
+            $name = self::nameOf($any);
+
+            return $name === null ? [] : ['*' => $name];
+        }
+
+        if (! $type instanceof ArrayShapeNode) {
+            return [];
+        }
+
+        $elements = [];
+
+        foreach ($type->items as $position => $item) {
+            $key = match (true) {
+                $item->keyName === null => (string) $position,
+                $item->keyName instanceof IdentifierTypeNode => $item->keyName->name,
+                $item->keyName instanceof ConstExprStringNode, $item->keyName instanceof ConstExprIntegerNode => $item->keyName->value,
+                default => null,
+            };
+            $name = self::nameOf($item->valueType);
+
+            if ($key !== null && $name !== null) {
+                $elements[$key] = $name;
+            }
+        }
+
+        return $elements;
     }
 
     /**

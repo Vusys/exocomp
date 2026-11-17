@@ -49,6 +49,23 @@ final class TypeResolverTest extends TestCase
         }
     }
 
+    public function test_an_element_of_a_documented_array_is_inferred(): void
+    {
+        foreach (['viaShapeKey' => '@return', 'viaForeach' => '@var', 'viaParam' => '@param', 'viaInlineVar' => '@var'] as $method => $tag) {
+            $call = array_values(array_filter(
+                $this->callsFrom('Fixtures\TierD\ArrayCallers', $method),
+                static fn (OutgoingCall $c): bool => $c->target === 'Fixtures\TierD\Notifier::send',
+            ));
+
+            $this->assertCount(1, $call, $method);
+            $this->assertSame(Confidence::Inferred, $call[0]->confidence, $method);
+            $this->assertStringContainsString("an element of an array documented by {$tag}", $call[0]->reason, $method);
+        }
+
+        $missing = array_map(static fn (OutgoingCall $c): ?string => $c->target, $this->callsFrom('Fixtures\TierD\ArrayCallers', 'viaMissingKey'));
+        $this->assertNotContains('Fixtures\TierD\Notifier::send', $missing);
+    }
+
     public function test_a_method_return_type_resolves_a_chained_call(): void
     {
         $calls = $this->callsFrom('Fixtures\TierB\CallSites', 'lookups');

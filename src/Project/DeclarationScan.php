@@ -126,6 +126,7 @@ final readonly class DeclarationScan
                 typeFqn: $declaration->typeFqn,
                 inferredFqn: $declaration->inferredFqn,
                 inferredReason: $declaration->inferredReason,
+                inferredElements: $declaration->inferredElements,
             );
         }
 

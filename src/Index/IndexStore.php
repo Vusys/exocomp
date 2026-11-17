@@ -74,8 +74,9 @@ final class IndexStore
         $symbol = $this->prepare('put_symbol', <<<'SQL'
             INSERT INTO symbols (hash, fqn, lower_fqn, name, lower_name, kind, owner, lower_owner,
                                  line, end_line, col, span_line, signature, full_signature,
-                                 modifiers, promoted, has_body, type_fqn, inferred_fqn, inferred_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 modifiers, promoted, has_body, type_fqn, inferred_fqn, inferred_reason,
+                                 inferred_elements)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             SQL);
 
         foreach ($facts->symbols as $row) {
@@ -106,6 +107,7 @@ final class IndexStore
                 isset($row['type_fqn']) && is_string($row['type_fqn']) ? $row['type_fqn'] : null,
                 isset($row['inferred_fqn']) && is_string($row['inferred_fqn']) ? $row['inferred_fqn'] : null,
                 isset($row['inferred_reason']) && is_string($row['inferred_reason']) ? $row['inferred_reason'] : null,
+                isset($row['inferred_elements']) && is_string($row['inferred_elements']) ? $row['inferred_elements'] : null,
             ]);
         }
 
@@ -494,10 +496,21 @@ final class IndexStore
                 typeFqn: isset($row['type_fqn']) && is_string($row['type_fqn']) ? $row['type_fqn'] : null,
                 inferredFqn: isset($row['inferred_fqn']) && is_string($row['inferred_fqn']) ? $row['inferred_fqn'] : null,
                 inferredReason: isset($row['inferred_reason']) && is_string($row['inferred_reason']) ? $row['inferred_reason'] : null,
+                inferredElements: $this->elements($row['inferred_elements'] ?? null),
             );
         }
 
         return $records;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function elements(mixed $json): array
+    {
+        $decoded = is_string($json) ? json_decode($json, true) : null;
+
+        return is_array($decoded) ? array_filter(array_map(static fn (mixed $fqn): string => is_string($fqn) ? $fqn : '', $decoded), static fn (string $fqn): bool => $fqn !== '') : [];
     }
 
     /**

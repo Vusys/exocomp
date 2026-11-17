@@ -32,6 +32,9 @@ final readonly class Declaration
      * @param  ?string  $inferredFqn  where nothing native declares a class, the one the class's own
      *                                code or docblock implies (see BodyTypes), with the evidence in
      *                                $inferredReason. Never a declaration: it is read as inferred.
+     * @param  array<string, string>  $inferredElements  for an array property or method, the class
+     *                                                   its docblock gives the element at each key,
+     *                                                   `*` for any key (see BodyTypes)
      */
     public function __construct(
         public SymbolKind $kind,
@@ -56,6 +59,7 @@ final readonly class Declaration
         public ?string $typeFqn = null,
         public ?string $inferredFqn = null,
         public ?string $inferredReason = null,
+        public array $inferredElements = [],
     ) {}
 
     public function isClassLike(): bool

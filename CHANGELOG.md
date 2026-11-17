@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **What is read out of a documented array is typed.** An array a docblock describes, `@return array{book: Book, page: Page}`, `@var Page[]`, `@param list<Page> $pages` or an inline `/** @var array<string, Page> $byName */`, now types what comes out of it: `$chain['book']`, `$pages[0]` and `foreach ($pages as $page)`, as `inferred`. A key the shape doesn't name, or an element that isn't one class, stays unknown, and the array itself is never taken for a receiver. A method's or property's documented elements are kept in the index (schema v7), so every project re-indexes once. On BookStack, unresolved receivers in the dogfood run went from 216 to 79; on Matomo from 331 to 313.
+
 ## [0.7.0] - 2026-11-17
 
 Code written before native types is followed. An untyped property or method takes its class from what the class's own code assigns or returns, and from its docblock only where the code doesn't settle it. On Matomo, unresolved receivers in the dogfood run went from 547 to 331.
