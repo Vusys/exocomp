@@ -48,7 +48,10 @@ final class EloquentChainTypesTest extends TestCase
     /** @return list<array{string}> */
     public static function typedChains(): array
     {
-        return [['factory'], ['factoryState'], ['factoryMany'], ['find'], ['findMany'], ['query'], ['assigned'], ['foreachAll'], ['foreachGet'], ['instance']];
+        return [
+            ['factory'], ['factoryState'], ['factoryMany'], ['find'], ['findMany'], ['query'], ['assigned'], ['foreachAll'], ['foreachGet'], ['instance'],
+            ['relationCreate'], ['relationQuery'], ['relationProperty'], ['relationForeach'], ['toOneProperty'],
+        ];
     }
 
     #[DataProvider('typedChains')]
@@ -63,6 +66,14 @@ final class EloquentChainTypesTest extends TestCase
     public function test_a_chain_through_static_and_self_return_types_is_resolved(): void
     {
         $reference = self::$byMethod['fluent'] ?? null;
+
+        $this->assertInstanceOf(Reference::class, $reference);
+        $this->assertSame(Confidence::Resolved, $reference->confidence);
+    }
+
+    public function test_a_variable_narrowed_by_instanceof_in_a_ternary_is_resolved(): void
+    {
+        $reference = self::$byMethod['narrowed'] ?? null;
 
         $this->assertInstanceOf(Reference::class, $reference);
         $this->assertSame(Confidence::Resolved, $reference->confidence);

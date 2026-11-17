@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\Client;
 use App\Models\Invoice;
 
 /**
@@ -103,6 +104,43 @@ final class InvoiceChains
         array_map(function (): void {
             $invoice->send();
         }, [1]);
+    }
+
+    /** A relation forwards to a query of the model it points at. */
+    public function relationCreate(Client $client): void
+    {
+        $client->invoices()->create([])->send();
+    }
+
+    public function relationQuery(Client $client): void
+    {
+        $client->invoices()->where('total', '>', 0)->first()->send();
+    }
+
+    /** Read as an attribute, a to-many relation is a collection of its models. */
+    public function relationProperty(Client $client): void
+    {
+        $client->invoices->first()->send();
+    }
+
+    public function relationForeach(Client $client): void
+    {
+        foreach ($client->invoices as $invoice) {
+            $invoice->send();
+        }
+    }
+
+    /** And a to-one relation is the model. */
+    public function toOneProperty(Client $client): void
+    {
+        $client->latestInvoice->send();
+    }
+
+    /** The narrowing written inline. */
+    public function narrowed(mixed $value): void
+    {
+        $invoice = $value instanceof Invoice ? $value : null;
+        $invoice->send();
     }
 
     /** The framework's `request()` helper, which returns the request when given no key. */

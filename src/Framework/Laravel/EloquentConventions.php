@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Framework\Laravel;
 
+use PhpParser\Node;
+use PhpParser\NodeFinder;
+use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\MagicMember;
 use Vusys\Exocomp\Inference\MagicSource;
@@ -11,6 +14,7 @@ use Vusys\Exocomp\Inference\Members;
 use Vusys\Exocomp\Project\AutoloadMap;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
@@ -51,11 +55,58 @@ final class EloquentConventions implements MagicSource
     /** @var array<string, bool> */
     private array $models = [];
 
+    /** @var array<string, array{string, string}|null> */
+    private array $relations = [];
+
     public function __construct(
         private readonly ClassSource $source,
         private readonly Members $members,
         private readonly ?AutoloadMap $map = null,
     ) {}
+
+    /**
+     * The class a relation method on a model points at, and the relation factory that makes it
+     * (`hasMany`, `belongsTo`, …), read from the method's body: `return $this->hasMany(X::class)`,
+     * through any chain after it. Null when the method builds no relation the body names a class for.
+     *
+     * @return array{string, string}|null [target class, factory, lower-cased]
+     */
+    public function relationTarget(string $modelFqn, string $method): ?array
+    {
+        $key = Identifier::fold($modelFqn.'::'.$method);
+
+        if (array_key_exists($key, $this->relations)) {
+            return $this->relations[$key];
+        }
+
+        $declaration = $this->members->declared($modelFqn, $method, SymbolKind::Method);
+        $owner = $declaration?->owner;
+        $class = $owner === null ? null : $this->source->load($owner);
+        $node = $class?->node->getMethod($method);
+
+        if (! $node instanceof Node\Stmt\ClassMethod) {
+            return $this->relations[$key] = null;
+        }
+
+        foreach (new NodeFinder()->findInstanceOf([$node], Node\Stmt\Return_::class) as $return) {
+            $expression = $return->expr;
+
+            while ($expression instanceof Node\Expr\MethodCall) {
+                if ($expression->var instanceof Node\Expr\Variable && $expression->var->name === 'this'
+                    && $expression->name instanceof Node\Identifier
+                    && in_array($factory = strtolower($expression->name->toString()), ModelReader::RELATIONS, true)) {
+                    $first = $expression->getArgs()[0]->value ?? null;
+                    $target = $first === null ? null : LiteralValue::className($first, selfFqn: (string) $owner, staticFqn: $modelFqn);
+
+                    return $this->relations[$key] = $target === null ? null : [$target, $factory];
+                }
+
+                $expression = $expression->var;
+            }
+        }
+
+        return $this->relations[$key] = null;
+    }
 
     public function method(string $ownerFqn, string $name): ?MagicMember
     {

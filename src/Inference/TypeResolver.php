@@ -135,8 +135,59 @@ final readonly class TypeResolver
             $expression instanceof Node\Expr\ClassConstFetch => $this->enumCaseType($expression, $scope),
             $expression instanceof Node\Expr\Assign => $this->typeOf($expression->expr, $scope, $imports),
             $expression instanceof Node\Expr\Clone_ => $this->typeOf($expression->expr, $scope, $imports),
+            $expression instanceof Node\Expr\Ternary => $this->ternaryType($expression, $scope, $imports),
+            $expression instanceof Node\Expr\BinaryOp\Coalesce => $this->eitherType($expression->left, $expression->right, $scope, $imports),
             default => ResolvedType::unknown('expression kind carries no declared type'),
         };
+    }
+
+    /**
+     * `$x instanceof Order ? $x : null`, the narrowing written inline. The test is the type of
+     * the first branch, as PHP guarantees; otherwise the branches decide between them.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function ternaryType(Node\Expr\Ternary $ternary, Scope $scope, array $imports): ResolvedType
+    {
+        $if = $ternary->if ?? $ternary->cond;
+
+        if ($ternary->cond instanceof Node\Expr\Instanceof_ && $ternary->cond->class instanceof Node\Name
+            && $if instanceof Node\Expr\Variable && $ternary->cond->expr instanceof Node\Expr\Variable
+            && is_string($if->name) && $if->name === $ternary->cond->expr->name) {
+            $class = $this->className($ternary->cond->class, $scope);
+
+            if ($class !== null) {
+                return ResolvedType::resolvedBy($class, 'narrowed by instanceof');
+            }
+        }
+
+        return $this->eitherType($if, $ternary->else, $scope, $imports);
+    }
+
+    /**
+     * One of two expressions, as in `$a ?? $b` or a ternary's branches: a literal `null` adds
+     * nothing, and two branches of one type are that type. Anything else is not known.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function eitherType(Node\Expr $first, Node\Expr $second, Scope $scope, array $imports): ResolvedType
+    {
+        $isNull = static fn (Node\Expr $expression): bool => $expression instanceof Node\Expr\ConstFetch && strtolower($expression->name->toString()) === 'null';
+
+        if ($isNull($second)) {
+            return $this->typeOf($first, $scope, $imports);
+        }
+
+        if ($isNull($first)) {
+            return $this->typeOf($second, $scope, $imports);
+        }
+
+        $left = $this->typeOf($first, $scope, $imports);
+        $right = $this->typeOf($second, $scope, $imports);
+
+        return $left->isKnown() && $right->isKnown() && strcasecmp((string) $left->fqn, (string) $right->fqn) === 0
+            ? ($left->confidence === Confidence::Resolved ? $right : $left)
+            : ResolvedType::unknown('the branches do not agree on a type');
     }
 
     /**
@@ -239,7 +290,8 @@ final readonly class TypeResolver
                 : ResolvedType::declared($member->typeFqn);
         }
 
-        return $this->magically((string) $owner->fqn, $name, SymbolKind::Property)
+        return $this->eloquent?->fromRelationProperty((string) $owner->fqn, $name)
+            ?? $this->magically((string) $owner->fqn, $name, SymbolKind::Property)
             ?? ResolvedType::unknown('property has no declared class type');
     }
 
@@ -283,6 +335,12 @@ final readonly class TypeResolver
 
         if ($owner->isKnown() && (! $type->isKnown() || $type->confidence !== Confidence::Resolved)) {
             $type = $this->eloquent?->fromInstance((string) $owner->fqn, $name) ?? $type;
+        }
+
+        // A relation method declared to return one of the framework's relation classes: that
+        // class knows nothing of the related model, and the method's body does.
+        if ($owner->isKnown() && $type->isKnown() && str_starts_with((string) $type->fqn, 'Illuminate\\Database\\Eloquent\\Relations\\')) {
+            $type = $this->eloquent?->fromRelation((string) $owner->fqn, $name) ?? $type;
         }
 
         // `app()->make(X::class)`, `$this->app->make(X::class)` and friends: the container's own

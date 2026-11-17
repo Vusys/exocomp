@@ -66,7 +66,7 @@ final class ModelReader
      *
      * @var list<string>
      */
-    private const array RELATIONS = [
+    public const array RELATIONS = [
         'hasone', 'hasmany', 'belongsto', 'belongstomany', 'hasonethrough', 'hasmanythrough',
         'morphone', 'morphmany', 'morphto', 'morphtomany', 'morphedbymany', 'hasoneofmany',
     ];

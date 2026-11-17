@@ -80,6 +80,22 @@ final class Magic
         return false;
     }
 
+    /**
+     * The target and factory of a relation method on a model ({@see EloquentConventions::relationTarget()}).
+     *
+     * @return array{string, string}|null
+     */
+    public function relationTarget(string $modelFqn, string $method): ?array
+    {
+        foreach ($this->sources as $source) {
+            if ($source instanceof EloquentConventions) {
+                return $source->relationTarget($modelFqn, $method);
+            }
+        }
+
+        return null;
+    }
+
     public function method(string $ownerFqn, string $name): ?MagicMember
     {
         return $this->resolve($ownerFqn, $name, SymbolKind::Method);
