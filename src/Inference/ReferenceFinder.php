@@ -6,6 +6,7 @@ namespace Vusys\Exocomp\Inference;
 
 use PhpParser\NodeTraverser;
 use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Framework\Laravel\AuthModel;
 use Vusys\Exocomp\Framework\Laravel\Binding;
 use Vusys\Exocomp\Framework\Laravel\ContainerReader;
 use Vusys\Exocomp\Index\Index;
@@ -69,7 +70,7 @@ final class ReferenceFinder
             $container ??= new ContainerReader($graph, $source)->read();
 
             return $container->concreteFor($abstract);
-        }, InstalledFunctions::forProject($this->project), $source);
+        }, InstalledFunctions::forProject($this->project), $source, AuthModel::lazily($this->project));
 
         // A member the framework lets you call by another name is mentioned by that other name
         // and no other, so the narrowing has to look for both. Getting this wrong would not

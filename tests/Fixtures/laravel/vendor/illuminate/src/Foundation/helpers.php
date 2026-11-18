@@ -14,6 +14,13 @@ if (! function_exists('request')) {
     }
 }
 
+if (! function_exists('auth')) {
+    function auth($guard = null): \Illuminate\Contracts\Auth\Factory
+    {
+        return app('auth');
+    }
+}
+
 if (! function_exists('fixture_now')) {
     function fixture_now(): \Illuminate\Http\Request
     {
