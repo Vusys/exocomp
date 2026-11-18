@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The signed-in user is the app's user model.** `auth()->user()`, `Auth::user()`, a guard's `user()` and `$request->user()` (a form request's too) stopped at "declares no user()", because the framework declares only the `Authenticatable` contract. The model is now read from `config/auth.php`, as `User::class` or the default of `env('AUTH_MODEL', User::class)`, and the call is that model, as `inferred`. Where the providers name more than one model, or none that can be read, it stays unresolved and says why. In the dogfood run, unresolved receivers went from 124 to 58 on Monica and from 160 to 96 on Firefly III.
+
 ## [0.8.0] - 2026-11-18
 
 What comes out of a documented array is followed. `$pages[0]`, `$chain['book']` and `foreach ($pages as $page)` take their class from the array's `@var`, `@param` or `@return`. On BookStack, unresolved receivers in the dogfood run went from 216 to 79.

@@ -10,6 +10,7 @@ use PhpParser\Node;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\Import;
 use Vusys\Exocomp\Analysis\LiteralValue;
+use Vusys\Exocomp\Framework\Laravel\AuthModel;
 use Vusys\Exocomp\Framework\Laravel\Binding;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
@@ -36,6 +37,13 @@ use Vusys\Exocomp\Symbol\SymbolKind;
  */
 final readonly class TypeResolver
 {
+    /** What a `user()` call returns the signed-in user from, folded; `Auth` is the facade's alias. */
+    private const array AUTH_SOURCES = [
+        'illuminate\\contracts\\auth\\factory', 'illuminate\\contracts\\auth\\guard', 'illuminate\\contracts\\auth\\statefulguard',
+        'illuminate\\auth\\authmanager', 'illuminate\\auth\\sessionguard', 'illuminate\\auth\\requestguard', 'illuminate\\auth\\tokenguard',
+        'illuminate\\support\\facades\\auth', 'auth',
+    ];
+
     private DocBlockTypes $docblocks;
 
     private Members $members;
@@ -53,8 +61,10 @@ final readonly class TypeResolver
      *                                          when a function is not in the index
      * @param  ?ClassSource  $source  reads a class the index does not hold, so a method declared
      *                                in a framework parent or trait can be found and typed
+     * @param  (Closure(): array{?string, string})|null  $authUser  the class the signed-in user is,
+     *                                                              or null, and why ({@see AuthModel})
      */
-    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null, private ?Closure $boundTo = null, private ?InstalledFunctions $installed = null, private ?ClassSource $source = null)
+    public function __construct(private SymbolGraph $graph, private ?Magic $magic = null, private ?Closure $boundTo = null, private ?InstalledFunctions $installed = null, private ?ClassSource $source = null, private ?Closure $authUser = null)
     {
         $this->docblocks = new DocBlockTypes;
         $this->members = new Members($graph);
@@ -389,6 +399,10 @@ final readonly class TypeResolver
             $type = $this->eloquent?->fromRelation((string) $owner->fqn, $name) ?? $type;
         }
 
+        if ($owner->isKnown() && ! $type->isKnown()) {
+            $type = $this->authenticatedUser((string) $owner->fqn, $name) ?? $type;
+        }
+
         // `app()->make(X::class)`, `$this->app->make(X::class)` and friends: the container's own
         // signature says `mixed`, so this only steps in where nothing declared said otherwise.
         if (! $type->isKnown() && in_array(strtolower($call->name->toString()), ['make', 'makewith'], true)) {
@@ -413,6 +427,10 @@ final readonly class TypeResolver
         // knows nothing of the model, so read literally they ended every chain at `query()`.
         if (! $type->isKnown() || $type->confidence !== Confidence::Resolved) {
             $type = $this->eloquent?->fromModel($owner, $call->name->toString(), $call) ?? $type;
+        }
+
+        if (! $type->isKnown()) {
+            $type = $this->authenticatedUser($owner, $call->name->toString()) ?? $type;
         }
 
         // `App::make(X::class)` — the facade, by its short name or its alias.
@@ -450,6 +468,29 @@ final readonly class TypeResolver
         }
 
         return ResolvedType::resolvedBy($class, 'resolved out of the container by class name');
+    }
+
+    /**
+     * `auth()->user()`, `Auth::user()`, `$request->user()`: the framework declares a contract, and
+     * the app's auth config names the model behind it.
+     */
+    private function authenticatedUser(string $ownerFqn, string $method): ?ResolvedType
+    {
+        if (strtolower($method) !== 'user' || ! $this->authUser instanceof Closure) {
+            return null;
+        }
+
+        $fold = Identifier::fold($ownerFqn);
+
+        if (! in_array($fold, self::AUTH_SOURCES, true) && $this->source?->descendsFrom($ownerFqn, 'Illuminate\\Http\\Request') !== true) {
+            return null;
+        }
+
+        [$model, $why] = ($this->authUser)();
+
+        return $model === null
+            ? ResolvedType::unknown(sprintf('user() is the signed-in user, but %s', $why))
+            : ResolvedType::inferred($model, sprintf('the signed-in user, %s', $why));
     }
 
     private function returnTypeOf(string $ownerFqn, string $method): ResolvedType
