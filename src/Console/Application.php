@@ -39,7 +39,7 @@ use Vusys\Exocomp\Console\Command\TraitsUsersCommand;
 
 final class Application extends SymfonyApplication
 {
-    public const string VERSION = '0.9.0';
+    public const string VERSION = '0.9.1';
 
     public function __construct()
     {

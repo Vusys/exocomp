@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-19
+
+`query` and `check` no longer count an interpolated string as a literal argument.
+
+Bumping the version changes the symbol cache's identity, so every project re-indexes once.
+
 ### Fixed
 
 - **An interpolated string is not a literal.** `--arg-is-literal` and `--arg-is-not-literal` counted `"services.{$name}.timeout"`, and a heredoc with variables, as literal strings, including inside an array. So `query` and `check` put such a call on the wrong side of the predicate (#28).
