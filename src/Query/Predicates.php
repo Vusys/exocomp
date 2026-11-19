@@ -229,14 +229,22 @@ final readonly class Predicates
 
         $value = $argument->value;
 
-        return $value instanceof Node\Scalar
+        return $this->isLiteralScalar($value)
             || ($value instanceof Node\Expr\ConstFetch && in_array(strtolower($value->name->toString()), ['true', 'false', 'null'], true))
             || ($value instanceof Node\Expr\Array_ && $this->everyItemIsLiteral($value));
     }
 
     private function everyItemIsLiteral(Node\Expr\Array_ $array): bool
     {
-        return array_all($array->items, fn (ArrayItem $item): bool => $item->value instanceof Node\Scalar);
+        return array_all($array->items, fn (ArrayItem $item): bool => $this->isLiteralScalar($item->value));
+    }
+
+    /**
+     * An interpolated string is a Scalar to the parser, but its value is computed at runtime.
+     */
+    private function isLiteralScalar(Node\Expr $value): bool
+    {
+        return $value instanceof Node\Scalar && ! $value instanceof Node\Scalar\InterpolatedString;
     }
 
     private function signatureMatches(QueryMatch $match): bool
