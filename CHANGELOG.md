@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **An interpolated string is not a literal.** `--arg-is-literal` and `--arg-is-not-literal` counted `"services.{$name}.timeout"`, and a heredoc with variables, as literal strings, including inside an array. So `query` and `check` put such a call on the wrong side of the predicate (#28).
+
 ## [0.9.0] - 2026-11-18
 
 The signed-in user is followed. `auth()->user()`, `Auth::user()` and `$request->user()` are the model `config/auth.php` names. In the dogfood run, unresolved receivers went from 124 to 58 on Monica and from 160 to 96 on Firefly III.

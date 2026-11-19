@@ -46,6 +46,29 @@ final class QueryEngineTest extends TestCase
         $this->assertContains("\$this->record(\$key.'.suffix', \$count)", $sources);
     }
 
+    public function test_an_interpolated_string_is_not_a_literal(): void
+    {
+        $file = SourceFile::fromString(<<<'PHP'
+            <?php
+            config("services.{$name}.timeout");
+            config("services.$name");
+            config(<<<EOT
+                services.{$name}
+                EOT);
+            config(["services.{$name}"]);
+            config("services.timeout");
+            config(['services.timeout']);
+            PHP, 'calls.php');
+
+        $snippets = static fn (Predicates $predicates): array => array_map(
+            static fn (QueryMatch $m): string => $m->snippet(),
+            new QueryEngine($predicates)->runOn(Pattern::parse('config(...)'), $file),
+        );
+
+        $this->assertCount(4, $snippets(new Predicates(nonLiteralArguments: [0])));
+        $this->assertSame(['config("services.timeout")', "config(['services.timeout'])"], $snippets(new Predicates(literalArguments: [0])));
+    }
+
     public function test_captures_bind_and_carry_their_source(): void
     {
         $matches = $this->matchesFor('$this->repository->_M($A)');
