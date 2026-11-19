@@ -91,6 +91,8 @@ final class ReferenceScanner extends NodeVisitorAbstract
             $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
         }
 
+        $this->types->enterNarrowing($node, $this->scope);
+
         if ($this->target->hasMember()) {
             $this->memberReference($node);
 
@@ -108,6 +110,8 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
     public function leaveNode(Node $node): null
     {
+        $this->types->leaveNarrowing($node, $this->scope);
+
         if ($node instanceof Node\Stmt\ClassLike) {
             array_pop($this->classes);
         }

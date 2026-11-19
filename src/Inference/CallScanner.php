@@ -58,6 +58,8 @@ final class CallScanner extends NodeVisitorAbstract
             $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
         }
 
+        $this->types->enterNarrowing($node, $this->scope);
+
         match (true) {
             $node instanceof Node\Expr\MethodCall,
             $node instanceof Node\Expr\NullsafeMethodCall => $this->methodCall($node),
@@ -66,6 +68,13 @@ final class CallScanner extends NodeVisitorAbstract
             $node instanceof Node\Expr\New_ => $this->instantiation($node),
             default => null,
         };
+
+        return null;
+    }
+
+    public function leaveNode(Node $node): null
+    {
+        $this->types->leaveNarrowing($node, $this->scope);
 
         return null;
     }

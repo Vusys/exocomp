@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`instanceof` types the variable it tests.** `$x` is the class inside `if ($x instanceof C) {…}` and an `elseif`, on the right of `&&`, and in a ternary's first branch. It is the class for the rest of the body after `assert($x instanceof C)`, and after a guard such as `if (! $x instanceof C) { throw … }` that has no other branch and always leaves. PHP guarantees each of these, so the type is `resolved`. It does not apply in an `else`, before the test in the same condition, or after the block ends. The type the variable had before comes back. `references-to`, `callers-of`, `calls-from`, `reaches` and `query`'s receiver predicates all use it.
+
 ## [0.9.1] - 2026-11-19
 
 `query` and `check` no longer count an interpolated string as a literal argument.

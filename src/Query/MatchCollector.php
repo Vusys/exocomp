@@ -76,6 +76,8 @@ final class MatchCollector extends NodeVisitorAbstract
             $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
         }
 
+        $this->types?->enterNarrowing($node, $this->scope);
+
         $captures = new Captures;
 
         if ($this->matcher->matches($this->pattern->root, $node, $captures)) {
@@ -105,6 +107,8 @@ final class MatchCollector extends NodeVisitorAbstract
 
     public function leaveNode(Node $node): null
     {
+        $this->types?->leaveNarrowing($node, $this->scope);
+
         if ($node instanceof Node\Stmt\ClassLike) {
             array_pop($this->classes);
         }

@@ -4,16 +4,27 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Inference;
 
+use PhpParser\Node;
+
 /**
  * What is known about the variables in one function body.
  *
  * Deliberately flat and forward-only: a variable's type is whatever the last thing that could
- * establish it said, and nothing here reasons about branches. That is a real limit, and it is
- * the right one — a receiver whose type depends on which arm of a conditional ran is a receiver
- * this engine should be admitting it does not know, not one it should be guessing at.
+ * establish it said. The one exception is `instanceof`, because PHP guarantees it: inside
+ * `if ($x instanceof C) {…}` the variable is a C, and the type it had before comes back when
+ * the block ends. Otherwise a receiver whose type depends on which arm of a conditional ran is
+ * a receiver this engine should be admitting it does not know, not one it should be guessing at.
  */
 final class Scope
 {
+    /**
+     * One frame per open `if` that narrowed something: each variable, the binding it had
+     * before, and the narrowed type put in its place.
+     *
+     * @var list<list<array{string, ResolvedType|\Closure(): ?ResolvedType|null, ResolvedType}>>
+     */
+    private array $narrowed = [];
+
     /**
      * A type, or how to work it out the first time it is asked for. Most variables a body
      * assigns are never the receiver of the call being searched for, so typing each assignment
@@ -59,6 +70,87 @@ final class Scope
         }
 
         return $binding;
+    }
+
+    /**
+     * Narrowings waiting for the node they start at, keyed by its id, each with the id of the
+     * node it ends at.
+     *
+     * @var array<int, list<array{int, array<string, ResolvedType>}>>
+     */
+    private array $startsAt = [];
+
+    /**
+     * How many narrowings that did start end at each node. Only a narrowing that started is
+     * ended, so one whose start was walked under another scope (a closure) cannot end another's.
+     *
+     * @var array<int, int>
+     */
+    private array $endsAt = [];
+
+    /**
+     * Narrows each variable to its class from entering `$from` until leaving `$to`.
+     *
+     * @param  array<string, ResolvedType>  $types
+     */
+    public function narrowBetween(Node $from, Node $to, array $types): void
+    {
+        if ($types !== []) {
+            $this->startsAt[spl_object_id($from)][] = [spl_object_id($to), $types];
+        }
+    }
+
+    public function entering(Node $node): void
+    {
+        foreach ($this->startsAt[spl_object_id($node)] ?? [] as [$to, $types]) {
+            $this->beginNarrowing($types);
+            $this->endsAt[$to] = ($this->endsAt[$to] ?? 0) + 1;
+        }
+
+        unset($this->startsAt[spl_object_id($node)]);
+    }
+
+    public function leaving(Node $node): void
+    {
+        for ($n = $this->endsAt[spl_object_id($node)] ?? 0; $n > 0; $n--) {
+            $this->endNarrowing();
+        }
+
+        unset($this->endsAt[spl_object_id($node)]);
+    }
+
+    /**
+     * @param  array<string, ResolvedType>  $types
+     */
+    private function beginNarrowing(array $types): void
+    {
+        $frame = [];
+
+        foreach ($types as $variable => $type) {
+            $frame[] = [$variable, $this->variables[$variable] ?? null, $type];
+            $this->variables[$variable] = $type;
+        }
+
+        $this->narrowed[] = $frame;
+    }
+
+    /**
+     * Gives each narrowed variable back the type it had before, unless the block assigned it
+     * something else, which then stands as any other assignment does.
+     */
+    private function endNarrowing(): void
+    {
+        foreach (array_pop($this->narrowed) ?? [] as [$variable, $before, $narrowed]) {
+            if (($this->variables[$variable] ?? null) !== $narrowed) {
+                continue;
+            }
+
+            if ($before === null) {
+                unset($this->variables[$variable]);
+            } else {
+                $this->variables[$variable] = $before;
+            }
+        }
     }
 
     /**
