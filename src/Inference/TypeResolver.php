@@ -237,6 +237,95 @@ final readonly class TypeResolver
     }
 
     /**
+     * What `instanceof` proves on the way into a node. `$x` is a C in the block of
+     * `if ($x instanceof C) {…}` (and of an `elseif`), on the right of `$x instanceof C && …`,
+     * and in the first branch of `$x instanceof C ? … : …`. It is not one in an `else`, nor
+     * before the test in the same condition. `assert($x instanceof C)` proves it for the rest
+     * of the body.
+     */
+    public function enterNarrowing(Node $node, Scope $scope): void
+    {
+        $scope->entering($node);
+
+        if (($node instanceof Node\Stmt\If_ || $node instanceof Node\Stmt\ElseIf_) && $node->stmts !== []) {
+            $scope->narrowBetween($node->stmts[0], $node->stmts[array_key_last($node->stmts)], $this->provedBy($node->cond, true, $scope));
+        } elseif ($node instanceof Node\Expr\BinaryOp\BooleanAnd || $node instanceof Node\Expr\BinaryOp\LogicalAnd) {
+            $scope->narrowBetween($node->right, $node->right, $this->provedBy($node->left, true, $scope));
+        } elseif ($node instanceof Node\Expr\Ternary && $node->if instanceof Node\Expr) {
+            $scope->narrowBetween($node->if, $node->if, $this->provedBy($node->cond, true, $scope));
+        } elseif ($node instanceof Node\Stmt\Expression && $node->expr instanceof Node\Expr\FuncCall
+            && $node->expr->name instanceof Node\Name && strtolower($node->expr->name->toString()) === 'assert'
+            && ($node->expr->args[0] ?? null) instanceof Node\Arg) {
+            foreach ($this->provedBy($node->expr->args[0]->value, true, $scope) as $variable => $type) {
+                $scope->set($variable, $type);
+            }
+        }
+    }
+
+    /**
+     * What `instanceof` proves on the way out of an `if`. A guard such as
+     * `if (! $x instanceof C) { throw … }` with no other branch leaves only the path where `$x`
+     * is a C, so it is one for the rest of the body.
+     */
+    public function leaveNarrowing(Node $node, Scope $scope): void
+    {
+        $scope->leaving($node);
+
+        if (! $node instanceof Node\Stmt\If_) {
+            return;
+        }
+
+        if ($node->elseifs !== [] || $node->else instanceof Node\Stmt\Else_ || ! $this->leaves($node->stmts)) {
+            return;
+        }
+
+        foreach ($this->provedBy($node->cond, false, $scope) as $variable => $type) {
+            $scope->set($variable, $type);
+        }
+    }
+
+    /**
+     * The variables a condition proves to be of a class when it is true (or, for `$when` false,
+     * when it is false): `$x instanceof C`, through `&&` when true and `||` and `!` when false.
+     *
+     * @return array<string, ResolvedType>
+     */
+    private function provedBy(Node\Expr $condition, bool $when, Scope $scope): array
+    {
+        if ($condition instanceof Node\Expr\BooleanNot) {
+            return $this->provedBy($condition->expr, ! $when, $scope);
+        }
+
+        if (($when && ($condition instanceof Node\Expr\BinaryOp\BooleanAnd || $condition instanceof Node\Expr\BinaryOp\LogicalAnd))
+            || (! $when && ($condition instanceof Node\Expr\BinaryOp\BooleanOr || $condition instanceof Node\Expr\BinaryOp\LogicalOr))) {
+            return $this->provedBy($condition->right, $when, $scope) + $this->provedBy($condition->left, $when, $scope);
+        }
+
+        if (! $when || ! $condition instanceof Node\Expr\Instanceof_
+            || ! $condition->expr instanceof Node\Expr\Variable || ! is_string($condition->expr->name)) {
+            return [];
+        }
+
+        $class = $this->className($condition->class, $scope);
+
+        return $class === null ? [] : [$condition->expr->name => ResolvedType::resolvedBy($class, 'narrowed by instanceof')];
+    }
+
+    /**
+     * Whether a block always leaves the code that follows it: it ends in a `return`, a
+     * `throw`, a `continue`, a `break` or an `exit`.
+     *
+     * @param  array<Node\Stmt>  $statements
+     */
+    private function leaves(array $statements): bool
+    {
+        $last = end($statements);
+
+        return $last instanceof Node\Stmt\Return_ || $last instanceof Node\Stmt\Continue_ || $last instanceof Node\Stmt\Break_
+            || ($last instanceof Node\Stmt\Expression && ($last->expr instanceof Node\Expr\Throw_ || $last->expr instanceof Node\Expr\Exit_));
+    }
+
+    /**
      * Records the type of a `foreach` value variable, where the iterable is something whose
      * elements are known: a collection of a model, as Eloquent hands back, or an array a
      * docblock documents.

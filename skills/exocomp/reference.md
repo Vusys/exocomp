@@ -107,7 +107,7 @@ Read that block. It is where "I could not see past here" lives. Treating an answ
 without it is how an audit gets wrongly signed off. Its title says what kind of gap it is: `unresolved`
 (`references-to`, `callers-of`, `calls-from`), `not reached` (`members`), `not followed` (`reaches`,
 `graph`), `not found` (a multi-address `show`), `not read from the source` (`model`). `references-to`
-also counts each confidence in the header: `27 references to App\Models\Invoice::send  (6 resolved, 18 inferred, 3 unresolved)`.
+also counts each confidence in the header: `38 references to App\Models\Invoice::send  (12 resolved, 18 inferred, 8 unresolved)`.
 A single-address `show` has no block: it found the one thing you named, or exited `1`.
 
 **Nothing is truncated silently.** A capped result says `… 22 more (use --limit)`, and `{"elided": 22}` in
@@ -190,6 +190,7 @@ through a docblock, a convention or a binding is `inferred`. A step through a na
 | `$this->guard()`, declared only in a vendor parent or trait | its native return type, or a single class in its `@return` | `inferred` |
 | a method that returns `static` or `self` | the receiver's class, or the declaring class | `resolved` |
 | `$x instanceof Invoice ? $x : null` | `Invoice`; a ternary or `??` whose branches agree, or whose other branch is `null`, takes that type | `resolved` |
+| `$x` after `$x instanceof Invoice`: inside `if (…) {…}` or an `elseif`, on the right of `&&`, in a ternary's first branch, after `assert(…)`, and after a guard such as `if (! $x instanceof Invoice) { throw … }` that has no other branch and ends in `return`, `throw`, `continue`, `break` or `exit` | `Invoice`. Not in an `else`, not before the test in the same condition, and not after the block | `resolved` |
 | an untyped property or method | the one class every assignment or `return` in its class names; failing that, its `@var` or `@return` | `inferred` |
 | `$pages[0]`, `$chain['book']`, `foreach ($pages as $page)` on an array documented as `Page[]`, `list<Page>` or `array{book: Book}` | the element's class | `inferred` |
 
