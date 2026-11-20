@@ -526,7 +526,7 @@ final class ModelReader
 
         if ($factory instanceof MethodCall && $factory->name instanceof Node\Identifier) {
             $self = $this->selfOf[Identifier::fold($class->fqn)] ?? $class->fqn;
-            $arguments = $factory->getArgs();
+            $arguments = Analyser::arguments($factory);
             $given = $arguments === [] ? null : LiteralValue::className($arguments[0]->value, selfFqn: $self, staticFqn: $this->modelFqn, parentFqn: $this->parentOf($self));
             $note .= ' built by '.$factory->name->toString().'()'.($given === null ? '' : ', which is given '.$given);
         }
@@ -569,7 +569,7 @@ final class ModelReader
     private function recordRelation(LoadedClass $class, string $name, MethodCall $call, int $line): void
     {
         $kind = $call->name instanceof Node\Identifier ? $call->name->toString() : 'relation';
-        $arguments = $call->getArgs();
+        $arguments = Analyser::arguments($call);
 
         if (strcasecmp($kind, 'morphTo') === 0) {
             $this->declined[] = new ModelFact(
@@ -627,7 +627,7 @@ final class ModelReader
                 continue;
             }
 
-            $this->recordScope($class, $call->getArgs(), $call->getStartLine());
+            $this->recordScope($class, Analyser::arguments($call), $call->getStartLine());
         }
 
         foreach (new NodeFinder()->findInstanceOf([$class->node], MethodCall::class) as $call) {
@@ -635,7 +635,7 @@ final class ModelReader
                 && strcasecmp($call->name->toString(), 'addGlobalScope') === 0
                 && $call->var instanceof Expr\Variable
                 && $call->var->name === 'this') {
-                $this->recordScope($class, $call->getArgs(), $call->getStartLine());
+                $this->recordScope($class, Analyser::arguments($call), $call->getStartLine());
             }
         }
     }

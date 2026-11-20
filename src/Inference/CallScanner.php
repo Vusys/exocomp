@@ -43,10 +43,16 @@ final class CallScanner extends NodeVisitorAbstract
     /** @var list<OutgoingCall> */
     private array $calls = [];
 
+    /** @var list<Scope> the scopes a closure inside the body was entered from */
+    private array $enclosing = [];
+
+    /** The body itself, which is entered with the scope it was given rather than a new one. */
+    private ?Node $root = null;
+
     public function __construct(
         private readonly FileAnalysis $analysis,
         private readonly TypeResolver $types,
-        private readonly Scope $scope,
+        private Scope $scope,
         private readonly ?SymbolGraph $graph = null,
     ) {}
 
@@ -61,6 +67,15 @@ final class CallScanner extends NodeVisitorAbstract
 
     public function enterNode(Node $node): null
     {
+        $this->root ??= $node;
+
+        // A closure in the body has a scope of its own: its parameters, and what it can see of
+        // the body's. Its declared parameter types are as reliable as a method's.
+        if ($node instanceof Node\FunctionLike && $node !== $this->root) {
+            $this->enclosing[] = $this->scope;
+            $this->scope = $this->types->scopeFor($this->scope->classFqn, $this->scope->parentFqn, $node, $this->analysis->imports, $this->scope);
+        }
+
         if ($node instanceof Node\Stmt) {
             $this->types->observeAnnotation($node, $this->scope, $this->analysis->imports);
         }
@@ -90,6 +105,10 @@ final class CallScanner extends NodeVisitorAbstract
     public function leaveNode(Node $node): null
     {
         $this->types->leaveNarrowing($node, $this->scope);
+
+        if ($node instanceof Node\FunctionLike && $node !== $this->root) {
+            $this->scope = array_pop($this->enclosing) ?? $this->scope;
+        }
 
         return null;
     }
@@ -197,6 +216,11 @@ final class CallScanner extends NodeVisitorAbstract
             return;
         }
 
+        // `clone($x, [...])` is PHP 8.5's clone with: the language, not a function.
+        if (strtolower($call->name->toString()) === 'clone' && ! $call->name->isQualified() && ! $call->name->isFullyQualified()) {
+            return;
+        }
+
         // An unqualified function call falls back to the global namespace at runtime if the
         // namespaced one does not exist, so resolving it to the namespaced name unconditionally
         // would report `App\str_repeat` for a call to `str_repeat`.
@@ -220,10 +244,23 @@ final class CallScanner extends NodeVisitorAbstract
      */
     private function invocation(Node\Expr\FuncCall $call): void
     {
+        // `(fn (Holder $h) => …)($x)`: the closure's own calls are read where it is written.
+        if ($call->name instanceof Node\Expr\Closure || $call->name instanceof Node\Expr\ArrowFunction) {
+            return;
+        }
+
         $receiver = $this->types->typeOf($call->name, $this->scope, $this->analysis->imports);
 
         if (! $receiver->isKnown()) {
             $this->record($call, 'function call', null, Confidence::Textual, 'dynamic function name');
+
+            return;
+        }
+
+        if (strcasecmp((string) $receiver->fqn, 'Closure') === 0) {
+            $receiver->callable === null
+                ? $this->record($call, 'invoke', null, Confidence::Textual, 'a closure whose target is not known')
+                : $this->record($call, 'invoke', $receiver->callable, $receiver->confidence, 'calls the first-class callable it holds');
 
             return;
         }

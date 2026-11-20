@@ -289,9 +289,9 @@ final class ContainerReader
                 continue;
             }
 
-            $context = $when->getArgs()[0]->value ?? null;
-            $abstract = $needs->getArgs()[0]->value ?? null;
-            $concrete = $call->getArgs()[0]->value ?? null;
+            $context = Analyser::arguments($when)[0]->value ?? null;
+            $abstract = Analyser::arguments($needs)[0]->value ?? null;
+            $concrete = Analyser::arguments($call)[0]->value ?? null;
 
             if ($context === null || $abstract === null || $concrete === null) {
                 continue;
@@ -324,7 +324,7 @@ final class ContainerReader
                 continue;
             }
 
-            $argument = $call->getArgs()[0]->value ?? null;
+            $argument = Analyser::arguments($call)[0]->value ?? null;
 
             if ($argument === null) {
                 continue;
@@ -393,7 +393,7 @@ final class ContainerReader
             return null;
         }
 
-        $first = $expression->getArgs()[0]->value ?? null;
+        $first = Analyser::arguments($expression)[0]->value ?? null;
         $key = $first === null ? null : LiteralValue::scalar($first);
 
         return is_string($key) ? $key : null;
@@ -411,7 +411,7 @@ final class ContainerReader
 
         foreach (new NodeFinder()->findInstanceOf([$class->node], Expr\MethodCall::class) as $call) {
             if ($call->name instanceof Node\Identifier && $this->isContainer($call->var)) {
-                $calls[] = [strtolower($call->name->toString()), $call->getArgs(), $call->getStartLine()];
+                $calls[] = [strtolower($call->name->toString()), Analyser::arguments($call), $call->getStartLine()];
             }
         }
 
@@ -420,7 +420,7 @@ final class ContainerReader
                 $class_ = Analyser::resolvedName($call->class);
 
                 if (str_ends_with($class_, '\\App') || $class_ === 'App') {
-                    $calls[] = [strtolower($call->name->toString()), $call->getArgs(), $call->getStartLine()];
+                    $calls[] = [strtolower($call->name->toString()), Analyser::arguments($call), $call->getStartLine()];
                 }
             }
         }

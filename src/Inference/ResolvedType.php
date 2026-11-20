@@ -22,6 +22,8 @@ final readonly class ResolvedType
      *                            ({@see EloquentReturns}); the model it stands for is `$model`
      * @param  array<string, string>  $elements  for an array, the class a docblock gives its
      *                                           element at each key, `*` for any key
+     * @param  ?self  $invokes  for a first-class callable, what calling it returns
+     * @param  ?string  $callable  for a first-class callable, the declaration it calls
      */
     private function __construct(
         public ?string $fqn,
@@ -30,7 +32,18 @@ final readonly class ResolvedType
         public ?string $wrapper = null,
         public ?string $model = null,
         public array $elements = [],
+        public ?self $invokes = null,
+        public ?string $callable = null,
     ) {}
+
+    /**
+     * A first-class callable: a `Closure`, with what calling it returns and, when it is known,
+     * the declaration it stands for.
+     */
+    public static function closure(?self $returns, ?string $target): self
+    {
+        return new self('Closure', Confidence::Resolved, 'a first-class callable', invokes: $returns, callable: $target);
+    }
 
     /**
      * An array whose elements a docblock names. The array itself is no class, so this is not a

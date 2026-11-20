@@ -224,7 +224,7 @@ final class ConfigReader
             return null;
         }
 
-        $arguments = $expression->getArgs();
+        $arguments = Analyser::arguments($expression);
         $variable = $arguments === [] ? null : LiteralValue::scalar($arguments[0]->value);
         $default = isset($arguments[1]) ? LiteralValue::scalar($arguments[1]->value) : null;
 
@@ -340,7 +340,7 @@ final class ConfigReader
     {
         if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name) {
             return Analyser::isGlobalFunction($node->name, 'config')
-                ? ['config()', $node->getArgs()]
+                ? ['config()', Analyser::arguments($node)]
                 : null;
         }
 
@@ -357,7 +357,7 @@ final class ConfigReader
         $method = strtolower($node->name->toString());
 
         return in_array($method, ['get', 'set', 'has', 'string', 'integer', 'boolean', 'array'], true)
-            ? ['Config::'.$node->name->toString(), $node->getArgs()]
+            ? ['Config::'.$node->name->toString(), Analyser::arguments($node)]
             : null;
     }
 }

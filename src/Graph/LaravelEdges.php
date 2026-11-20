@@ -700,7 +700,7 @@ final class LaravelEdges
      */
     private function firstClassArgument(Node\Expr\FuncCall|Node\Expr\MethodCall $call): ?string
     {
-        $argument = $call->getArgs()[0]->value ?? null;
+        $argument = Analyser::arguments($call)[0]->value ?? null;
         $class = $argument instanceof Node\Expr ? LiteralValue::className($argument) : null;
 
         return $class !== null && str_contains($class, '\\') ? $class : null;

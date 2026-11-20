@@ -96,7 +96,7 @@ final class EloquentConventions implements MagicSource
                 if ($expression->var instanceof Node\Expr\Variable && $expression->var->name === 'this'
                     && $expression->name instanceof Node\Identifier
                     && in_array($factory = strtolower($expression->name->toString()), ModelReader::RELATIONS, true)) {
-                    $first = $expression->getArgs()[0]->value ?? null;
+                    $first = Analyser::arguments($expression)[0]->value ?? null;
                     $target = $first === null ? null : LiteralValue::className($first, selfFqn: (string) $owner, staticFqn: $modelFqn);
 
                     return $this->relations[$key] = $target === null ? null : [$target, $factory];
@@ -123,7 +123,7 @@ final class EloquentConventions implements MagicSource
                 continue;
             }
 
-            $first = $call->getArgs()[0]->value ?? null;
+            $first = Analyser::arguments($call)[0]->value ?? null;
             $target = $first === null ? null : LiteralValue::className($first, selfFqn: (string) $owner, staticFqn: $modelFqn);
 
             if ($target === null || ($found !== null && strcasecmp($found[0], $target) !== 0)) {
