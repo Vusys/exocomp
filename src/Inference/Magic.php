@@ -97,6 +97,20 @@ final class Magic
     }
 
     /**
+     * The model's own builder or collection class ({@see EloquentConventions::customClass()}).
+     */
+    public function customClass(string $modelFqn, string $what): ?string
+    {
+        foreach ($this->sources as $source) {
+            if ($source instanceof EloquentConventions) {
+                return $source->customClass($modelFqn, $what);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Whether a model method is a `#[Scope]` local scope ({@see EloquentConventions::isAttributeScope()}).
      */
     public function isAttributeScope(string $modelFqn, string $method): bool

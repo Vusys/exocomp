@@ -51,6 +51,12 @@ final readonly class RouteContext
             return ltrim($controller, '\\');
         }
 
+        // Nor is a name that already starts with the group namespace: the framework checks for
+        // that too, and prefixing it again named `App\Http\Controllers\App\Http\Controllers\…`.
+        if ($this->namespace !== '' && str_starts_with($controller, $this->namespace.'\\')) {
+            return $controller;
+        }
+
         return $this->namespace === '' ? $controller : $this->namespace.'\\'.$controller;
     }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Framework\Laravel;
 
 use PhpParser\Node;
+use PhpParser\Node\Name;
 use PhpParser\NodeFinder;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\LiteralValue;
@@ -111,7 +112,7 @@ final class EloquentConventions implements MagicSource
         // where the method says it returns a relation and every factory call in it names one class.
         $returns = $node->getReturnType();
 
-        if (! $returns instanceof Node\Name || ! str_starts_with(Analyser::resolvedName($returns), 'Illuminate\\Database\\Eloquent\\Relations\\')) {
+        if (! $returns instanceof Name || ! str_starts_with(Analyser::resolvedName($returns), 'Illuminate\\Database\\Eloquent\\Relations\\')) {
             return $this->relations[$key] = null;
         }
 
@@ -134,6 +135,48 @@ final class EloquentConventions implements MagicSource
         }
 
         return $this->relations[$key] = $found;
+    }
+
+    /** @var array<string, ?string> */
+    private array $custom = [];
+
+    /**
+     * A model's own builder (`$what` = builder) or collection class: what `newEloquentBuilder()`
+     * or `newCollection()` declares it returns, or what `#[UseEloquentBuilder]` or
+     * `#[CollectedBy]` names, on the model or a parent the source can read.
+     */
+    public function customClass(string $modelFqn, string $what): ?string
+    {
+        $key = $what.':'.Identifier::fold($modelFqn);
+
+        if (array_key_exists($key, $this->custom)) {
+            return $this->custom[$key];
+        }
+
+        if (! $this->isModel($modelFqn)) {
+            return $this->custom[$key] = null;
+        }
+
+        [$method, $attributeName] = $what === 'builder' ? ['newEloquentBuilder', 'UseEloquentBuilder'] : ['newCollection', 'CollectedBy'];
+
+        foreach ($this->source->withAncestors($modelFqn, stopAt: LaravelProfile::MODEL) as $class) {
+            foreach ($class->node->attrGroups as $group) {
+                foreach ($group->attrs as $attribute) {
+                    if (strcasecmp(ltrim(Analyser::resolvedName($attribute->name), '\\'), 'Illuminate\\Database\\Eloquent\\Attributes\\'.$attributeName) === 0
+                        && ($argument = $attribute->args[0] ?? null) !== null && ($named = LiteralValue::className($argument->value)) !== null) {
+                        return $this->custom[$key] = $named;
+                    }
+                }
+            }
+
+            $declared = $class->node->getMethod($method)?->returnType;
+
+            if ($declared instanceof Name) {
+                return $this->custom[$key] = Analyser::resolvedName($declared);
+            }
+        }
+
+        return $this->custom[$key] = null;
     }
 
     /**

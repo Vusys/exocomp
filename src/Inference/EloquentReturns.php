@@ -142,7 +142,7 @@ final readonly class EloquentReturns
         }
 
         return in_array($name, self::MODEL_TO_BUILDER, true)
-            ? ResolvedType::wrapping(self::BUILDER_FQN, self::BUILDER, $model, sprintf('a query builder of %s, by Eloquent convention', $model))
+            ? ResolvedType::wrapping($this->builderOf($model), self::BUILDER, $model, sprintf('a query builder of %s, by Eloquent convention', $model))
             : ResolvedType::inferred($model, sprintf('%s() returns the model, by Eloquent convention', $method));
     }
 
@@ -192,7 +192,7 @@ final readonly class EloquentReturns
         [$target, $factory] = $relation;
 
         return in_array($factory, self::TO_MANY, true)
-            ? ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $target, sprintf('the %s relation %s, read as an attribute, by Eloquent convention', $factory, $property))
+            ? ResolvedType::wrapping($this->collectionOf($target), self::COLLECTION, $target, sprintf('the %s relation %s, read as an attribute, by Eloquent convention', $factory, $property))
             : ResolvedType::inferred($target, sprintf('the %s relation %s, read as an attribute, by Eloquent convention', $factory, $property));
     }
 
@@ -233,26 +233,42 @@ final readonly class EloquentReturns
             $first = Analyser::arguments($call)[0]->value ?? null;
 
             if (in_array($name, self::TAKES_KEYS, true) && $first instanceof Expr\Array_) {
-                return ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, sprintf('%s() with a list of keys returns a collection, by Eloquent convention', $method));
+                return ResolvedType::wrapping($this->collectionOf($model), self::COLLECTION, $model, sprintf('%s() with a list of keys returns a collection, by Eloquent convention', $method));
             }
 
             return ResolvedType::inferred($model, sprintf('%s() returns the model, by Eloquent convention', $method));
         }
 
         if (isset(self::BUILDER_TO_COLLECTION[$name])) {
-            return ResolvedType::wrapping(self::BUILDER_TO_COLLECTION[$name], self::COLLECTION, $model, sprintf('%s() returns the models, by Eloquent convention', $method));
+            $class = self::BUILDER_TO_COLLECTION[$name] === self::COLLECTION_FQN ? $this->collectionOf($model) : self::BUILDER_TO_COLLECTION[$name];
+
+            return ResolvedType::wrapping($class, self::COLLECTION, $model, sprintf('%s() returns the models, by Eloquent convention', $method));
+        }
+
+        // A method the model's own builder declares: the builder again where it returns itself.
+        $custom = $this->builderOf($model);
+
+        if ($custom !== self::BUILDER_FQN && ($declared = $this->members->declared($custom, $method, SymbolKind::Method)) instanceof SymbolRecord) {
+            $type = $declared->typeFqn ?? $declared->inferredFqn;
+
+            return match (true) {
+                $type === null => null,
+                in_array(strtolower($type), ['static', 'self', '$this'], true), strcasecmp($type, $custom) === 0 => ResolvedType::wrapping($custom, self::BUILDER, $model, sprintf('%s() returns the model\'s builder', $method)),
+                strcasecmp($type, $model) === 0 => ResolvedType::inferred($model, sprintf('%s() returns the model', $method)),
+                default => ResolvedType::inferred($type, sprintf('declared by %s', $custom)),
+            };
         }
 
         if (in_array($name, self::CONDITIONAL, true)) {
             return $this->handsBackItsArgument($call)
-                ? ResolvedType::wrapping(self::BUILDER_FQN, self::BUILDER, $model, sprintf('%s() returns the builder its callback is handed, by Eloquent convention', $method))
+                ? ResolvedType::wrapping($this->builderOf($model), self::BUILDER, $model, sprintf('%s() returns the builder its callback is handed, by Eloquent convention', $method))
                 : null;
         }
 
         if (in_array($name, self::BUILDER_KEEPS, true)
             || str_starts_with($name, 'where') || str_starts_with($name, 'orwhere') || str_starts_with($name, 'with')
             || $this->isLocalScope($model, $method)) {
-            return ResolvedType::wrapping(self::BUILDER_FQN, self::BUILDER, $model, sprintf('a query builder of %s, by Eloquent convention', $model));
+            return ResolvedType::wrapping($this->builderOf($model), self::BUILDER, $model, sprintf('a query builder of %s, by Eloquent convention', $model));
         }
 
         return null;
@@ -306,7 +322,7 @@ final readonly class EloquentReturns
     private function collectionFrom(string $model, string $method): ?ResolvedType
     {
         return strtolower($method) === 'all'
-            ? ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, 'all() returns the models, by Eloquent convention')
+            ? ResolvedType::wrapping($this->collectionOf($model), self::COLLECTION, $model, 'all() returns the models, by Eloquent convention')
             : null;
     }
 
@@ -321,12 +337,12 @@ final readonly class EloquentReturns
 
         if (in_array($name, self::FACTORY_TO_ONE, true)) {
             return $many
-                ? ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, sprintf('%s() after count() returns the models, by Eloquent convention', $method))
+                ? ResolvedType::wrapping($this->collectionOf($model), self::COLLECTION, $model, sprintf('%s() after count() returns the models, by Eloquent convention', $method))
                 : ResolvedType::inferred($model, sprintf('a factory\'s %s() returns the model, by Eloquent convention', $method));
         }
 
         if (in_array($name, self::FACTORY_TO_MANY, true)) {
-            return ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, sprintf('%s() returns the models, by Eloquent convention', $method));
+            return ResolvedType::wrapping($this->collectionOf($model), self::COLLECTION, $model, sprintf('%s() returns the models, by Eloquent convention', $method));
         }
 
         if (in_array($name, self::FACTORY_KEEPS, true) || str_starts_with($name, 'for') || str_starts_with($name, 'has')
@@ -346,7 +362,7 @@ final readonly class EloquentReturns
         }
 
         if (in_array($name, self::COLLECTION_KEEPS, true) || str_starts_with($name, 'where')) {
-            return ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, sprintf('a collection of %s, by Eloquent convention', $model));
+            return ResolvedType::wrapping($this->collectionOf($model), self::COLLECTION, $model, sprintf('a collection of %s, by Eloquent convention', $model));
         }
 
         // What `map()` holds depends on the callback, so all that is known is that it is a
@@ -406,6 +422,23 @@ final readonly class EloquentReturns
         $type = $declared->typeFqn ?? $declared->inferredFqn;
 
         return $type === null || in_array(strtolower($type), ['static', 'self'], true) || strcasecmp($type, $factory) === 0;
+    }
+
+    /**
+     * The model's query builder: its own, named by `newEloquentBuilder()`'s return type or
+     * `#[UseEloquentBuilder]`, or the framework's.
+     */
+    public function builderOf(string $model): string
+    {
+        return $this->magic->customClass($model, 'builder') ?? self::BUILDER_FQN;
+    }
+
+    /**
+     * The model's collection: its own, by `newCollection()` or `#[CollectedBy]`, or the framework's.
+     */
+    public function collectionOf(string $model): string
+    {
+        return $this->magic->customClass($model, 'collection') ?? self::COLLECTION_FQN;
     }
 
     private function isLocalScope(string $model, string $method): bool

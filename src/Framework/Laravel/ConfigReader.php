@@ -34,7 +34,11 @@ final class ConfigReader
     /** @var list<string> */
     private array $notes = [];
 
-    public function __construct(private readonly Analyser $analyser = new Analyser) {}
+    /**
+     * @param  (\Closure(string, string): ?string)|null  $constant  the value of a class constant, for
+     *                                                              a key written `Order::MORPH_KEY`
+     */
+    public function __construct(private readonly Analyser $analyser = new Analyser, private readonly ?\Closure $constant = null) {}
 
     /**
      * @param  callable(string): string  $displayPath
@@ -164,7 +168,16 @@ final class ConfigReader
 
             $key = LiteralValue::scalar($item->key);
 
+            // `Order::MORPH_KEY => Order::class`: a key written as a class constant, read through
+            // the class. A morph map keyed this way lost every such entry, without a word.
+            if ($key === null && $item->key instanceof Node\Expr\ClassConstFetch && $item->key->class instanceof Node\Name
+                && $item->key->name instanceof Node\Identifier && $this->constant instanceof \Closure) {
+                $key = ($this->constant)(Analyser::resolvedName($item->key->class), $item->key->name->toString());
+            }
+
             if (! is_string($key) && ! is_int($key)) {
+                $this->notes[] = sprintf('%s:%d  a key under "%s" is not a literal, so it is not listed', $path, $item->getStartLine(), $prefix);
+
                 continue;
             }
 

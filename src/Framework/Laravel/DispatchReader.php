@@ -172,13 +172,30 @@ final class DispatchReader
             }
 
             $arguments = Analyser::arguments($call);
-            $event = isset($arguments[0]) ? LiteralValue::className($arguments[0]->value) : null;
+            $first = $arguments[0]->value ?? null;
+
+            // `Event::listen(function (OrderShipped $e) { … })`: the closure's parameter names the event.
+            if ($first instanceof Node\Expr\Closure || $first instanceof Node\Expr\ArrowFunction) {
+                if (in_array(Identifier::fold($subject), array_map(Identifier::fold(...), $this->parameterClasses($first->params[0]->type ?? null)), true)) {
+                    $this->receivers[] = new DispatchEdge('listener', $subject, null, $path, $call->getStartLine(), Confidence::Resolved, 'a closure registered by Event::listen, typed by its parameter');
+                }
+
+                continue;
+            }
+
+            $event = $first instanceof Node\Expr ? LiteralValue::className($first) : null;
 
             if ($event === null || Identifier::fold($event) !== Identifier::fold($subject)) {
                 continue;
             }
 
-            $listener = isset($arguments[1]) ? LiteralValue::className($arguments[1]->value) : null;
+            $second = $arguments[1]->value ?? null;
+            $listener = $second instanceof Node\Expr ? LiteralValue::className($second) : null;
+
+            // `[AuditShipment::class, 'handle']`, an array callable.
+            if ($listener === null && $second instanceof Node\Expr\Array_ && count($second->items) === 2) {
+                $listener = LiteralValue::className($second->items[0]->value);
+            }
 
             $this->receivers[] = new DispatchEdge(
                 'listener',
@@ -189,6 +206,76 @@ final class DispatchReader
                 $listener === null ? Confidence::Textual : Confidence::Resolved,
                 $listener === null ? 'registered as a closure' : 'registered by Event::listen',
             );
+        }
+
+        $this->scanForSubscribers($statements, $subject, $path);
+    }
+
+    /**
+     * The classes a parameter type names: one, or each side of a union.
+     *
+     * @return list<string>
+     */
+    private function parameterClasses(?Node $type): array
+    {
+        return match (true) {
+            $type instanceof Node\Name => [Analyser::resolvedName($type)],
+            $type instanceof Node\NullableType => $this->parameterClasses($type->type),
+            $type instanceof Node\UnionType => array_merge(...array_map($this->parameterClasses(...), $type->types)),
+            default => [],
+        };
+    }
+
+    /**
+     * Subscribers, registered in a provider's `$subscribe` or with `Event::subscribe()`: each
+     * one's `subscribe()` returns `[Event::class => 'method']` or calls `$events->listen()`.
+     *
+     * @param  array<int, Node>  $statements
+     */
+    private function scanForSubscribers(array $statements, string $subject, string $path): void
+    {
+        $subscribers = [];
+
+        foreach (new NodeFinder()->findInstanceOf($statements, Node\Stmt\Property::class) as $property) {
+            foreach ($property->props as $item) {
+                if ($item->name->toString() === 'subscribe' && $item->default instanceof Node\Expr) {
+                    $subscribers = [...$subscribers, ...$this->classList($item->default)];
+                }
+            }
+        }
+
+        foreach (new NodeFinder()->findInstanceOf($statements, Node\Expr\StaticCall::class) as $call) {
+            if ($call->name instanceof Node\Identifier && strcasecmp($call->name->toString(), 'subscribe') === 0
+                && ($first = Analyser::arguments($call)[0]->value ?? null) instanceof Node\Expr) {
+                $subscribers = [...$subscribers, ...$this->classList($first)];
+            }
+        }
+
+        foreach (array_unique($subscribers) as $subscriber) {
+            $loaded = $this->source->load($subscriber);
+            $method = $loaded?->node->getMethod('subscribe');
+
+            if (! $loaded instanceof LoadedClass || ! $method instanceof Node\Stmt\ClassMethod) {
+                continue;
+            }
+
+            $path = $loaded->path;
+
+            foreach (new NodeFinder()->findInstanceOf($method->stmts ?? [], Node\Stmt\Return_::class) as $return) {
+                foreach ($return->expr instanceof Node\Expr\Array_ ? $return->expr->items : [] as $entry) {
+                    if ($entry->key instanceof Node\Expr && Identifier::fold((string) LiteralValue::className($entry->key)) === Identifier::fold($subject)) {
+                        $this->receivers[] = new DispatchEdge('listener', $subject, $subscriber, $path, $entry->getStartLine(), Confidence::Resolved, 'a subscriber: its subscribe() maps the event to a method');
+                    }
+                }
+            }
+
+            foreach (new NodeFinder()->findInstanceOf($method->stmts ?? [], Node\Expr\MethodCall::class) as $listen) {
+                if ($listen->name instanceof Node\Identifier && strcasecmp($listen->name->toString(), 'listen') === 0
+                    && ($event = Analyser::arguments($listen)[0]->value ?? null) instanceof Node\Expr
+                    && Identifier::fold((string) LiteralValue::className($event)) === Identifier::fold($subject)) {
+                    $this->receivers[] = new DispatchEdge('listener', $subject, $subscriber, $path, $listen->getStartLine(), Confidence::Resolved, 'a subscriber: its subscribe() listens for the event');
+                }
+            }
         }
     }
 
@@ -207,9 +294,8 @@ final class DispatchReader
                     continue;
                 }
 
-                $parameter = $method->params[0]->type ?? null;
-
-                if (! $parameter instanceof Node\Name || Identifier::fold(Analyser::resolvedName($parameter)) !== Identifier::fold($subject)) {
+                // A union, `OrderShipped|OrderCancelled $e`, is discovered for each of its types.
+                if (! in_array(Identifier::fold($subject), array_map(Identifier::fold(...), $this->parameterClasses($method->params[0]->type ?? null)), true)) {
                     continue;
                 }
 

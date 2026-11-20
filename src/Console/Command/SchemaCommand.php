@@ -179,7 +179,7 @@ final class SchemaCommand extends FrameworkCommand
     }
 
     /**
-     * @param  array{kind: string, columns: list<string>, path: string, line: int}  $index
+     * @param  array{kind: string, columns: list<string>, path: string, line: int, name?: string}  $index
      */
     private function indexRow(Table $table, array $index): Row
     {
@@ -189,9 +189,9 @@ final class SchemaCommand extends FrameworkCommand
             column: null,
             fqn: null,
             kind: 'index',
-            text: sprintf('%s  %-10s %s', Address::of($index['path'], $index['line']), $index['kind'], implode(', ', $index['columns'])),
+            text: rtrim(sprintf('%s  %-10s %s   %s', Address::of($index['path'], $index['line']), $index['kind'], implode(', ', $index['columns']), $index['name'] ?? '')),
             confidence: Confidence::Inferred,
-            extra: ['table' => $table->name, 'index' => $index['kind'], 'columns' => implode(',', $index['columns'])],
+            extra: ['table' => $table->name, 'index' => $index['kind'], 'columns' => implode(',', $index['columns'])] + (isset($index['name']) ? ['name' => $index['name']] : []),
             carriesAddress: true,
         );
     }

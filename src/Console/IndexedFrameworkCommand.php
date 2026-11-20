@@ -69,15 +69,19 @@ abstract class IndexedFrameworkCommand extends IndexedCommand
         }
 
         $profile = $this->laravel($context);
-        $config = new ConfigReader;
+        $source = new ClassSource($context->project, $graph, $context->locator);
+        $config = new ConfigReader(constant: $source->constantValue(...));
         $config->readDirectory(
             $profile->configDirectory($context->project),
             static fn (string $absolute): string => $context->project->displayPath($absolute),
         );
 
-        return new ContainerReader($graph, new ClassSource($context->project, $graph, $context->locator))->read(
+        $reader = new ContainerReader($graph, $source)->read(
             /** @return list<ConfigEntry> */
             static fn (string $key): array => $config->matching($key),
         );
+        $reader->addNotes($config->notes());
+
+        return $reader;
     }
 }

@@ -48,6 +48,19 @@ final class RouteReader
         'destroy' => ['DELETE', '/{id}'],
     ];
 
+    /** The three routes `Route::singleton()` registers: one resource with no key. */
+    private const array SINGLETON = [
+        'show' => ['GET', ''],
+        'edit' => ['GET', '/edit'],
+        'update' => ['PUT|PATCH', ''],
+    ];
+
+    /** What `Route::any()` answers to, as `route:list` shows it. */
+    private const string ANY = 'GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS';
+
+    /** Routes with no controller at all, counted so the total can be checked against `route:list`. */
+    private int $withoutController = 0;
+
     /** @var list<string> */
     private const array API_ONLY = ['index', 'store', 'show', 'update', 'destroy'];
 
@@ -123,6 +136,10 @@ final class RouteReader
      */
     public function notes(): array
     {
+        if ($this->withoutController > 0) {
+            return [...$this->notes, sprintf('%d route%s %s a view or a redirect, with no controller, and %s not listed', $this->withoutController, $this->withoutController === 1 ? '' : 's', $this->withoutController === 1 ? 'is' : 'are', $this->withoutController === 1 ? 'is' : 'are')];
+        }
+
         return $this->notes;
     }
 
@@ -191,19 +208,45 @@ final class RouteReader
         $middleware = $this->modifierList($modifiers, 'middleware');
 
         if (in_array($method, self::VERBS, true)) {
-            $this->verb($base, $method, $context, $name, $middleware, $path);
+            $this->verb($base, $method === 'any' ? self::ANY : $method, $context, $name, $middleware, $path);
 
             return;
         }
 
+        // `Route::match(['get', 'post'], …)`: the methods it lists, so a filter on either finds it.
         if ($method === 'match') {
-            $this->verb($base, 'match', $context, $name, $middleware, $path, offset: 1);
+            $first = $base['args'][0] ?? null;
+            $verbs = array_map(strtoupper(...), array_filter($first instanceof Node\Arg ? $this->stringList([$first]) : [], static fn (string $verb): bool => $verb !== ''));
+            $this->verb($base, $verbs === [] ? 'MATCH' : implode('|', $verbs), $context, $name, $middleware, $path, offset: 1);
 
             return;
         }
 
         if ($method === 'resource' || $method === 'apiresource') {
             $this->resource($base, $modifiers, $method === 'apiresource', $context, $middleware, $path);
+
+            return;
+        }
+
+        // `Route::resources(['photos' => PhotoController::class, …])`: one resource per entry.
+        if ($method === 'resources' || $method === 'apiresources') {
+            $first = $base['args'][0] ?? null;
+
+            foreach ($first instanceof Node\Arg ? LiteralValue::pairs($first->value) : [] as $pair) {
+                $this->resource($base, $modifiers, $method === 'apiresources', $context, $middleware, $path, $pair['key'], $pair['value'] ?? '');
+            }
+
+            return;
+        }
+
+        if ($method === 'singleton' || $method === 'apisingleton') {
+            $this->singleton($base, $method === 'apisingleton', $context, $middleware, $path);
+
+            return;
+        }
+
+        if (in_array($method, ['view', 'redirect', 'permanentredirect'], true)) {
+            $this->withoutController++;
         }
     }
 
@@ -381,14 +424,84 @@ final class RouteReader
     }
 
     /**
+     * The parameter Laravel names a resource's key after: the singular of its last segment,
+     * with dashes as underscores. `orders` is `{order}`, `bulk-orders` `{bulk_order}`.
+     */
+    private function parameterOf(string $name): string
+    {
+        $last = (string) array_slice(explode('.', $name), -1)[0];
+        $last = (string) array_slice(explode('/', $last), -1)[0];
+
+        $singular = match (true) {
+            str_ends_with($last, 'ies') => mb_substr($last, 0, -3).'y',
+            (bool) preg_match('/(ss|x|ch|sh|zz)es$/', $last) => mb_substr($last, 0, -2),
+            str_ends_with($last, 's') && ! str_ends_with($last, 'ss') => mb_substr($last, 0, -1),
+            default => $last,
+        };
+
+        return str_replace('-', '_', $singular);
+    }
+
+    /**
+     * A nested resource, `photos.comments`, is `photos/{photo}/comments`.
+     */
+    private function resourcePath(string $name): string
+    {
+        $segments = explode('.', $name);
+        $last = array_pop($segments);
+        $path = '';
+
+        foreach ($segments as $segment) {
+            $path .= $segment.'/{'.$this->parameterOf($segment).'}/';
+        }
+
+        return $path.$last;
+    }
+
+    /**
+     * @param  array{name: string, args: array<int, Node\Arg>, line: int}  $base
+     * @param  list<string>  $middleware
+     */
+    private function singleton(array $base, bool $api, RouteContext $context, array $middleware, string $path): void
+    {
+        $name = $this->firstString($base['args']);
+        $controller = $this->firstClass(array_slice($base['args'], 1));
+
+        if ($name === null || $controller === null) {
+            $this->declined[] = new RouteDefinition('SINGLETON', $name ?? '?', $controller, null, null, $middleware, $path, $base['line'], Confidence::Textual, 'the singleton name or its controller is not a literal');
+
+            return;
+        }
+
+        foreach (self::SINGLETON as $action => [$verb, $suffix]) {
+            if ($api && $action === 'edit') {
+                continue;
+            }
+
+            $this->routes[] = new RouteDefinition(
+                $verb,
+                $context->uri($this->resourcePath($name).$suffix),
+                $controller,
+                $action,
+                $this->fullName($context, $name.'.'.$action),
+                [...$context->middleware, ...$middleware],
+                $path,
+                $base['line'],
+                Confidence::Resolved,
+                'generated by '.($api ? 'apiSingleton()' : 'singleton()'),
+            );
+        }
+    }
+
+    /**
      * @param  array{name: string, args: array<int, Node\Arg>, line: int}  $base
      * @param  list<array{name: string, args: array<int, Node\Arg>, line: int}>  $modifiers
      * @param  list<string>  $middleware
      */
-    private function resource(array $base, array $modifiers, bool $api, RouteContext $context, array $middleware, string $path): void
+    private function resource(array $base, array $modifiers, bool $api, RouteContext $context, array $middleware, string $path, ?string $name = null, ?string $controller = null): void
     {
-        $name = $this->firstString($base['args']);
-        $controller = $this->firstClass(array_slice($base['args'], 1));
+        $name ??= $this->firstString($base['args']);
+        $controller ??= $this->firstClass(array_slice($base['args'], 1));
 
         if ($name === null || $controller === null) {
             $this->declined[] = new RouteDefinition('RESOURCE', $name ?? '?', $controller, null, null, $middleware, $path, $base['line'], Confidence::Textual, 'the resource name or its controller is not a literal');
@@ -409,7 +522,7 @@ final class RouteReader
 
             $this->routes[] = new RouteDefinition(
                 $verb,
-                $context->uri($name.$suffix),
+                $context->uri($this->resourcePath($name).str_replace('{id}', '{'.$this->parameterOf($name).'}', $suffix)),
                 $controller,
                 $action,
                 $this->fullName($context, $name.'.'.$action),
