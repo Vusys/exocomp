@@ -569,7 +569,7 @@ final class LaravelEdges
             return $this->policies[$key] = $registered;
         }
 
-        $namespace = substr($model, 0, max(0, (int) strrpos($model, '\\')));
+        $namespace = mb_strcut($model, 0, max(0, (int) strrpos($model, '\\')));
         $guesses = array_unique([
             str_replace('\\Models', '\\Policies', $namespace).'\\'.$short.'Policy',
             $namespace.'\\Policies\\'.$short.'Policy',
