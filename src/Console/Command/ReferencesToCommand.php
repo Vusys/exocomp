@@ -10,6 +10,8 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedCommand;
+use Vusys\Exocomp\Index\ResolvedMember;
+use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Inference\EloquentChain;
 use Vusys\Exocomp\Inference\Reference;
 use Vusys\Exocomp\Inference\ReferenceFinder;
@@ -43,6 +45,7 @@ final class ReferencesToCommand extends IndexedCommand
             ->addArgument('symbol', InputArgument::REQUIRED, 'A class or member address, e.g. "App\Models\Order::save"')
             ->addOption('strings', null, InputOption::VALUE_NONE, 'Also search string literals across the corpus — slower, and every hit is textual')
             ->addOption('resolved-only', null, InputOption::VALUE_NONE, 'Emit only the references a rename may rewrite mechanically — the resolved ones')
+            ->addOption('family', null, InputOption::VALUE_NONE, 'For a member that overrides or implements another, answer for the whole hierarchy: the root declaration, every override and implementation, and the calls through any of their types — the set a rename has to change together')
             ->setHelp(<<<'HELP'
             Results are grouped by confidence:
 
@@ -68,12 +71,30 @@ final class ReferencesToCommand extends IndexedCommand
 
         $target = $this->searchTarget($this->knownAddress(SymbolRef::parse($this->stringArgument($input, 'symbol') ?? ''), $graph, $context), $graph, $notes);
         $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
-        $references = $finder->find(
-            $target,
-            $this->boolOption($input, 'strings'),
-            $this->searchDeadline($input),
-            $this->searchProgress($target->hasMember() ? (string) $target->member : $target->owner),
-        );
+        $roots = $target->hasMember() ? $this->roots($graph, $target) : [];
+        $family = $this->boolOption($input, 'family') && $roots !== [];
+        $searched = $family ? $roots : [$target];
+        $references = [];
+
+        // The references of a hierarchy are those of its root or roots: they already take in
+        // every override's declaration and the calls through every type below.
+        foreach ($searched as $root) {
+            foreach ($finder->find($root, $this->boolOption($input, 'strings'), $this->searchDeadline($input), $this->searchProgress((string) $root->member)) as $reference) {
+                $references[$reference->path.':'.$reference->line.':'.$reference->column.':'.$reference->kind] ??= $reference;
+            }
+        }
+
+        $references = array_values($references);
+
+        if ($family) {
+            $notes[] = sprintf('the family of %s: %s and everything that overrides or implements %s', (string) $target, implode(', ', array_map(strval(...), $roots)), count($roots) === 1 ? 'it' : 'them');
+        } elseif ($roots !== []) {
+            $notes[] = sprintf(
+                '%s overrides or implements %s; renaming it alone breaks the hierarchy — --family lists what has to change together',
+                (string) $target,
+                implode(' and ', array_map(strval(...), $roots)),
+            );
+        }
 
         // `--resolved-only` means the set a rename may rewrite mechanically, and that is
         // `resolved` alone. It used to drop only the textual group and print the inferred one,
@@ -132,6 +153,34 @@ final class ReferencesToCommand extends IndexedCommand
             found: ! $finder->searchedForNothing(),
             unresolvedGroups: $groups,
         );
+    }
+
+    /**
+     * The topmost declarations of the target member above it: what it overrides or implements,
+     * with nothing above them declaring it in turn. Empty when the target is itself the root.
+     *
+     * @return list<SymbolRef>
+     */
+    private function roots(SymbolGraph $graph, SymbolRef $target): array
+    {
+        $member = (string) $target->member;
+        $roots = [];
+
+        foreach ($graph->overrides($target->owner, $member) as $declaration) {
+            $owner = $declaration->record->owner;
+
+            if ($declaration->isOverridden || $owner === null) {
+                continue;
+            }
+
+            $above = array_filter($graph->overrides($owner, $member), static fn (ResolvedMember $other): bool => ! $other->isOverridden);
+
+            if ($above === []) {
+                $roots[strtolower($owner)] = SymbolRef::parse($owner.'::'.$member);
+            }
+        }
+
+        return array_values($roots);
     }
 
     private function row(Reference $reference, int $width, bool $withReason = false): Row
