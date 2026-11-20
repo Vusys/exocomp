@@ -11,6 +11,7 @@ use PhpParser\NodeVisitorAbstract;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Index\MemberOrigin;
+use Vusys\Exocomp\Index\ResolvedMember;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Symbol\Confidence;
@@ -356,7 +357,14 @@ final class ReferenceScanner extends NodeVisitorAbstract
             return;
         }
 
-        $this->record($node, 'declaration', Confidence::Resolved, 'declared here');
+        // An ancestor's declaration is the member this one overrides, not a reference to it.
+        // Counting it as `resolved` put the parent into a rename of the child, while leaving
+        // the parent's other implementations out; `--family` asks for the whole hierarchy.
+        if (strcasecmp($class, $this->target->owner) !== 0 && $this->hasAncestor($this->target->owner, $class)) {
+            return;
+        }
+
+        $this->record($node, 'declaration', Confidence::Resolved, strcasecmp($class, $this->target->owner) === 0 ? 'declared here' : 'overrides it, in '.$class);
     }
 
     /**
@@ -494,12 +502,24 @@ final class ReferenceScanner extends NodeVisitorAbstract
 
         // The receiver is typed as an ancestor, so the call may or may not land here at
         // runtime. Reporting it as certain would be a guess; dropping it would hide a real
-        // polymorphic call site.
+        // polymorphic call site. Unless the ancestor does not declare the member at all: the
+        // call then works only by accident of the object, and renaming it breaks every other
+        // implementation of that type, so it is not offered as a likely reference.
         if ($this->relatedness[$key.'<'] ??= $this->hasAncestor($owner, $receiverFqn)) {
-            return ['confidence' => Confidence::Inferred, 'reason' => 'receiver typed as '.$receiverFqn.', may dispatch here'];
+            return $this->declaresTarget($receiverFqn)
+                ? ['confidence' => Confidence::Inferred, 'reason' => 'receiver typed as '.$receiverFqn.', may dispatch here']
+                : ['confidence' => Confidence::Textual, 'reason' => sprintf('receiver typed as %s, which does not declare %s(); it reaches here only when the object happens to be a %s', $receiverFqn, (string) $this->target->member, $owner)];
         }
 
         return null;
+    }
+
+    private function declaresTarget(string $classFqn): bool
+    {
+        $member = (string) $this->target->member;
+
+        return $this->graph->members($classFqn)['unreachable'] !== []
+            || array_any($this->graph->members($classFqn)['members'], static fn (ResolvedMember $resolved): bool => strcasecmp($resolved->record->name, $member) === 0);
     }
 
     private function weaker(Confidence $left, Confidence $right): Confidence

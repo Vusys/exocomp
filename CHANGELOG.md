@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **`references-to` on an override is safe to rename from, and `--family` gives the whole hierarchy.** On a method that overrides or implements another, the parent's declaration was a `resolved` reference while the sibling implementations were missing, so rewriting the `resolved` set broke the hierarchy. Now:
+  - By default the answer is that declaration, the declarations that override it, and its calls, plus a note naming the root.
+  - `--family` answers for the root: every override and implementation, and calls through any of their types, all `resolved`.
+  - A call through an interface or parent that does not declare the method is unresolved, with the reason, rather than an `inferred` match (#85).
+
 - **A constant expression counts as a literal argument.** `--arg-is-literal` and `--arg-is-not-literal` (in `query` and `check`) treat a value fixed in the source as literal: concatenations of literals, class constants (`self::SQL`), an enum case's `->value`, PHP's own constants, and arithmetic and arrays of those. They can carry no runtime data, so an SQL audit flagged them as noise. An interpolated string, and a constant the application `define()`s, still don't count (#86).
 
 - **Every kind of magic is reported the same way: the address it was reached by, and where it lands.** A call is addressed as reached through its receiver: `Order::find`, `Order::save`, `$builder->open()`, `$s->invoices()->save()`, `$host->greet()`. Its record also names the declaration that runs: `Builder::find`, `Model::save`, `Order::scopeOpen`, `HasOneOrMany::save` and `Greets::hello`. `calls-from` prints it after an arrow (`→`), and JSON carries it as `lands`.
