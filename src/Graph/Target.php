@@ -57,6 +57,19 @@ final readonly class Target implements Stringable
     }
 
     /**
+     * The class this names exactly, with no `*`: the one that can be checked to exist.
+     */
+    public function literalOwner(): ?string
+    {
+        return $this->owner === '*' || str_contains($this->owner, '*') ? null : $this->owner;
+    }
+
+    public function withOwner(string $owner): self
+    {
+        return self::parse($owner.($this->member === null ? '' : '::'.$this->member));
+    }
+
+    /**
      * Whether a node — `Class::method`, or a bare function name — is the thing being looked for.
      */
     public function matches(string $node): bool

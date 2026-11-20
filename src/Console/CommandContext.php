@@ -32,6 +32,19 @@ final class CommandContext
         public readonly ?string $revision = null,
     ) {
         $locator->correctWith($this->soleDeclarationOf(...));
+        $locator->placeWith($this->indexedPath(...));
+    }
+
+    /**
+     * The file the index places a class in, read as the index stands, like the correction.
+     */
+    private function indexedPath(string $fqn): ?string
+    {
+        try {
+            return $this->index()->graph(validate: false)->classLike($fqn)?->path;
+        } catch (RuntimeException) {
+            return null;
+        }
     }
 
     /**
@@ -63,7 +76,9 @@ final class CommandContext
         $names = [];
 
         foreach ($found as $record) {
-            if ($record->isClassLike()) {
+            // The short name must match as written: `response` is a function, and a class
+            // called Response is not what was meant.
+            if ($record->isClassLike() && $record->name === $short) {
                 $names[$record->fqn] = true;
             }
         }

@@ -542,7 +542,27 @@ final class ReferenceScanner extends NodeVisitorAbstract
         return match (true) {
             $node instanceof Node\Stmt\ClassMethod => $node->name->toString(),
             $node instanceof Node\Stmt\Function_ => $node->name->toString(),
-            default => '{closure}',
+            default => self::closureName(
+                $this->functions === [] ? null : $this->functions[count($this->functions) - 1],
+                $this->classes === [] ? $this->analysis->file->displayPath : null,
+                $node->getStartLine(),
+            ),
+        };
+    }
+
+    /**
+     * A closure's name, unique and stable, in the shape PHP 8.4 uses in a stack trace: the
+     * declaration it is written in and its line, `{closure:refund():12}`, or outside any class
+     * its file and line, `{closure:tests/Unit/RefundTest.php:5}`. A bare `{closure}` made every
+     * closure in a class one caller, and every closure outside a class one caller for the
+     * whole project, so all but one vanished from `callers-of`.
+     */
+    public static function closureName(?string $enclosing, ?string $file, int $line): string
+    {
+        return match (true) {
+            $enclosing !== null => sprintf('{closure:%s:%d}', str_starts_with($enclosing, '{') ? $enclosing : $enclosing.'()', $line),
+            $file !== null => sprintf('{closure:%s:%d}', $file, $line),
+            default => sprintf('{closure:%d}', $line),
         };
     }
 }

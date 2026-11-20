@@ -88,7 +88,7 @@ final class ReachesCommandTest extends TestCase
 
     public function test_a_sweep_that_reaches_nothing_exits_one(): void
     {
-        $run = Cli::inLaravel(['reaches', 'route:*', 'Nothing\AtAll::ever']);
+        $run = Cli::inLaravel(['reaches', 'route:*', '::neverCalledAnywhere']);
 
         $this->assertSame(1, $run->exitCode);
         $this->assertStringContainsString('0 of 8 starting points', $run->output);
@@ -151,7 +151,7 @@ final class ReachesCommandTest extends TestCase
 
     public function test_a_stop_record_names_where_the_walk_was_and_why_it_stopped(): void
     {
-        $records = $this->records(Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', 'Nothing\AtAll::ever', '--json'])->output);
+        $records = $this->records(Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', '::neverCalledAnywhere', '--json'])->output);
         $stop = $this->recordWhere($records, 'kind', 'unresolved');
 
         $this->assertSame('app/Services/ReportDispatcher.php', $stop['file']);
@@ -164,7 +164,7 @@ final class ReachesCommandTest extends TestCase
 
     public function test_a_dependency_stop_names_the_class_that_declares_the_method(): void
     {
-        $records = $this->records(Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', 'Nothing\AtAll::ever', '--json'])->output);
+        $records = $this->records(Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', '::neverCalledAnywhere', '--json'])->output);
         $stop = $this->recordWhere($records, 'kind', 'dependency');
 
         // The address asked for and the declaration found are both reported, because they are
@@ -176,7 +176,7 @@ final class ReachesCommandTest extends TestCase
 
     public function test_one_of_something_is_said_as_one_rather_than_as_a_plural(): void
     {
-        $output = Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', 'Nothing\AtAll::ever'])->output;
+        $output = Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', '::neverCalledAnywhere'])->output;
 
         $this->assertStringContainsString('one edge led into a dependency and was not walked past', $output);
         $this->assertStringNotContainsString('1 edge led', $output);

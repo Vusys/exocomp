@@ -8,6 +8,7 @@ use PhpParser\Node;
 use PhpParser\NodeVisitorAbstract;
 use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Inference\ReferenceScanner;
 use Vusys\Exocomp\Inference\ResolvedType;
 use Vusys\Exocomp\Inference\Scope;
 use Vusys\Exocomp\Inference\TypeResolver;
@@ -173,7 +174,11 @@ final class MatchCollector extends NodeVisitorAbstract
         return match (true) {
             $node instanceof Node\Stmt\ClassMethod => $node->name->toString(),
             $node instanceof Node\Stmt\Function_ => $node->namespacedName?->toString() ?? $node->name->toString(),
-            default => '{closure}',
+            default => ReferenceScanner::closureName(
+                $this->functions === [] ? null : $this->functions[count($this->functions) - 1][1],
+                $this->classes === [] ? $this->analysis?->file->displayPath : null,
+                $node->getStartLine(),
+            ),
         };
     }
 }

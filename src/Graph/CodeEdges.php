@@ -301,7 +301,10 @@ final class CodeEdges
 
         try {
             $ref = SymbolRef::parse($node);
-            $located = $this->locator->locateOwner($ref);
+            // Speculative: a walk reads as far as it can, and must never be corrected onto a
+            // different name. Asked about `response()`, a corrected lookup answered with a class
+            // called Response and walked into it.
+            $located = $this->locator->locateOwner($ref, speculative: true);
         } catch (SymbolNotFound|\InvalidArgumentException) {
             return null;
         }
@@ -309,7 +312,7 @@ final class CodeEdges
         $owner = $located->declaration;
         $declaration = $ref->hasMember() ? $owner->member((string) $ref->member, false) : $owner;
 
-        if (! $declaration instanceof Declaration) {
+        if (! $declaration instanceof Declaration || (! $ref->hasMember() && $declaration->kind !== SymbolKind::FunctionDecl)) {
             return null;
         }
 

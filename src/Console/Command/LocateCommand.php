@@ -19,6 +19,7 @@ use Vusys\Exocomp\Project\DeclarationScan;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolKind;
+use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
  * Short name to fully-qualified name to file.
@@ -89,6 +90,10 @@ final class LocateCommand extends IndexedCommand
             if ($records === [] && ! $trustIndex) {
                 $records = $this->readTheSource($name, $kind, $context, $notes);
                 $scanned = $scanned || $records !== [];
+            }
+
+            if ($records === [] && str_contains(trim($name, '\\'), '\\')) {
+                $records = $this->inADependency(trim($name, '\\'), $kind, $context, $notes);
             }
 
             if ($records === []) {
@@ -217,6 +222,46 @@ final class LocateCommand extends IndexedCommand
     }
 
     /**
+     * A fully-qualified name placed where `show` would place it: Composer's autoload map, for a
+     * class in `vendor/` that the index does not hold by default.
+     *
+     * @param  list<string>  $notes
+     * @return list<SymbolRecord>
+     */
+    private function inADependency(string $fqn, ?SymbolKind $kind, CommandContext $context, array &$notes): array
+    {
+        try {
+            $located = $context->locator->locateOwner(SymbolRef::parse($fqn), speculative: true);
+        } catch (SymbolNotFound|InvalidArgumentException) {
+            return [];
+        }
+
+        $declaration = $located->declaration;
+
+        if (strcasecmp($declaration->fqn, $fqn) !== 0 || ($kind instanceof SymbolKind && $declaration->kind !== $kind)) {
+            return [];
+        }
+
+        $notes[] = sprintf('%s is outside the indexed source roots; it was placed through Composer\'s autoload map', $declaration->fqn);
+
+        return [new SymbolRecord(
+            path: $located->analysis->file->displayPath,
+            fqn: $declaration->fqn,
+            name: $declaration->name,
+            kind: $declaration->kind,
+            owner: null,
+            line: $declaration->startLine,
+            endLine: $declaration->endLine,
+            column: $declaration->startColumn,
+            signature: $declaration->signature,
+            fullSignature: $declaration->fullSignature,
+            modifiers: implode(' ', $declaration->modifiers),
+            isPromoted: false,
+            hasBody: $declaration->hasBody,
+        )];
+    }
+
+    /**
      * What the index actually held, said out loud.
      *
      * A negative is the one answer a caller cannot check, so it has to carry the size of the
@@ -239,7 +284,8 @@ final class LocateCommand extends IndexedCommand
             $statistics['symbols'] === 1 ? '' : 's',
             $trustIndex
                 ? ' — the source was not read, because --no-sync was given'
-                : ' — the source roots were read as well, so this is not a stale answer',
+                : ' — the source roots were read as well, so this is not a stale answer'
+                    .($context->index()->store->holdsPathsUnder($context->project->root, 'vendor/') ? '' : '; dependencies were not searched (--vendor includes them)'),
         );
     }
 
