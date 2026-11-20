@@ -38,9 +38,10 @@ final class ReachesCommandTest extends TestCase
     {
         $complete = Cli::inLaravel(['reaches', 'App\Services\ReportBuilder::build', 'App\Models\Order::save']);
         $this->assertStringContainsString('ran out of graph rather than out of budget', $complete->output);
+        $this->assertSame(1, $complete->exitCode);
 
         $curtailed = Cli::inLaravel(['reaches', 'App\Services\OrderService::place', 'App\Models\Order::save', '--depth', '1']);
-        $this->assertSame(1, $curtailed->exitCode);
+        $this->assertSame(3, $curtailed->exitCode);
         $this->assertStringContainsString('within the depth and node budget', $curtailed->output);
         $this->assertStringContainsString('raise --depth', $curtailed->output);
     }
@@ -86,11 +87,12 @@ final class ReachesCommandTest extends TestCase
         $this->assertStringContainsString('answered by a closure rather than a controller', $output);
     }
 
-    public function test_a_sweep_that_reaches_nothing_exits_one(): void
+    public function test_a_sweep_that_reaches_nothing_says_whether_it_was_complete(): void
     {
         $run = Cli::inLaravel(['reaches', 'route:*', '::neverCalledAnywhere']);
 
-        $this->assertSame(1, $run->exitCode);
+        // Some routes met edges the walk could not follow, so the "none" has gaps.
+        $this->assertSame(3, $run->exitCode);
         $this->assertStringContainsString('0 of 8 starting points', $run->output);
     }
 

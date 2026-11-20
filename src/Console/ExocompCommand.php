@@ -44,6 +44,13 @@ abstract class ExocompCommand extends Command
     protected const int EXIT_ERROR = 2;
 
     /**
+     * Not found, but not everything could be checked: edges not followed, routes not walked,
+     * files not searched or not parsed, receivers whose type is unknown. `if exocomp …` reads
+     * it as false, as it does `1`; only code that tells the two apart sees a difference.
+     */
+    protected const int EXIT_INCOMPLETE = 3;
+
+    /**
      * The ceiling applied when output is not going to a terminal and the caller named none.
      *
      * Roughly 100KB of text. Chosen against the measured distribution of real answers — median
@@ -136,7 +143,11 @@ abstract class ExocompCommand extends Command
 
         // A negative answer is still an answer and still goes to standard output — but the
         // exit code has to say "not found", or `exocomp reaches … && …` means nothing.
-        return $result->found ? self::EXIT_FOUND : self::EXIT_NOT_FOUND;
+        return match (true) {
+            $result->found => self::EXIT_FOUND,
+            $result->complete => self::EXIT_NOT_FOUND,
+            default => self::EXIT_INCOMPLETE,
+        };
     }
 
     /**

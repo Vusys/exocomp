@@ -364,6 +364,14 @@ final class ReferenceScanner extends NodeVisitorAbstract
             return;
         }
 
+        // With nothing declared on the target's ancestry there is nothing to override: a
+        // descendant's declaration of the name is a name, as every other match is.
+        if (! $this->targetDeclared) {
+            $this->record($node, 'declaration', Confidence::Textual, $this->undeclared);
+
+            return;
+        }
+
         $this->record($node, 'declaration', Confidence::Resolved, strcasecmp($class, $this->target->owner) === 0 ? 'declared here' : 'overrides it, in '.$class);
     }
 

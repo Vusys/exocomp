@@ -76,7 +76,8 @@ final class QueryCommand extends IndexedCommand
             receiver whose type cannot be established does not match, because letting it through
             would quietly turn a scoped audit into an unscoped one.
 
-            Exit codes: 0 matched, 1 nothing matched, 2 error.
+            Exit codes: 0 matched, 1 nothing matched, 2 error, 3 nothing matched but some
+            matches were not decided because the receiver's type is not known.
             HELP);
     }
 
@@ -152,6 +153,8 @@ final class QueryCommand extends IndexedCommand
             unresolved: array_map(fn (array $match): Row => $this->row($match, $width), $undecided),
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
+            found: $found !== [],
+            complete: $undecided === [],
         );
     }
 

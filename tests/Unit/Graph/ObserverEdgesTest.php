@@ -42,7 +42,8 @@ final class ObserverEdgesTest extends TestCase
     {
         $run = Cli::inLaravel(['reaches', 'App\Services\ModelWrites::massUpdateOrders', 'App\Services\AuditLog::record']);
 
-        $this->assertSame(1, $run->exitCode);
+        // No observer step, so no path; the framework call it stops at makes the "no" incomplete.
+        $this->assertSame(3, $run->exitCode);
     }
 
     public function test_a_method_that_is_not_a_write_fires_nothing(): void
