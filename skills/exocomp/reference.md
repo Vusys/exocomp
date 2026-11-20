@@ -405,7 +405,9 @@ $ exocomp query 'function _M() {}' --annotated @deprecated --visibility public
 ```
 
 Predicates: `--in` / `--not-in`, `--annotated`, `--has-attribute`, `--arg-is-literal` /
-`--arg-is-not-literal` (0-based), `--param-count`, `--visibility`, `--returns`, `--uses-trait`, `--extends`,
+`--arg-is-not-literal` (0-based; "literal" means fixed in the source: a literal, a class constant, an enum
+case's `->value`, PHP's own constants, and `.`, arithmetic and arrays of those, but not an interpolated string
+or an application's `define()`), `--param-count`, `--visibility`, `--returns`, `--uses-trait`, `--extends`,
 `--implements`, `--receiver-type` / `--receiver-implements` / `--receiver-extends`. `--capture NAME` prints
 one binding only. All are syntactic except the three receiver predicates, which need inference. A receiver
 whose type cannot be established does not match, so a scoped audit stays scoped.
