@@ -83,9 +83,11 @@ final class Walk
             $expanded++;
 
             foreach ($depth === 0 ? [...$before, ...$this->edgesFrom($node)] : $this->edgesFrom($node) as $edge) {
-                $key = Identifier::fold($edge->to);
+                $key = Identifier::fold($edge->next());
 
-                if ($target->matches($edge->to)) {
+                // Arrived if either name is the destination: `Order::create` as written, or
+                // `Builder::create`, where it runs.
+                if ($target->matches($edge->to) || ($edge->lands !== null && $target->matches($edge->lands))) {
                     return new Reachability(
                         start: $start,
                         found: true,
@@ -102,7 +104,7 @@ final class Walk
 
                 $seen[$key] = true;
                 $arrivedBy[$key] = $edge;
-                $queue[] = [$edge->to, $depth + 1];
+                $queue[] = [$edge->next(), $depth + 1];
             }
         }
 
@@ -134,7 +136,7 @@ final class Walk
             $expanded++;
 
             foreach ($this->edgesFrom($node) as $edge) {
-                $key = Identifier::fold($edge->to);
+                $key = Identifier::fold($edge->next());
 
                 if (isset($seen[$key])) {
                     continue;
@@ -142,7 +144,7 @@ final class Walk
 
                 $seen[$key] = true;
                 $found[] = [$at + 1, $edge];
-                $queue[] = [$edge->to, $at + 1];
+                $queue[] = [$edge->next(), $at + 1];
             }
         }
 
@@ -283,6 +285,7 @@ final class Walk
             column: $call->column,
             confidence: $call->confidence,
             reason: $call->reason,
+            lands: $call->lands,
         );
     }
 

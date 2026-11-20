@@ -117,10 +117,11 @@ final class CallsFromCommand extends IndexedCommand
             column: $call->column,
             fqn: $call->target,
             kind: $call->kind,
-            text: rtrim(str_pad(Address::of($call->path, $call->line, $call->column), $width).'  '.($call->target ?? $call->snippet)),
+            // The address as reached, then where it lands when that is somewhere else.
+            text: rtrim(str_pad(Address::of($call->path, $call->line, $call->column), $width).'  '.($call->target ?? $call->snippet).($call->target !== null && $call->lands !== null ? '  → '.$call->lands : '')),
             confidence: $call->target === null ? Confidence::Textual : $call->confidence,
             note: $withReason ? $call->reason : null,
-            extra: ['reason' => $call->reason, 'source' => $call->snippet],
+            extra: ['reason' => $call->reason, 'source' => $call->snippet] + ($call->lands === null ? [] : ['lands' => $call->lands]),
             carriesAddress: true,
         );
     }

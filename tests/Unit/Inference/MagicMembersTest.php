@@ -59,8 +59,9 @@ final class MagicMembersTest extends TestCase
 
         // `@mixin` converts an unknowable call into a member lookup on a named class, which is
         // what makes it worth reading: there is somewhere to jump to, and a rename of that
-        // declaration has to account for this call site.
-        $this->assertSame('Fixtures\TierD\Notifier::send', $call['fqn']);
+        // declaration has to account for this call site. The address is the receiver's; the
+        // declaration is where it lands.
+        $this->assertSame('Fixtures\TierD\Notifier::send', $call['lands']);
         $this->assertStringContainsString('@mixin', $call['reason']);
     }
 
@@ -80,7 +81,7 @@ final class MagicMembersTest extends TestCase
     {
         $call = $this->call('Fixtures\TierD\MagicCallers::throughForwarder');
 
-        $this->assertSame('Fixtures\TierD\Notifier::send', $call['fqn']);
+        $this->assertSame('Fixtures\TierD\Notifier::send', $call['lands']);
         $this->assertStringContainsString('forwards to', $call['reason']);
     }
 
@@ -146,7 +147,7 @@ final class MagicMembersTest extends TestCase
     /**
      * The first call record a declaration makes, decoded.
      *
-     * @return array{fqn: ?string, confidence: string, reason: string, kind: string}
+     * @return array{fqn: ?string, lands: ?string, confidence: string, reason: string, kind: string}
      */
     private function call(string $symbol): array
     {
@@ -163,6 +164,7 @@ final class MagicMembersTest extends TestCase
 
             return [
                 'fqn' => is_string($decoded['fqn'] ?? null) ? $decoded['fqn'] : null,
+                'lands' => is_string($decoded['lands'] ?? null) ? $decoded['lands'] : null,
                 'confidence' => is_string($decoded['confidence'] ?? null) ? $decoded['confidence'] : '',
                 'reason' => is_string($decoded['reason'] ?? null) ? $decoded['reason'] : '',
                 'kind' => is_string($decoded['kind']) ? $decoded['kind'] : '',

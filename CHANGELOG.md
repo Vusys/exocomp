@@ -18,6 +18,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Every kind of magic is reported the same way: the address it was reached by, and where it lands.** A call is addressed as reached through its receiver: `Order::find`, `Order::save`, `$builder->open()`, `$s->invoices()->save()`, `$host->greet()`. Its record also names the declaration that runs: `Builder::find`, `Model::save`, `Order::scopeOpen`, `HasOneOrMany::save` and `Greets::hello`. `calls-from` prints it after an arrow (`→`), and JSON carries it as `lands`.
+  - `callers-of` the landing declaration finds the call too: `callers-of 'Illuminate\Database\Eloquent\Builder::find'` now lists `Order::find(1)`.
+  - `reaches` arrives at either name, and walks on from where the call lands.
+  - `show Order::find` prints `Builder::find`, with a note saying how the call gets there.
+  - Before, inherited methods were named by the receiver and magic by the declaration, and forwarded static calls by an address `show` could not open (#58).
+
 - **A first-class callable is a `Closure`.** `$f = $h->make(...)` was typed as what `make()` returns, so `$f->refund()` was a `resolved` call to a method on that class. It is now a `Closure`, and a call on it that a `Closure` doesn't have is unresolved with that reason. Calling it, `$f()`, is a call to `make()` and returns what `make()` returns (#35).
 - **No more assertion failure on a first-class callable.** Reading a call's arguments no longer asks php-parser for the arguments of `$x->m(...)`, which fails an assertion under `zend.assertions=1`, the development default (#35).
 - **`calls-from`, `reaches` and `graph` type closure parameters.** `fn (Invoice $r) => $r->delete()` was "receiver type unknown" in `calls-from`, though `callers-of` and `query` already typed it. A closure inside a body now has its own scope: its parameters, and what it can see of the body's (#40).

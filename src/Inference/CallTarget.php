@@ -21,11 +21,17 @@ final readonly class CallTarget
         public ?string $fqn,
         public Confidence $confidence,
         public string $reason,
+        public ?string $lands = null,
     ) {}
 
-    public static function at(string $fqn, Confidence $confidence, string $reason): self
+    /**
+     * @param  ?string  $lands  the declaration that runs, when it is not `$fqn` itself: the
+     *                          address is the member as reached through the receiver,
+     *                          `Order::find`, and this is where it lands, `Builder::find`
+     */
+    public static function at(string $fqn, Confidence $confidence, string $reason, ?string $lands = null): self
     {
-        return new self($fqn, $confidence, $reason);
+        return new self($fqn, $confidence, $reason, $lands !== null && strcasecmp($lands, $fqn) !== 0 ? $lands : null);
     }
 
     public static function none(string $reason): self

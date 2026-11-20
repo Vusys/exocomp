@@ -25,5 +25,6 @@ final readonly class OutgoingCall
         public ?string $receiver = null,
         /** the authorization check this call makes, where it is one */
         public ?GateCheck $gate = null,
+        public ?string $lands = null,
     ) {}
 }
