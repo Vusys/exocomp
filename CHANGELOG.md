@@ -16,6 +16,18 @@ All notable changes to this project are documented here. The format follows
 
 - **`instanceof` types the variable it tests.** `$x` is the class inside `if ($x instanceof C) {…}` and an `elseif`, on the right of `&&`, and in a ternary's first branch. It is the class for the rest of the body after `assert($x instanceof C)`, and after a guard such as `if (! $x instanceof C) { throw … }` that has no other branch and always leaves. PHP guarantees each of these, so the type is `resolved`. It does not apply in an `else`, before the test in the same condition, or after the block ends. The type the variable had before comes back. `references-to`, `callers-of`, `calls-from`, `reaches` and `query`'s receiver predicates all use it.
 
+### Fixed
+
+- **A first-class callable is a `Closure`.** `$f = $h->make(...)` was typed as what `make()` returns, so `$f->refund()` was a `resolved` call to a method on that class. It is now a `Closure`, and a call on it that a `Closure` doesn't have is unresolved with that reason. Calling it, `$f()`, is a call to `make()` and returns what `make()` returns (#35).
+- **No more assertion failure on a first-class callable.** Reading a call's arguments no longer asks php-parser for the arguments of `$x->m(...)`, which fails an assertion under `zend.assertions=1`, the development default (#35).
+- **`calls-from`, `reaches` and `graph` type closure parameters.** `fn (Invoice $r) => $r->delete()` was "receiver type unknown" in `calls-from`, though `callers-of` and `query` already typed it. A closure inside a body now has its own scope: its parameters, and what it can see of the body's (#40).
+- **`self` in a trait is the class using it.** `?self` and `self` in a trait's signatures were bound to the trait, so `FindsHost::findBySlug('x')->only()` stopped at "Finds declares no only()" (#37).
+
+### Added
+
+- **More expressions are typed.** A caught exception, `catch (GatewayFailed $e)`, is the class it names (#36). A `match` whose arms agree is that class (#38), and so is `$this->cached ??= new Gateway` (#38). The arm of a `match (true)` that tests `$x instanceof C` narrows `$x` (#38). A backed enum's `from()` and `tryFrom()` return the enum and `cases()` a list of it (#39). PHP 8.5's `$x |> $this->m(...)` and `$x |> (fn (Holder $h) => …)` are what the callable returns, and `clone($x, [...])` is a copy of `$x` rather than a call to a function named `clone` (#83).
+- **A property the class never declares is typed from its assignments.** `$this->gateway = $gateway` in a constructor, from a typed parameter, types `$this->gateway` the way a declared but untyped property already was. It is listed as a member at its first assignment (#45).
+
 ## [0.9.1] - 2026-11-19
 
 `query` and `check` no longer count an interpolated string as a literal argument.

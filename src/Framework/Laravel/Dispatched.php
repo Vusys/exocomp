@@ -76,7 +76,7 @@ final class Dispatched
                     continue;
                 }
 
-                $argument = $call->getArgs()[0]->value ?? null;
+                $argument = Analyser::arguments($call)[0]->value ?? null;
                 $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
 
                 if ($sent !== null) {
@@ -117,7 +117,7 @@ final class Dispatched
                 continue;
             }
 
-            $argument = $call->getArgs()[0]->value ?? null;
+            $argument = Analyser::arguments($call)[0]->value ?? null;
             $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
 
             if ($sent !== null) {
@@ -148,7 +148,7 @@ final class Dispatched
                 continue;
             }
 
-            $argument = $call->getArgs()[0]->value ?? null;
+            $argument = Analyser::arguments($call)[0]->value ?? null;
             $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
 
             if ($sent !== null) {

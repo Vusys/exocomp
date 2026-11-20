@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Inference;
 
 use PhpParser\Node;
+use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Symbol\Confidence;
@@ -112,7 +113,7 @@ final readonly class EloquentReturns
         }
 
         if (strtolower($method) === 'factory') {
-            $first = $call->getArgs()[0]->value ?? null;
+            $first = Analyser::arguments($call)[0]->value ?? null;
             $many = $first instanceof Node\Scalar\Int_;
 
             return $this->factoryOf($model, $many, null);
@@ -205,7 +206,7 @@ final readonly class EloquentReturns
         $name = strtolower($method);
 
         if (in_array($name, self::BUILDER_TO_MODEL, true)) {
-            $first = $call->getArgs()[0]->value ?? null;
+            $first = Analyser::arguments($call)[0]->value ?? null;
 
             if (in_array($name, self::TAKES_KEYS, true) && $first instanceof Node\Expr\Array_) {
                 return ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, sprintf('%s() with a list of keys returns a collection, by Eloquent convention', $method));

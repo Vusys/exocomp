@@ -269,7 +269,7 @@ final class SchemaReplay
         }
 
         $method = strtolower($call->name->toString());
-        $arguments = $call->getArgs();
+        $arguments = Analyser::arguments($call);
 
         if (in_array($method, ['create', 'table', 'drop', 'dropifexists', 'rename'], true) && $this->tableName($arguments) === null) {
             // The name is computed, so this migration's changes belong to a table that cannot be
@@ -519,7 +519,7 @@ final class SchemaReplay
      */
     private function applyBlueprintMethod(Table $table, string $method, string $spelling, Node\Expr\MethodCall $base, array $modifiers, string $path): void
     {
-        $arguments = $base->getArgs();
+        $arguments = Analyser::arguments($base);
         $line = $base->getStartLine();
 
         if (in_array($method, self::INDEXES, true)) {
@@ -687,7 +687,7 @@ final class SchemaReplay
         $name = $link->name instanceof Node\Identifier ? $link->name->toString() : '?';
         $arguments = [];
 
-        foreach ($link->getArgs() as $argument) {
+        foreach (Analyser::arguments($link) as $argument) {
             $value = LiteralValue::scalar($argument->value);
             $arguments[] = match (true) {
                 $value === null => '…',
@@ -718,7 +718,7 @@ final class SchemaReplay
         }
 
         return in_array(strtolower($call->name->toString()), ['create', 'table', 'hastable', 'hascolumn', 'hasindex', 'drop', 'dropifexists', 'rename'], true)
-            ? $this->tableName($call->getArgs())
+            ? $this->tableName(Analyser::arguments($call))
             : null;
     }
 

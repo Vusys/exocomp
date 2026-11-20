@@ -149,6 +149,10 @@ final readonly class TypeResolver
      */
     public function typeOf(Node $expression, Scope $scope, array $imports): ResolvedType
     {
+        if ($expression instanceof Node\Expr\CallLike && ! $expression instanceof Node\Expr\New_ && $expression->isFirstClassCallable()) {
+            return $this->callableType($expression, $scope, $imports);
+        }
+
         return match (true) {
             $expression instanceof Node\Expr\Variable => $this->variableType($expression, $scope),
             $expression instanceof Node\Expr\New_ => $this->instantiationType($expression),
@@ -165,8 +169,135 @@ final readonly class TypeResolver
             $expression instanceof Node\Expr\Ternary => $this->ternaryType($expression, $scope, $imports),
             $expression instanceof Node\Expr\ArrayDimFetch => $this->elementType($expression, $scope, $imports),
             $expression instanceof Node\Expr\BinaryOp\Coalesce => $this->eitherType($expression->left, $expression->right, $scope, $imports),
+            $expression instanceof Node\Expr\AssignOp\Coalesce => $this->coalesceAssignType($expression, $scope, $imports),
+            $expression instanceof Node\Expr\Match_ => $this->matchType($expression, $scope, $imports),
+            $expression instanceof Node\Expr\BinaryOp\Pipe => $this->pipeType($expression, $scope, $imports),
             default => ResolvedType::unknown('expression kind carries no declared type'),
         };
+    }
+
+    /**
+     * `$h->make(...)`, `Holder::make(...)`, `strlen(...)`: a `Closure`, not what the method
+     * returns. What calling it returns is kept with it, so `$f()` is typed, and so is the
+     * method it stands for, so the call `$f()` makes can be named.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function callableType(Node\Expr\CallLike $call, Scope $scope, array $imports): ResolvedType
+    {
+        [$returns, $target] = match (true) {
+            $call instanceof Node\Expr\MethodCall, $call instanceof Node\Expr\NullsafeMethodCall => [$this->methodReturnType($call, $scope, $imports), $this->methodTarget($call, $scope, $imports)],
+            $call instanceof Node\Expr\StaticCall => [$this->staticReturnType($call, $scope), $this->staticTarget($call, $scope)],
+            $call instanceof Node\Expr\FuncCall => [$this->invocationReturnType($call, $scope, $imports), $call->name instanceof Node\Name ? ltrim(Analyser::resolvedName($call->name), '\\') : null],
+            default => [null, null],
+        };
+
+        return ResolvedType::closure($returns, $target);
+    }
+
+    /**
+     * @param  list<Import>  $imports
+     */
+    private function methodTarget(Node\Expr\MethodCall|Node\Expr\NullsafeMethodCall $call, Scope $scope, array $imports): ?string
+    {
+        $owner = $this->typeOf($call->var, $scope, $imports);
+
+        return $owner->isKnown() && $owner->wrapper === null && $call->name instanceof Node\Identifier
+            ? $this->callTarget((string) $owner->fqn, $call->name->toString(), $owner->confidence, $owner->reason)->fqn
+            : null;
+    }
+
+    private function staticTarget(Node\Expr\StaticCall $call, Scope $scope): ?string
+    {
+        $owner = $this->className($call->class, $scope);
+
+        return $owner !== null && $call->name instanceof Node\Identifier
+            ? $this->callTarget($owner, $call->name->toString(), Confidence::Resolved, 'class name')->fqn
+            : null;
+    }
+
+    /**
+     * `$this->cached ??= new Gateway()`: the left side when its type is known (null is what the
+     * right side replaces), and otherwise the right.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function coalesceAssignType(Node\Expr\AssignOp\Coalesce $assign, Scope $scope, array $imports): ResolvedType
+    {
+        $left = $this->typeOf($assign->var, $scope, $imports);
+
+        return $left->isKnown() ? $left : $this->typeOf($assign->expr, $scope, $imports);
+    }
+
+    /**
+     * A `match` whose arms agree, the rule a ternary follows: an arm that is `null` or a `throw`
+     * adds nothing, and the rest must be one class.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function matchType(Node\Expr\Match_ $match, Scope $scope, array $imports): ResolvedType
+    {
+        $found = null;
+
+        foreach ($match->arms as $arm) {
+            $body = $arm->body;
+
+            if ($body instanceof Node\Expr\Throw_ || ($body instanceof Node\Expr\ConstFetch && strtolower($body->name->toString()) === 'null')) {
+                continue;
+            }
+
+            $type = $this->typeOf($body, $scope, $imports);
+
+            if (! $type->isKnown() || ($found instanceof ResolvedType && strcasecmp((string) $found->fqn, (string) $type->fqn) !== 0)) {
+                return ResolvedType::unknown('the arms of the match do not agree on a type');
+            }
+
+            $found = $found instanceof ResolvedType && $found->confidence !== Confidence::Resolved ? $found : $type;
+        }
+
+        return $found ?? ResolvedType::unknown('no arm of the match yields a value');
+    }
+
+    /**
+     * `$a |> $callable`: what calling the right side with the left returns. That is known for a
+     * first-class callable (`$this->m(...)`, `X::m(...)`) and for an arrow function, whose
+     * parameter is then the left side.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function pipeType(Node\Expr\BinaryOp\Pipe $pipe, Scope $scope, array $imports): ResolvedType
+    {
+        $callable = $pipe->right;
+
+        if ($callable instanceof Node\Expr\ArrowFunction || $callable instanceof Node\Expr\Closure) {
+            $declared = self::classLikeTypeOf($callable->returnType);
+
+            if ($declared !== null) {
+                return ResolvedType::declared($declared);
+            }
+
+            if (! $callable instanceof Node\Expr\ArrowFunction) {
+                return ResolvedType::unknown('the closure declares no class-like return type');
+            }
+
+            $inner = $this->scopeFor($scope->classFqn, $scope->parentFqn, $callable, $imports, $scope);
+            $first = $callable->params[0] ?? null;
+            $name = $first === null ? null : $this->variableName($first->var);
+
+            if ($name !== null && ! $inner->get($name) instanceof ResolvedType) {
+                $left = $this->typeOf($pipe->left, $scope, $imports);
+
+                if ($left->isKnown()) {
+                    $inner->set($name, $left);
+                }
+            }
+
+            return $this->typeOf($callable->expr, $inner, $imports);
+        }
+
+        $type = $this->typeOf($callable, $scope, $imports);
+
+        return $type->invokes ?? ResolvedType::unknown('the right side of |> is not a callable whose result is known');
     }
 
     /**
@@ -239,9 +370,10 @@ final readonly class TypeResolver
     /**
      * What `instanceof` proves on the way into a node. `$x` is a C in the block of
      * `if ($x instanceof C) {…}` (and of an `elseif`), on the right of `$x instanceof C && …`,
-     * and in the first branch of `$x instanceof C ? … : …`. It is not one in an `else`, nor
-     * before the test in the same condition. `assert($x instanceof C)` proves it for the rest
-     * of the body.
+     * and in the first branch of `$x instanceof C ? … : …`, and in the arm of a `match (true)`
+     * that tests it. It is not one in an `else`, nor before the test in the same condition.
+     * `assert($x instanceof C)` proves it for the rest of the body, and a `catch` proves its
+     * variable is the caught class.
      */
     public function enterNarrowing(Node $node, Scope $scope): void
     {
@@ -253,6 +385,14 @@ final readonly class TypeResolver
             $scope->narrowBetween($node->right, $node->right, $this->provedBy($node->left, true, $scope));
         } elseif ($node instanceof Node\Expr\Ternary && $node->if instanceof Node\Expr) {
             $scope->narrowBetween($node->if, $node->if, $this->provedBy($node->cond, true, $scope));
+        } elseif ($node instanceof Node\Expr\Match_ && $node->cond instanceof Node\Expr\ConstFetch && strtolower($node->cond->name->toString()) === 'true') {
+            foreach ($node->arms as $arm) {
+                if (count($arm->conds ?? []) === 1) {
+                    $scope->narrowBetween($arm->body, $arm->body, $this->provedBy($arm->conds[0], true, $scope));
+                }
+            }
+        } elseif ($node instanceof Node\Stmt\Catch_ && $node->var instanceof Node\Expr\Variable && is_string($node->var->name)) {
+            $scope->set($node->var->name, $this->caughtType($node, $scope));
         } elseif ($node instanceof Node\Stmt\Expression && $node->expr instanceof Node\Expr\FuncCall
             && $node->expr->name instanceof Node\Name && strtolower($node->expr->name->toString()) === 'assert'
             && ($node->expr->args[0] ?? null) instanceof Node\Arg) {
@@ -260,6 +400,24 @@ final readonly class TypeResolver
                 $scope->set($variable, $type);
             }
         }
+    }
+
+    /**
+     * `catch (GatewayException $e)`: the variable is the class the clause names, which PHP
+     * guarantees. A clause naming several (`A|B`) leaves it as one of them, which is not one
+     * class, so it stays unknown.
+     */
+    private function caughtType(Node\Stmt\Catch_ $catch, Scope $scope): ResolvedType
+    {
+        if (count($catch->types) !== 1) {
+            return ResolvedType::unknown('caught as one of several types');
+        }
+
+        $class = $this->className($catch->types[0], $scope);
+
+        return $class === null
+            ? ResolvedType::unknown('caught type unknown')
+            : ResolvedType::resolvedBy($class, 'the class the catch names');
     }
 
     /**
@@ -543,7 +701,7 @@ final readonly class TypeResolver
      */
     private function containerLookup(Node\Expr\FuncCall|Node\Expr\MethodCall|Node\Expr\NullsafeMethodCall|Node\Expr\StaticCall $call, Scope $scope): ?ResolvedType
     {
-        $argument = $call->getArgs()[0]->value ?? null;
+        $argument = Analyser::arguments($call)[0]->value ?? null;
         $class = $argument instanceof Node\Expr\ClassConstFetch ? LiteralValue::className($argument, $scope->classFqn) : null;
 
         if ($class === null || in_array(strtolower($class), ['self', 'static', 'parent'], true)) {
@@ -587,6 +745,12 @@ final readonly class TypeResolver
         $member = $this->member($ownerFqn, $method, SymbolKind::Method);
 
         if (! $member instanceof SymbolRecord) {
+            if ($this->isEnumIntrinsic($ownerFqn, $method)) {
+                return strtolower($method) === 'cases'
+                    ? ResolvedType::arrayOf(['*' => $ownerFqn], 'the language: cases() lists the enum')
+                    : ResolvedType::resolvedBy($ownerFqn, sprintf('%s() is given to every backed enum by the language', $method));
+            }
+
             return $this->magically($ownerFqn, $method, SymbolKind::Method)
                 ?? $this->beyondTheIndex($ownerFqn, $method)
                 ?? ResolvedType::unknown($this->whyNoMethod($ownerFqn, $method));
@@ -623,9 +787,16 @@ final readonly class TypeResolver
     {
         return match (strtolower($type)) {
             'static' => $ownerFqn,
-            'self' => $member->owner ?? $ownerFqn,
+            // `self` in a trait is the class that uses it, as `static` is; the trait itself is
+            // never an instance of anything.
+            'self' => $member->owner === null || $this->isTrait($member->owner) ? $ownerFqn : $member->owner,
             default => $type,
         };
+    }
+
+    private function isTrait(string $fqn): bool
+    {
+        return $this->graph->classLike($fqn)?->kind === SymbolKind::TraitType;
     }
 
     /**
@@ -641,6 +812,11 @@ final readonly class TypeResolver
     private function invocationReturnType(Node\Expr\FuncCall $call, Scope $scope, array $imports): ResolvedType
     {
         if ($call->name instanceof Node\Name) {
+            // `clone($x, [...])`, PHP 8.5's clone with: a copy of `$x`, like `clone $x`.
+            if (strtolower($call->name->toString()) === 'clone' && ($first = Analyser::arguments($call)[0] ?? null) instanceof Node\Arg) {
+                return $this->typeOf($first->value, $scope, $imports);
+            }
+
             if ((Analyser::isGlobalFunction($call->name, 'app') || Analyser::isGlobalFunction($call->name, 'resolve'))
                 && ($found = $this->containerLookup($call, $scope)) instanceof ResolvedType) {
                 return $found;
@@ -653,6 +829,14 @@ final readonly class TypeResolver
 
         if (! $receiver->isKnown()) {
             return ResolvedType::unknown($receiver->reason);
+        }
+
+        if ($receiver->invokes instanceof ResolvedType) {
+            return $receiver->invokes;
+        }
+
+        if (strcasecmp((string) $receiver->fqn, 'Closure') === 0) {
+            return ResolvedType::unknown('what the closure returns is not known');
         }
 
         return $this->returnTypeOf((string) $receiver->fqn, '__invoke');
@@ -747,7 +931,7 @@ final readonly class TypeResolver
             if ($native !== null) {
                 return match (strtolower($native)) {
                     'static' => ResolvedType::declared($ownerFqn),
-                    'self' => ResolvedType::declared($class->fqn),
+                    'self' => ResolvedType::declared($class->node instanceof Node\Stmt\Trait_ ? $ownerFqn : $class->fqn),
                     default => ResolvedType::declared($native),
                 };
             }
@@ -799,6 +983,13 @@ final readonly class TypeResolver
      */
     public function callTarget(string $ownerFqn, string $name, Confidence $confidence, string $reason): CallTarget
     {
+        // `Closure` is final and its methods are the language's, so anything else is not there.
+        if (strcasecmp(ltrim($ownerFqn, '\\'), 'Closure') === 0) {
+            return in_array(strtolower($name), ['bind', 'bindto', 'call', 'fromcallable', '__invoke'], true)
+                ? CallTarget::at('Closure::'.$name, $confidence, $reason)
+                : CallTarget::none(sprintf('a Closure has no %s() — it is a first-class callable, not the object its method returns', $name));
+        }
+
         if ($this->member($ownerFqn, $name, SymbolKind::Method) instanceof SymbolRecord) {
             return CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason);
         }

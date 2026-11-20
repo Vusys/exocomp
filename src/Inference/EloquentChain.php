@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Inference;
 
 use PhpParser\Node;
+use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Framework\Laravel\LaravelProfile;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
@@ -83,7 +84,7 @@ final class EloquentChain
         $links = [];
 
         while ($receiver instanceof Node\Expr\MethodCall || $receiver instanceof Node\Expr\NullsafeMethodCall || $receiver instanceof Node\Expr\StaticCall) {
-            if (! $receiver->name instanceof Node\Identifier || $receiver->isFirstClassCallable() || ! $this->plainArguments($receiver->getArgs())) {
+            if (! $receiver->name instanceof Node\Identifier || $receiver->isFirstClassCallable() || ! $this->plainArguments(Analyser::arguments($receiver))) {
                 return false;
             }
 
