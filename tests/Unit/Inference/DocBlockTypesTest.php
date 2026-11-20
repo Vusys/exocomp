@@ -12,9 +12,10 @@ use Vusys\Exocomp\Inference\DocBlockTypes;
  */
 final class DocBlockTypesTest extends TestCase
 {
+    /** A generic class's last parameter is what it holds, as an array's value type is. */
     public function test_array_forms_name_the_element_at_any_key(): void
     {
-        foreach (['Page[]', 'list<Page>', 'array<string, Page>', 'iterable<Page>', '?Page[]', 'non-empty-list<Page>'] as $type) {
+        foreach (['Page[]', 'list<Page>', 'array<string, Page>', 'iterable<Page>', '?Page[]', 'non-empty-list<Page>', 'Collection<int, Page>'] as $type) {
             $this->assertSame(['*' => 'Page'], $this->returned($type), $type);
         }
     }
@@ -27,7 +28,7 @@ final class DocBlockTypesTest extends TestCase
 
     public function test_an_element_that_is_not_one_class_names_nothing(): void
     {
-        foreach (['string[]', 'array<int, Book|Page>', 'array<string, Page[]>', 'Book|Page[]', 'Collection<int, Page>', 'Page'] as $type) {
+        foreach (['string[]', 'array<int, Book|Page>', 'array<string, Page[]>', 'Book|Page[]', 'Page'] as $type) {
             $this->assertSame([], $this->returned($type), $type);
         }
     }

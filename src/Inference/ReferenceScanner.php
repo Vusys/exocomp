@@ -255,6 +255,14 @@ final class ReferenceScanner extends NodeVisitorAbstract
             return;
         }
 
+        // A receiver typed as a class that exists nowhere, a missing `use` most often, could be
+        // a call on the target under the name that should have been imported.
+        if (! $spelled && $this->types->existsNowhere((string) $type->fqn)) {
+            $this->record($node, $kind, Confidence::Textual, sprintf('%s: no such class is declared anywhere (a missing import?)', $type->fqn));
+
+            return;
+        }
+
         $related = $this->relation((string) $type->fqn);
         $relation = $spelled ? null : $related;
 
