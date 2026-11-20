@@ -33,7 +33,7 @@ Laravel questions grep cannot answer: `model Order` (table, casts, defaults, rel
 - **Confidence.** Every hit is `resolved` (declared and checked), `inferred` (through a step the code does not declare: a docblock, a binding, an Eloquent chain or relation, `config/auth.php`) or `textual` (the name matches but the receiver is unknown). Only `resolved` is safe to rewrite mechanically.
 - **What it could not see.** `references-to` counts each confidence in the header, such as `(4 resolved, 2 inferred, 1 unresolved, 30 excluded)`. The rest goes in a trailing block, such as `── 3 unresolved ──`, `── 1 not reached ──` or `── 2 not followed ──`. More than ten unresolved hits are grouped by reason, and `--all-unresolved` lists every one. An answer is complete coverage only once you have read that block.
 - **Exit codes.** `0` found, `1` not found, `2` error, `3` not found but incomplete. A `1` is an answer, so do not retry it with grep. A `3` is a "none" with gaps: read the trailing block for what could not be checked.
-- **Do not pipe to `head`.** Piped output is already capped at about 25,000 tokens, and every cut is reported (`… 22 more (use --limit)`). `| head` hides the cut and replaces exocomp's exit code with its own. To cap output, use `--limit N` or `--max-tokens N`.
+- **Do not pipe to `head`.** Every answer is already at most one page (about 4,000 tokens), leads with its summary, and ends with the command for the next page (`--page 2`). `| head` adds nothing and replaces exocomp's exit code with its own. `--all` prints everything.
 
 ## More
 

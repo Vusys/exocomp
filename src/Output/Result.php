@@ -44,6 +44,7 @@ final readonly class Result
         public array $unresolvedGroups = [],
         public bool $cutByTokens = false,
         public bool $complete = true,
+        public ?PageWindow $window = null,
     ) {}
 
     /**
@@ -52,14 +53,20 @@ final readonly class Result
      * resolved is the part a reader most needs to see, so a token cut takes listed records
      * first and keeps the summary.
      */
-    public function cutTo(int $keep, bool $summarise): self
+    public function cutTo(int $keep, bool $summarise, int $skip = 0, ?string $next = null): self
     {
         $sections = [];
         $remaining = $keep;
+        $skipping = $skip;
         $dropped = 0;
+        $total = count($this->rows());
 
         foreach ($this->sections as $section) {
-            $kept = array_slice($section->rows, 0, max($remaining, 0));
+            $rows = $section->rows;
+            $skipped = array_slice($rows, 0, max($skipping, 0));
+            $skipping -= count($skipped);
+            $rows = array_slice($rows, count($skipped));
+            $kept = array_slice($rows, 0, max($remaining, 0));
             $dropped += count($section->rows) - count($kept);
             $remaining -= count($kept);
 
@@ -67,6 +74,9 @@ final readonly class Result
                 $sections[] = new Section($section->title, $kept);
             }
         }
+
+        $shown = $total - $dropped;
+        $window = $dropped === 0 ? null : new PageWindow($skip + 1, $skip + $shown, $total, $skip + $shown < $total ? $next : null);
 
         $summarised = $summarise && $this->unresolved !== [];
 
@@ -76,7 +86,7 @@ final readonly class Result
             sections: $sections,
             unresolvedTitle: $this->unresolvedTitle,
             unresolved: $summarised ? [] : $this->unresolved,
-            elided: $this->elided + $dropped,
+            elided: $window instanceof PageWindow ? $this->elided : $this->elided + $dropped,
             notes: $this->notes,
             object: $this->object,
             found: $this->found,
@@ -84,6 +94,7 @@ final readonly class Result
             unresolvedGroups: $summarised ? UnresolvedGroup::summarise($this->unresolved) : $this->unresolvedGroups,
             cutByTokens: $dropped > 0 || $summarised || $this->cutByTokens,
             complete: $this->complete,
+            window: $window,
         );
     }
 
@@ -137,6 +148,11 @@ final readonly class Result
             cutByTokens: $this->cutByTokens,
             complete: $this->complete,
         );
+    }
+
+    public function withNote(string $note): self
+    {
+        return new self($this->header, $this->body, $this->sections, $this->unresolvedTitle, $this->unresolved, $this->elided, [...$this->notes, $note], $this->object, $this->found, $this->objects, $this->unresolvedGroups, $this->cutByTokens, $this->complete, $this->window);
     }
 
     /**
