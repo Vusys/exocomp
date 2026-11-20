@@ -6,12 +6,15 @@ namespace App\Providers;
 
 use App\Contracts\ReportWriter;
 use App\Http\Controllers\OrderController;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Observers\OrderObserver;
+use App\Policies\CustomerPolicy;
 use App\Services\CsvReportWriter;
 use App\Services\PdfReportWriter;
 use App\Services\ReportBuilder;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 final class AppServiceProvider extends ServiceProvider
@@ -42,5 +45,7 @@ final class AppServiceProvider extends ServiceProvider
         Relation::morphMap(config('morph-map'));
 
         Order::observe(OrderObserver::class);
+
+        Gate::policy(Customer::class, CustomerPolicy::class);
     }
 }

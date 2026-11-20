@@ -23,5 +23,7 @@ final readonly class OutgoingCall
         public string $snippet,
         /** the class the call was made on, where that differs from where the member is declared */
         public ?string $receiver = null,
+        /** the authorization check this call makes, where it is one */
+        public ?GateCheck $gate = null,
     ) {}
 }
