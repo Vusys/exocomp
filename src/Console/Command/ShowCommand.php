@@ -23,10 +23,13 @@ use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\ExocompCommand;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Inference\Magic;
 use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Inference\ReferenceScanner;
+use Vusys\Exocomp\Inference\TypeResolver;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
+use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Render\SkeletonRenderer;
 use Vusys\Exocomp\Source\ParseFailure;
@@ -246,9 +249,59 @@ final class ShowCommand extends ExocompCommand
             return $this->rendered($accessor, $owner->analysis->file, $skeleton);
         }
 
-        [$elsewhere, $file] = $this->declaredOnAnother(SymbolRef::parse($owner->declaration->fqn.'::'.($ref->memberIsProperty ? '$' : '').$ref->member), $context);
+        try {
+            [$elsewhere, $file] = $this->declaredOnAnother(SymbolRef::parse($owner->declaration->fqn.'::'.($ref->memberIsProperty ? '$' : '').$ref->member), $context);
+        } catch (SymbolNotFound $notFound) {
+            // A member the class reaches only through magic: `Order::find` runs `Builder::find`,
+            // a trait alias runs the trait's method. The same answer `calls-from` gives.
+            $landed = $ref->memberIsProperty ? null : $this->landing($owner->declaration->fqn, (string) $ref->member, $context);
+
+            if ($landed === null) {
+                throw $notFound;
+            }
+
+            return $landed;
+        }
 
         return $this->rendered($elsewhere, $file, $skeleton);
+    }
+
+    /**
+     * @return ?array{header: string, source: string, object: array<string, string|int|bool|null>}
+     */
+    private function landing(string $owner, string $member, CommandContext $context): ?array
+    {
+        try {
+            $graph = $context->index()->graph(validate: false);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        $source = new ClassSource($context->project, $graph, $context->locator);
+        $types = new TypeResolver($graph, Magic::forProject($graph, $source, $context->project), null, null, $source);
+        $target = $types->callTarget($owner, $member, Confidence::Resolved, 'class name');
+
+        if ($target->lands === null || ! str_contains($target->lands, '::')) {
+            return null;
+        }
+
+        [$class, $name] = explode('::', $target->lands, 2);
+
+        try {
+            $declaring = $context->locator->locateOwner(SymbolRef::parse($class), speculative: true);
+        } catch (SymbolNotFound) {
+            return null;
+        }
+
+        $declaration = $declaring->declaration->member($name, false);
+
+        if (! $declaration instanceof Declaration) {
+            return null;
+        }
+
+        $this->notes[] = sprintf('%s::%s is not declared on %s; a call to it lands on %s (%s)', $owner, $member, $owner, $target->lands, $target->reason);
+
+        return $this->rendered($declaration, $declaring->analysis->file, false);
     }
 
     private function eloquentAccessor(Declaration $class, string $name): ?Declaration

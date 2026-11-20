@@ -26,7 +26,17 @@ final readonly class Edge
         public int $column,
         public Confidence $confidence,
         public string $reason,
+        public ?string $lands = null,
     ) {}
+
+    /**
+     * The node a walk goes on from: the declaration the call lands on, where that is not the
+     * address it was made through.
+     */
+    public function next(): string
+    {
+        return $this->lands ?? $this->to;
+    }
 
     /**
      * The weakest link in a walk — what the whole path is actually worth.

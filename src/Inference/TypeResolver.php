@@ -1336,7 +1336,7 @@ final readonly class TypeResolver
 
         $declaration = $this->eloquent?->scopeDeclaration($receiver->model, $name);
 
-        return $declaration === null ? null : CallTarget::at($declaration, Confidence::Inferred, sprintf('a local scope of %s, called on its query builder', $receiver->model));
+        return $declaration === null ? null : CallTarget::at($receiver->fqn.'::'.$name, Confidence::Inferred, sprintf('a local scope of %s, called on its query builder', $receiver->model), $declaration);
     }
 
     public function callTarget(string $ownerFqn, string $name, Confidence $confidence, string $reason): CallTarget
@@ -1348,8 +1348,8 @@ final readonly class TypeResolver
             $declaring = $this->declaringBeyondTheIndex($ownerFqn, $name);
 
             return $declaring !== null
-                ? CallTarget::at($declaring.'::'.$name, $confidence, $reason)
-                : CallTarget::at('Illuminate\\Database\\Eloquent\\Builder::'.$name, Confidence::weakest($confidence, Confidence::Inferred), $reason.'; forwarded to the query builder by Relation::__call');
+                ? CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason, $declaring.'::'.$name)
+                : CallTarget::at($ownerFqn.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), $reason.'; forwarded to the query builder by Relation::__call', 'Illuminate\\Database\\Eloquent\\Builder::'.$name);
         }
 
         // `Closure` is final and its methods are the language's, so anything else is not there.
@@ -1359,17 +1359,20 @@ final readonly class TypeResolver
                 : CallTarget::none(sprintf('a Closure has no %s() — it is a first-class callable, not the object its method returns', $name));
         }
 
-        if ($this->member($ownerFqn, $name, SymbolKind::Method) instanceof SymbolRecord) {
-            return CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason);
+        $declared = $this->member($ownerFqn, $name, SymbolKind::Method);
+
+        if ($declared instanceof SymbolRecord) {
+            return CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason, $declared->owner === null ? null : $declared->owner.'::'.$declared->name);
         }
 
         $magic = $this->magic?->method($ownerFqn, $name);
 
         if ($magic instanceof MagicMember) {
             return CallTarget::at(
-                $magic->declaration ?? $ownerFqn.'::'.$name,
+                $ownerFqn.'::'.$name,
                 Confidence::weakest($confidence, $magic->confidence),
                 $magic->reason,
+                $magic->declaration,
             );
         }
 
@@ -1380,12 +1383,12 @@ final readonly class TypeResolver
         // to read, an absence proves nothing.
         if ($this->magic?->isModel($ownerFqn) === true && $this->declaringBeyondTheIndex($ownerFqn, $name) === null
             && ($builder = $this->eloquent?->builderOf($ownerFqn)) !== null && $this->members->declared($builder, $name, SymbolKind::Method) instanceof SymbolRecord) {
-            return CallTarget::at($builder.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its builder, %s', $ownerFqn, $name, $builder));
+            return CallTarget::at($ownerFqn.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its builder, %s', $ownerFqn, $name, $builder), $builder.'::'.$name);
         }
 
         if ($this->magic?->isModel($ownerFqn) === true && $this->declaringBeyondTheIndex($ownerFqn, $name) === null
             && $this->declaringBeyondTheIndex($ownerFqn, '__call') !== null) {
-            return CallTarget::at($ownerFqn.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its query builder', $ownerFqn, $name));
+            return CallTarget::at($ownerFqn.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its query builder', $ownerFqn, $name), 'Illuminate\\Database\\Eloquent\\Builder::'.$name);
         }
 
         // A type no declaration anywhere carries, in a namespace the project's own code is in:
@@ -1400,7 +1403,10 @@ final readonly class TypeResolver
         // corpus never indexed — is a class whose API is larger than anything readable, and an
         // absence there says nothing at all.
         if (! $this->members->isComplete($ownerFqn) || $this->isEnumIntrinsic($ownerFqn, $name)) {
-            return CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason);
+            // A method a parent outside the index declares, `Model::save` behind `Order::save`.
+            $beyond = $this->declaringBeyondTheIndex($ownerFqn, $name);
+
+            return CallTarget::at($ownerFqn.'::'.$name, $confidence, $reason, $beyond === null ? null : $beyond.'::'.$name);
         }
 
         return CallTarget::none($this->whyNoMethod($ownerFqn, $name));

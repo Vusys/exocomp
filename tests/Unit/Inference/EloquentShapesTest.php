@@ -28,7 +28,7 @@ final class EloquentShapesTest extends TestCase
         yield 'past a #[Scope] on a builder' => ['attributeScope', 'App\Inference\Shipment::order', 'inferred'];
         yield 'past a #[Scope] called statically' => ['attributeScopeStatic', 'App\Inference\Shipment::order', 'inferred'];
         yield 'a legacy scope on a builder' => ['legacyScope', 'App\Inference\Shipment::scopeOpen', 'inferred'];
-        yield 'a forwarded static call' => ['forwarded', 'App\Inference\Shipment::find', 'inferred'];
+        yield 'a forwarded static call' => ['forwarded', 'Illuminate\Database\Eloquent\Builder::find', 'inferred'];
         yield 'past when()' => ['conditional', 'App\Inference\Shipment::order', 'inferred'];
         yield 'inside when()\'s callback' => ['conditional', 'Illuminate\Database\Eloquent\Builder::where', 'inferred'];
         yield 'inside each()\'s callback' => ['eachCallback', 'App\Inference\Shipment::order', 'inferred'];
@@ -40,7 +40,8 @@ final class EloquentShapesTest extends TestCase
     public function test_the_chain_reaches_the_member_that_runs(string $method, string $fqn, string $confidence): void
     {
         $calls = $this->callsFrom('App\Inference\EloquentProbes::'.$method);
-        $found = array_values(array_filter($calls, static fn (array $call): bool => ($call['fqn'] ?? null) === $fqn));
+        // The member that runs is where the call lands, or the address itself when it is there.
+        $found = array_values(array_filter($calls, static fn (array $call): bool => ($call['lands'] ?? $call['fqn'] ?? null) === $fqn));
 
         $this->assertNotSame([], $found, sprintf('%s: no call to %s in %s', $method, $fqn, implode(', ', array_map(static fn (array $call): string => is_string($call['fqn'] ?? null) ? $call['fqn'] : '?', $calls))));
         $this->assertSame($confidence, $found[0]['confidence']);
@@ -50,7 +51,7 @@ final class EloquentShapesTest extends TestCase
     {
         foreach (['attributeScope', 'legacyScope', 'relationSave', 'relationAssociate'] as $method) {
             foreach ($this->callsFrom('App\Inference\EloquentProbes::'.$method) as $call) {
-                $this->assertNotContains($call['fqn'] ?? null, [
+                $this->assertNotContains($call['lands'] ?? $call['fqn'] ?? null, [
                     'Illuminate\Database\Eloquent\Builder::paid',
                     'Illuminate\Database\Eloquent\Builder::open',
                     'Illuminate\Database\Eloquent\Builder::save',

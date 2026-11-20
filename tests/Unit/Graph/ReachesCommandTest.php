@@ -167,9 +167,9 @@ final class ReachesCommandTest extends TestCase
         $records = $this->records(Cli::inLaravel(['reaches', 'App\Services\ReportDispatcher::queue', '::neverCalledAnywhere', '--json'])->output);
         $stop = $this->recordWhere($records, 'kind', 'dependency');
 
-        // The address asked for and the declaration found are both reported, because they are
-        // different facts: the walk was at the model, the body is on the framework base class.
-        $this->assertSame('App\Models\Order::save', $stop['from']);
+        // The walk goes on from where `Order::save` lands, the framework base class's method,
+        // and that is where it stops: the body is in a dependency.
+        $this->assertSame('Illuminate\Database\Eloquent\Model::save', $stop['from']);
         $this->assertStringContainsString('Illuminate\Database\Eloquent\Model::save', $this->text($stop, 'text'));
         $this->assertStringStartsWith('vendor/', $this->text($stop, 'file'));
     }

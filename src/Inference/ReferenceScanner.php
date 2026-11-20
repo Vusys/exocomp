@@ -278,6 +278,17 @@ final class ReferenceScanner extends NodeVisitorAbstract
             $relation = $this->throughMagic((string) $type->fqn, $written, $kind);
         }
 
+        // Where the call lands, when that is not on the receiver's own hierarchy: `Order::find()`
+        // runs `Builder::find`, `$invoices->save()` runs `HasOneOrMany::save`. The same answer
+        // `calls-from` gives, so the two commands agree about what a call is.
+        if ($relation === null && $written !== null && ! $spelled && ($node instanceof Node\Expr\MethodCall || $node instanceof Node\Expr\NullsafeMethodCall || $node instanceof Node\Expr\StaticCall)) {
+            $landed = $this->types->callTarget((string) $type->fqn, $written, $type->confidence, $type->reason);
+
+            if ($landed->lands !== null && SymbolIdentifier::fold($landed->lands) === SymbolIdentifier::fold($this->target->owner.'::'.$this->target->member)) {
+                $relation = ['confidence' => $landed->confidence, 'reason' => sprintf('called as %s, which lands here: %s', $landed->fqn, $landed->reason)];
+            }
+        }
+
         if ($relation === null) {
             // A same-named member on an unrelated class. Not a reference, and excluding it is
             // exactly what separates this from a textual search.
