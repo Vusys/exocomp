@@ -8,6 +8,7 @@ use PhpParser\NodeTraverser;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Framework\Laravel\AuthModel;
 use Vusys\Exocomp\Framework\Laravel\Binding;
+use Vusys\Exocomp\Framework\Laravel\BladeSource;
 use Vusys\Exocomp\Framework\Laravel\ContainerReader;
 use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Index\SymbolGraph;
@@ -127,6 +128,8 @@ final class ReferenceFinder
             $this->excluded += $scanner->excluded();
         }
 
+        $references = [...$references, ...$this->bladeReferences($target, $graph, $types, $magic, $spellings, $undeclared === null, $eloquent, $shortName)];
+
         if ($includeStrings) {
             $references = [...$references, ...$this->stringReferences($target)];
         }
@@ -135,6 +138,84 @@ final class ReferenceFinder
             <=> [$b->path, $b->line, $b->column]);
 
         return $references;
+    }
+
+    /**
+     * References in Blade views, read through {@see BladeSource}: what `{{ }}`, `@php`, directive
+     * arguments and `@inject` hold, and the component classes `<x-…>` and `<livewire:…>` tags
+     * name. A view's PHP is read by its syntax, not compiled by Laravel, so nothing found there
+     * is stronger than `inferred`.
+     *
+     * @param  list<string>  $spellings
+     * @return list<Reference>
+     */
+    private function bladeReferences(SymbolRef $target, SymbolGraph $graph, TypeResolver $types, Magic $magic, array $spellings, bool $declared, ?EloquentChain $eloquent, string $shortName): array
+    {
+        $views = $this->project->path('resources/views');
+
+        if (! is_dir($views)) {
+            return [];
+        }
+
+        // What a view would have to contain to mention the target: its name, another spelling,
+        // or, for a component, its tag.
+        $kebab = strtolower((string) preg_replace('/(?<!^)[A-Z]/', '-$0', $this->shortName($target->owner)));
+        $needles = array_values(array_unique(array_filter([$shortName, ...$spellings, $target->hasMember() ? null : $kebab], static fn (?string $needle): bool => $needle !== null && $needle !== '')));
+        $compiler = new BladeSource;
+        $found = [];
+        $read = 0;
+
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($views, \FilesystemIterator::SKIP_DOTS));
+
+        foreach ($files as $file) {
+            if (! $file instanceof \SplFileInfo || ! str_ends_with($file->getFilename(), '.blade.php')) {
+                continue;
+            }
+
+            $read++;
+            $contents = (string) @file_get_contents($file->getPathname());
+
+            if (! array_any($needles, static fn (string $needle): bool => stripos($contents, $needle) !== false)) {
+                continue;
+            }
+
+            $path = $this->project->displayPath($file->getPathname());
+
+            try {
+                [$analysis, $statements] = $this->analyser->analyseWithAst(SourceFile::fromString($compiler->toPhp($contents), $path));
+            } catch (ParseFailure $failure) {
+                $this->notes[] = sprintf('%s:%d could not be read as PHP, so it was not searched', $path, $failure->startLine);
+
+                continue;
+            }
+
+            $scanner = new ReferenceScanner($target, $analysis, $graph, $types, $magic, $spellings, $declared, 'no declaration of this name', $eloquent);
+            new NodeTraverser($scanner)->traverse($statements);
+
+            foreach ($scanner->references() as $reference) {
+                $found[] = new Reference(
+                    path: $reference->path,
+                    line: $reference->line,
+                    column: $reference->column,
+                    kind: $reference->kind,
+                    confidence: $reference->confidence === Confidence::Resolved ? Confidence::Inferred : $reference->confidence,
+                    reason: $reference->reason.', in a Blade view',
+                    snippet: $reference->snippet,
+                    context: 'view '.$path,
+                );
+            }
+        }
+
+        if ($read > 0) {
+            $this->notes[] = sprintf(
+                '%d Blade view%s %s searched too; what a view references is at most inferred, because its PHP is read by syntax rather than compiled by Laravel',
+                $read,
+                $read === 1 ? '' : 's',
+                $read === 1 ? 'was' : 'were',
+            );
+        }
+
+        return $found;
     }
 
     /**
