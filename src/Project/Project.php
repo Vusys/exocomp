@@ -69,6 +69,42 @@ final readonly class Project
 
     public function path(string $relative): string
     {
+        if (str_starts_with($relative, $this->root.'/')) {
+            return $relative;
+        }
+
         return $this->root.'/'.ltrim($relative, '/');
+    }
+
+    /**
+     * `$path` with `.` and `..` worked out by its text alone, if that leaves it inside the
+     * project. Unlike `realpath()`, this does not follow a symlink out of the project, so a
+     * package Composer linked into `vendor/` keeps its `vendor/` path.
+     */
+    public function withinRoot(string $path): ?string
+    {
+        if (! str_starts_with($path, '/')) {
+            $path = $this->root.'/'.$path;
+        }
+
+        $parts = [];
+
+        foreach (explode('/', $path) as $part) {
+            if ($part === '' || $part === '.') {
+                continue;
+            }
+
+            if ($part === '..') {
+                array_pop($parts);
+
+                continue;
+            }
+
+            $parts[] = $part;
+        }
+
+        $normal = '/'.implode('/', $parts);
+
+        return str_starts_with($normal, $this->root.'/') ? $normal : null;
     }
 }

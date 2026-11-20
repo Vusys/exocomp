@@ -89,9 +89,9 @@ final class Index
      *                               all of them, but the demand for framework internals is real
      *                               and concentrated
      */
-    public function sync(bool $includeVendor = false): IndexReport
+    public function sync(bool $includeVendor = false, bool $dropVendor = false): IndexReport
     {
-        return new Indexer($this->store)->sync($this->project, $this->roots($includeVendor));
+        return new Indexer($this->store)->sync($this->project, $this->roots($includeVendor, $dropVendor));
     }
 
     /**
@@ -108,13 +108,18 @@ final class Index
     }
 
     /**
+     * The directories a sync reads. Dependencies are among them when asked for, and also once
+     * they are indexed: a sync that left them out would delete them as stale, so the next query
+     * without `--vendor` undid the `index --warm --vendor` every hint recommends. Only
+     * `$dropVendor` (`index --no-vendor`) takes them out again.
+     *
      * @return list<string>
      */
-    public function roots(bool $includeVendor): array
+    public function roots(bool $includeVendor, bool $dropVendor = false): array
     {
         $roots = $this->map->ownRoots();
 
-        if ($includeVendor) {
+        if (! $dropVendor && ($includeVendor || $this->store->holdsPathsUnder($this->project->root, 'vendor/'))) {
             $roots[] = $this->project->path('vendor');
         }
 

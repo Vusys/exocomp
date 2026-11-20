@@ -47,6 +47,9 @@ final class SymbolLocator
      */
     private $correction;
 
+    /** @var (callable(string): ?string)|null where the index has a class, asked before a scan */
+    private $indexed;
+
     public function __construct(
         private readonly Project $project,
         private readonly AutoloadMap $map,
@@ -72,6 +75,14 @@ final class SymbolLocator
     public function correctWith(?callable $correction): void
     {
         $this->correction = $correction;
+    }
+
+    /**
+     * @param  (callable(string): ?string)|null  $indexed  the file the index places a class in
+     */
+    public function placeWith(?callable $indexed): void
+    {
+        $this->indexed = $indexed;
     }
 
     /**
@@ -106,7 +117,9 @@ final class SymbolLocator
             return $this->analysed[$absolute];
         }
 
-        $file = SourceFile::fromPath($absolute, $this->project->displayPath($absolute));
+        // Named by where it was found, not where a link leads: a Composer path repository
+        // installs a package as a symlink, and its real path lies outside the project.
+        $file = SourceFile::fromPath($absolute, $this->project->displayPath($this->project->withinRoot($path) ?? $absolute));
 
         return $this->analysed[$absolute] = $this->analyser->analyse($file);
     }
@@ -148,6 +161,18 @@ final class SymbolLocator
     {
         foreach ($this->map->candidates($fqn, $this->existenceOracle()) as $candidate) {
             $located = $this->declarationIn($candidate, $fqn);
+
+            if ($located instanceof LocatedDeclaration) {
+                return $located;
+            }
+        }
+
+        // A class that shares a file with another is not where PSR-4 says, but the index knows
+        // where it is: `locate` found it, and `show` said it did not exist.
+        $path = $this->revision instanceof Revision || $this->indexed === null ? null : ($this->indexed)($fqn);
+
+        if ($path !== null) {
+            $located = $this->declarationIn($this->project->path($path), $fqn);
 
             if ($located instanceof LocatedDeclaration) {
                 return $located;

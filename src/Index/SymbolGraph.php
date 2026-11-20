@@ -368,7 +368,9 @@ final class SymbolGraph
                     $unreachable[] = new UnreachableAncestor(
                         $target,
                         $kind,
-                        'not in the index — run: exocomp index --warm --vendor',
+                        $this->isBuiltIn($target)
+                            ? 'a PHP built-in, which has no source to read'
+                            : 'not in the index — run: exocomp index --warm --vendor',
                     );
 
                     continue;
@@ -414,6 +416,18 @@ final class SymbolGraph
      * interface is only a requirement. Both are reported, and the distinction is kept because
      * "declared somewhere up the chain" and "must be declared here" are different facts.
      */
+    /**
+     * `ArrayAccess`, `Countable`, `Throwable`: declared by PHP itself, so indexing dependencies
+     * cannot add them, and the hint to do so sent the reader round in a loop.
+     */
+    private function isBuiltIn(string $fqn): bool
+    {
+        $fqn = ltrim($fqn, '\\');
+
+        return (class_exists($fqn, false) || interface_exists($fqn, false) || trait_exists($fqn, false))
+            && new \ReflectionClass($fqn)->isInternal();
+    }
+
     private function originFor(string $kind, ?MemberOrigin $inheritedVia): MemberOrigin
     {
         $direct = match ($kind) {

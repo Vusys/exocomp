@@ -136,8 +136,26 @@ final readonly class Indexer
             return;
         }
 
+        // Symlinks are followed: Composer's path repositories link a package into `vendor/`. A
+        // directory already walked is not walked again, so a link loop ends.
+        $seen = [];
         $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+            new \RecursiveCallbackFilterIterator(
+                new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS | FilesystemIterator::FOLLOW_SYMLINKS),
+                static function (SplFileInfo $file) use (&$seen): bool {
+                    if (! $file->isDir()) {
+                        return true;
+                    }
+
+                    $real = $file->getRealPath();
+
+                    if ($real === false || isset($seen[$real])) {
+                        return false;
+                    }
+
+                    return $seen[$real] = true;
+                },
+            ),
             RecursiveIteratorIterator::LEAVES_ONLY,
         );
 

@@ -47,7 +47,7 @@ final class CallersOfCommand extends IndexedCommand
             $context->index()->freshness($this->boolOption($input, 'vendor'))->full();
         }
 
-        $target = $this->searchTarget(SymbolRef::parse($this->stringArgument($input, 'symbol') ?? ''), $graph, $notes);
+        $target = $this->searchTarget($this->knownAddress(SymbolRef::parse($this->stringArgument($input, 'symbol') ?? ''), $graph, $context), $graph, $notes);
         $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
 
         $calls = array_values(array_filter(

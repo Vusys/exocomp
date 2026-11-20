@@ -13,6 +13,7 @@ use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\UnresolvedGroup;
+use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Query\Pattern;
 use Vusys\Exocomp\Query\Predicates;
 use Vusys\Exocomp\Symbol\Confidence;
@@ -42,7 +43,7 @@ abstract class IndexedCommand extends ExocompCommand
         parent::configure();
 
         $this->addOption('no-sync', null, InputOption::VALUE_NONE, 'Answer from the index as it stands, without checking the working tree for changes');
-        $this->addOption('vendor', null, InputOption::VALUE_NONE, 'Include dependencies when the index has to be brought up to date');
+        $this->addOption('vendor', null, InputOption::VALUE_NONE, 'Index dependencies too; once they are indexed they stay indexed (exocomp index --no-vendor removes them)');
     }
 
     /**
@@ -134,6 +135,44 @@ abstract class IndexedCommand extends ExocompCommand
                 $unsearched === 1 ? '' : 's',
             )],
         ];
+    }
+
+    /**
+     * The address checked before anything is searched for it.
+     *
+     * A search answers about whatever it is given, so a misspelt or guessed class came back as
+     * "0 callers" or "no path", exit 0 or 1, as if it were the truth about a real class. Here a
+     * class the index does not hold is placed the way `show` places it: through the autoload
+     * map, and corrected where exactly one class carries that short name (the locator's note
+     * says so). Anything else is an error naming the miss, never an empty answer.
+     *
+     * @throws SymbolNotFound
+     */
+    protected function knownAddress(SymbolRef $ref, SymbolGraph $graph, CommandContext $context): SymbolRef
+    {
+        if ($graph->namedClassLike($ref->owner) instanceof SymbolRecord) {
+            return $ref;
+        }
+
+        try {
+            $located = $context->locator->locateOwner(SymbolRef::parse($ref->owner));
+        } catch (SymbolNotFound) {
+            $short = (string) array_slice(explode('\\', $ref->owner), -1)[0];
+
+            throw new SymbolNotFound((string) $ref, sprintf(
+                'nothing is declared as "%s" in the index or where Composer would place it — check the name with: exocomp locate %s',
+                $ref->owner,
+                $short,
+            ));
+        }
+
+        $fqn = $located->declaration->fqn;
+
+        if (strcasecmp($fqn, $ref->owner) === 0) {
+            return $ref;
+        }
+
+        return SymbolRef::parse($fqn.($ref->hasMember() ? '::'.($ref->memberIsProperty ? '$' : '').$ref->member : ''));
     }
 
     /**

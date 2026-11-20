@@ -20,6 +20,8 @@ use Vusys\Exocomp\Graph\Start;
 use Vusys\Exocomp\Graph\Stop;
 use Vusys\Exocomp\Graph\Target;
 use Vusys\Exocomp\Graph\Walk;
+use Vusys\Exocomp\Index\SymbolGraph;
+use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
@@ -28,6 +30,7 @@ use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\LoadedClass;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
  * Is there a path from here to there.
@@ -73,11 +76,54 @@ final class ReachesCommand extends GraphCommand
         $graph = $this->graph($input, $context, $notes);
         $walk = $this->walk($input, $context, $graph, $notes);
         $target = Target::parse($this->stringArgument($input, 'to') ?? '');
-        $starts = $this->starts($this->stringArgument($input, 'from') ?? '', $context, $notes);
+        $from = $this->stringArgument($input, 'from') ?? '';
+
+        // An endpoint that does not exist is an error, never "no path": the walk would have
+        // nothing to start from, or nothing that could ever be arrived at.
+        if (! str_starts_with($from, 'route:')) {
+            $from = $this->knownStart(SymbolRef::parse($from), $graph, $context);
+        }
+
+        $owner = $target->literalOwner();
+
+        if ($owner !== null) {
+            $known = $this->knownAddress(SymbolRef::parse($owner), $graph, $context)->owner;
+            $target = strcasecmp($known, $owner) === 0 ? $target : $target->withOwner($known);
+        }
+
+        $starts = $this->starts($from, $context, $notes);
 
         return count($starts) === 1
             ? $this->one($walk, $starts[0], $target, $context, $notes)
             : $this->sweep($walk, $starts, $target, $context, $notes);
+    }
+
+    /**
+     * A start address that names a declaration: its class placed (and corrected, as `show`
+     * does), and its member declared somewhere the index can see, unless the class's ancestry
+     * leaves the index, where an absence proves nothing.
+     */
+    private function knownStart(SymbolRef $ref, SymbolGraph $graph, CommandContext $context): string
+    {
+        $ref = $this->knownAddress($ref, $graph, $context);
+
+        if (! $ref->hasMember()) {
+            return (string) $ref;
+        }
+
+        $members = $graph->members($ref->owner);
+
+        foreach ($members['members'] as $member) {
+            if (strcasecmp($member->record->name, (string) $ref->member) === 0) {
+                return (string) $ref;
+            }
+        }
+
+        if ($members['unreachable'] === [] && $graph->classLike($ref->owner) instanceof SymbolRecord) {
+            throw new SymbolNotFound((string) $ref, sprintf('%s declares no member "%s"', $ref->owner, (string) $ref->member));
+        }
+
+        return (string) $ref;
     }
 
     /**

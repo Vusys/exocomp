@@ -35,7 +35,7 @@ final class EloquentChainTypesTest extends TestCase
         $index->sync();
 
         foreach (new ReferenceFinder($project, $index)->find(SymbolRef::parse('App\Models\Invoice::send')) as $reference) {
-            if ($reference->context === 'App\Services\InvoiceChains::{closure}') {
+            if (str_starts_with($reference->context, 'App\Services\InvoiceChains::{closure:')) {
                 self::$inClosures[] = $reference;
             } elseif (str_starts_with($reference->context, 'App\Services\InvoiceChains::')) {
                 self::$byMethod[substr($reference->context, strlen('App\Services\InvoiceChains::'))] = $reference;

@@ -47,6 +47,12 @@ final class CallsFromCommand extends IndexedCommand
         $graph = $this->graph($input, $context, $notes);
         $ref = SymbolRef::parse($this->stringArgument($input, 'symbol') ?? '');
 
+        // Brought up to date first, as `callers-of` is: a class written a moment ago is the
+        // usual thing to ask about, and the types of its properties come from the index.
+        if (! $this->boolOption($input, 'no-sync')) {
+            $context->index()->freshness($this->boolOption($input, 'vendor'))->full();
+        }
+
         $code = new CodeEdges(
             $context->project,
             $graph,

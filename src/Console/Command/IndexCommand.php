@@ -29,6 +29,7 @@ final class IndexCommand extends IndexedCommand
 
         $this
             ->addOption('warm', null, InputOption::VALUE_NONE, 'Bring the index up to date now rather than on the next query')
+            ->addOption('no-vendor', null, InputOption::VALUE_NONE, 'Remove dependencies from the index; once indexed with --vendor they stay until this is run')
             ->addOption('status', null, InputOption::VALUE_NONE, 'Report what the index holds (the default)');
     }
 
@@ -37,8 +38,10 @@ final class IndexCommand extends IndexedCommand
         $index = $context->index();
         $notes = [];
 
-        if ($this->boolOption($input, 'warm')) {
-            $report = $index->sync($this->boolOption($input, 'vendor'));
+        $dropVendor = $this->boolOption($input, 'no-vendor');
+
+        if ($this->boolOption($input, 'warm') || $dropVendor) {
+            $report = $index->sync($this->boolOption($input, 'vendor'), $dropVendor);
 
             $notes[] = sprintf(
                 '%d files seen, %d parsed, %d reused, %d removed, %.2fs',
@@ -54,7 +57,7 @@ final class IndexCommand extends IndexedCommand
         $rows = [
             $this->line('cache', $index->store->path),
             $this->line('project', $context->project->root),
-            $this->line('roots', implode(', ', array_map($context->project->displayPath(...), $index->roots($this->boolOption($input, 'vendor'))))),
+            $this->line('roots', implode(', ', array_map($context->project->displayPath(...), $index->roots($this->boolOption($input, 'vendor'), $dropVendor)))),
             $this->line('files', (string) $statistics['files']),
             $this->line('symbols', (string) $statistics['symbols']),
             $this->line('inheritance edges', (string) $statistics['edges']),
