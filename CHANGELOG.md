@@ -40,7 +40,8 @@ All notable changes to this project are documented here. The format follows
   - From an interface it lists every implementation ("implements it").
   - It reads ancestors the index doesn't hold, so `Model::save` appears beside a model's own `save()`, and a model that doesn't override it is no longer "not declared anywhere in its hierarchy".
   - A vendor class can be the starting point.
-  - A descendant's declaration is labelled as overriding the member, not as "inherited" (#71).
+  - A descendant's declaration is labelled as overriding the member, not as "inherited".
+  - `implementors` says how many of its count are interfaces that extend the subject (#71).
 - **`config` finds reads through the repository, and lists writes apart.**
   - Reads: `config()->get()`, `config()->string()` and the other typed getters, `app('config')->get()`, `$app['config']['a']`, a variable that holds such a group (`$config['hosts']`), and an injected repository held in a `$config` property.
   - Writes: `Config::set()` and `config([...])` are listed under "written", not as reads.

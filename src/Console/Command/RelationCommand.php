@@ -97,11 +97,27 @@ abstract class RelationCommand extends IndexedCommand
         ));
 
         return new Result(
-            header: sprintf('%d %s of %s', count($records), $this->noun(count($records)), $fqn),
+            header: sprintf('%d %s of %s', count($records), $this->noun(count($records)), $fqn).$this->breakdown($records),
             sections: [new Section('', $kept)],
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
         );
+    }
+
+    /**
+     * What else the count holds besides classes. An interface extending the subject is listed,
+     * because its implementors implement the subject too, but it implements nothing itself, and
+     * a bare "2 implementors" overstated the concrete classes.
+     *
+     * @param  list<SymbolRecord>  $records
+     */
+    protected function breakdown(array $records): string
+    {
+        $interfaces = count(array_filter($records, static fn (SymbolRecord $record): bool => $record->kind === SymbolKind::InterfaceType));
+
+        return $interfaces === 0 || ($this->expects()[0] ?? null) !== SymbolKind::InterfaceType
+            ? ''
+            : sprintf('  (%d of them %s that extend%s it)', $interfaces, $interfaces === 1 ? 'an interface' : 'interfaces', $interfaces === 1 ? 's' : '');
     }
 
     /**
