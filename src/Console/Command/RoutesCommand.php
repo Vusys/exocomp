@@ -13,6 +13,7 @@ use Vusys\Exocomp\Console\IndexedFrameworkCommand;
 use Vusys\Exocomp\Framework\Laravel\RouteDefinition;
 use Vusys\Exocomp\Framework\Laravel\RouteNamespace;
 use Vusys\Exocomp\Framework\Laravel\RouteReader;
+use Vusys\Exocomp\Framework\Laravel\RouteTable;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
@@ -41,7 +42,8 @@ final class RoutesCommand extends IndexedFrameworkCommand
         $this
             ->addArgument('filter', InputArgument::OPTIONAL, 'Show only routes whose URI, name or target contains this text')
             ->addOption('method', null, InputOption::VALUE_REQUIRED, 'Show only one HTTP method')
-            ->addOption('middleware', null, InputOption::VALUE_NONE, 'Include each route\'s middleware stack');
+            ->addOption('middleware', null, InputOption::VALUE_NONE, 'Include each route\'s middleware stack')
+            ->addOption('routes', null, InputOption::VALUE_REQUIRED, 'A file holding `php artisan route:list --json`; by default bootstrap/cache/routes-v7.php, then exocomp-routes.json, is read');
     }
 
     protected function answer(InputInterface $input, CommandContext $context): Result
@@ -59,6 +61,9 @@ final class RoutesCommand extends IndexedFrameworkCommand
             $profile->routesDirectory($context->project),
             static fn (string $absolute): string => $context->project->displayPath($absolute),
         );
+
+        // The table Laravel builds, not the route files: they only place each route.
+        $reader = RouteTable::forProject($context->project, $this->stringOption($input, 'routes'), $reader->routes(), $profile->routesDirectory($context->project));
 
         $filter = $this->stringArgument($input, 'filter');
         $method = $this->stringOption($input, 'method');

@@ -28,32 +28,75 @@ final class LaravelWiringTest extends TestCase
         $this->project->destroy();
     }
 
-    public function test_route_shapes_expand_to_what_the_framework_registers(): void
+    public function test_routes_are_the_table_laravel_lists(): void
     {
-        $this->project->write('routes/shapes.php', <<<'PHP'
-            <?php
-
-            use App\Http\Controllers\OrderController;
-            use Illuminate\Support\Facades\Route;
-
-            Route::match(['get', 'post'], '/both', [OrderController::class, 'store']);
-            Route::any('/anything', [OrderController::class, 'index']);
-            Route::resources(['bulk-orders' => OrderController::class]);
-            Route::singleton('profile', OrderController::class);
-            Route::view('/welcome', 'welcome');
-            PHP);
+        $this->project->write('exocomp-routes.json', (string) json_encode([
+            ['method' => 'GET|HEAD|POST', 'uri' => 'both', 'name' => null, 'action' => 'App\Http\Controllers\OrderController@store', 'middleware' => ['web'], 'path' => null],
+            ['method' => 'GET|HEAD', 'uri' => 'admin/reports', 'name' => 'admin.reports', 'action' => 'App\Modules\Admin\ReportController@index', 'middleware' => ['web', 'auth'], 'path' => null],
+            ['method' => 'GET|HEAD', 'uri' => 'ping', 'name' => null, 'action' => 'Closure', 'middleware' => ['web'], 'path' => 'app/Modules/Admin/routes.php:7'],
+        ]));
 
         $all = $this->exocomp(['routes', '--max-tokens', '0'])->output;
-        $post = $this->exocomp(['routes', '--method', 'POST', '--max-tokens', '0'])->output;
 
-        $this->assertStringContainsString('GET|POST', $all);
-        $this->assertStringContainsString('GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS', $all);
-        $this->assertStringContainsString('/bulk-orders/{bulk_order}/edit', $all);
-        $this->assertStringContainsString('/profile/edit', $this->exocomp(['routes', 'profile'])->output);
-        $this->assertStringContainsString('a view or a redirect', $all);
-        $this->assertStringContainsString('/both', $post);
-        $this->assertStringContainsString('/anything', $post);
+        // A route a provider loads, with the prefix and namespace it wraps the file in, is
+        // in the table as the framework registered it.
+        $this->assertStringContainsString('/admin/reports', $all);
+        $this->assertStringContainsString('App\Modules\Admin\ReportController::index', $all);
+        $this->assertStringContainsString('app/Modules/Admin/routes.php:7', $all);
+        $this->assertStringContainsString('/both', $this->exocomp(['routes', '--method', 'POST'])->output);
         $this->assertStringNotContainsString('none matches', $this->exocomp(['reaches', 'route:POST /both', '::neverCalledAnywhere'])->errors);
+    }
+
+    public function test_the_route_cache_is_read_without_running_it(): void
+    {
+        @unlink($this->project->path('exocomp-routes.json'));
+        $this->project->write('bootstrap/cache/routes-v7.php', <<<'PHP'
+            <?php
+
+            app('router')->setCompiledRoutes(
+                array (
+              'compiled' => array (),
+              'attributes' =>
+              array (
+                'orders.store' =>
+                array (
+                  'methods' => array (0 => 'POST'),
+                  'uri' => 'orders',
+                  'action' => array (
+                    'uses' => 'App\\Http\\Controllers\\OrderController@store',
+                    'controller' => 'App\\Http\\Controllers\\OrderController@store',
+                    'middleware' => array (0 => 'web'),
+                    'as' => 'orders.store',
+                  ),
+                ),
+              ),
+            )
+            );
+            PHP);
+
+        $output = $this->exocomp(['routes'])->output;
+
+        $this->assertStringContainsString('routes read from bootstrap/cache/routes-v7.php', $output);
+        $this->assertMatchesRegularExpression('#POST\s+/orders\s+App\\\\Http\\\\Controllers\\\\OrderController::store#', $output);
+    }
+
+    public function test_without_a_route_table_the_route_commands_refuse(): void
+    {
+        @unlink($this->project->path('exocomp-routes.json'));
+
+        $run = $this->exocomp(['routes']);
+
+        $this->assertSame(2, $run->exitCode);
+        $this->assertStringContainsString('php artisan route:list --json > exocomp-routes.json', $run->errors);
+        $this->assertSame(2, $this->exocomp(['reaches', 'route:*', '::neverCalledAnywhere'])->exitCode);
+    }
+
+    public function test_a_table_older_than_the_route_files_says_so(): void
+    {
+        touch($this->project->path('exocomp-routes.json'), time() - 3600);
+        touch($this->project->path('routes/web.php'), time());
+
+        $this->assertStringContainsString('may be out of date', $this->exocomp(['routes'])->output);
     }
 
     public function test_a_capped_sweep_says_how_many_routes_it_did_not_walk(): void
