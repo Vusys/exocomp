@@ -18,6 +18,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Routes come from the table Laravel builds, not from the route files.** `routes` and `reaches 'route:…'` read `bootstrap/cache/routes-v7.php`, the array `php artisan route:cache` writes, parsed and never run. Failing that they read `exocomp-routes.json`, the output of `php artisan route:list --json`, or a file given with `--routes`. So routes that providers load, their prefixes and namespaces, package routes and macros are all as the framework registers them. With neither file the route commands refuse, and the error names the command to run. The route files are still read, but only for each route's file and line. A table older than the route files says it may be out of date (#73).
+
 - **Exit code `3`: not found, but incomplete.** A "none" that could not check everything no longer exits like a clean one. `reaches` met edges it could not follow, hit its budget, or left routes unwalked. `callers-of` and `references-to` found nothing certain but have unresolved candidates or unsearched files. `query` found no match but could not decide some for want of a receiver type. `check` found no new violation, with the same proviso. `if exocomp …; then` reads `3` as false, as it reads `1`. In `--json` the leading `found: false` record also says `complete`.
 - **`callers-of`, `references-to` and `query` exit `1` when nothing is found,** as their help always said. They exited `0` on "0 callers" and "0 matches".
 

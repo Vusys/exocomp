@@ -138,7 +138,7 @@ final class ReachesCommandTest extends TestCase
         $this->assertSame('App\Http\Controllers\OrderController::store', $reached['fqn']);
         $this->assertSame('resolved', $reached['confidence']);
         $this->assertSame(3, $reached['steps']);
-        $this->assertSame('routes/web.php:18:1  POST /orders                reached in 3 steps', $reached['text']);
+        $this->assertMatchesRegularExpression('#^routes/web\.php:18:1  POST /orders +reached in 3 steps$#', $this->text($reached, 'text'));
     }
 
     public function test_a_starting_point_that_was_not_reached_says_so_in_every_field(): void

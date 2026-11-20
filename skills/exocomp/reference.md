@@ -218,7 +218,7 @@ parsed out of ordinary PHP and SQL. The application is never booted, so these wo
 | `schema [table]` | columns and indexes rebuilt from the squashed dump plus every migration since; omit the table to list them all |
 | `config <key>` | where a dotted key is defined and everywhere it is read. `--defined` skips the corpus scan |
 | `bindings [filter]` | container bindings, interface to concrete, contextual ones included |
-| `routes [filter]` | URIs resolved through every enclosing group prefix. `--method=POST`, `--middleware` |
+| `routes [filter]` | the route table Laravel builds, read from `bootstrap/cache/routes-v7.php` (`php artisan route:cache`) or else `exocomp-routes.json` (`php artisan route:list --json > exocomp-routes.json`), or `--routes <file>`; never by running the app. With neither it is an error that says which command to run. The route files only supply each route's file and line, and a table older than them says so. `--method=POST`, `--middleware`. `reaches 'route:…'` reads the same table |
 | `dispatches <class>` | where a job or event is dispatched, and what receives it |
 | `morph-map [name]` | the alias map: the strings stored in your `*_type` columns, in either direction |
 
