@@ -184,7 +184,7 @@ final class InvoiceChains
     /** A callback's result can be anything at all. */
     public function escapes(): void
     {
-        Invoice::query()->tap(fn ($query) => $query)->first()->send();
+        Invoice::query()->tap(fn ($query) => app('swapped'))->first()->send();
     }
 
     /** A link the typing does not name could return anything. */
