@@ -21,5 +21,7 @@ final readonly class OutgoingCall
         public Confidence $confidence,
         public string $reason,
         public string $snippet,
+        /** the class the call was made on, where that differs from where the member is declared */
+        public ?string $receiver = null,
     ) {}
 }

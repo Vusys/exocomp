@@ -6,6 +6,8 @@ namespace App\Providers;
 
 use App\Contracts\ReportWriter;
 use App\Http\Controllers\OrderController;
+use App\Models\Order;
+use App\Observers\OrderObserver;
 use App\Services\CsvReportWriter;
 use App\Services\PdfReportWriter;
 use App\Services\ReportBuilder;
@@ -38,5 +40,7 @@ final class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Relation::morphMap(config('morph-map'));
+
+        Order::observe(OrderObserver::class);
     }
 }

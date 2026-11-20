@@ -181,9 +181,10 @@ app/Jobs/ProcessOrder.php:17  App\Jobs\ProcessOrder::handle                     
 
 ```console
 $ exocomp query '$X->save()'
-2 matches for $X->save()  (2 files scanned)
+3 matches for $X->save()  (3 files scanned)
 app/Jobs/ProcessOrder.php:19:9         X=$this->order
 app/Listeners/NotifyCustomer.php:16:9  X=$event->order
+app/Services/ModelWrites.php:18:9      X=$order
 ```
 
 ## What it does not do
