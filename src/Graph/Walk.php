@@ -241,6 +241,10 @@ final class Walk
             foreach ($indirections as $edge) {
                 $edges[] = $edge;
             }
+
+            foreach ($this->framework instanceof LaravelEdges ? $this->framework->observed($node, $call) : [] as $edge) {
+                $edges[] = $edge;
+            }
         }
 
         return [...$edges, ...$framework];

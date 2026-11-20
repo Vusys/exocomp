@@ -16,6 +16,7 @@ use Vusys\Exocomp\Framework\Laravel\DispatchEdge;
 use Vusys\Exocomp\Framework\Laravel\DispatchReader;
 use Vusys\Exocomp\Framework\Laravel\FacadeResolver;
 use Vusys\Exocomp\Framework\Laravel\LaravelProfile;
+use Vusys\Exocomp\Framework\Laravel\ObserverReader;
 use Vusys\Exocomp\Index\IndexStore;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
@@ -56,6 +57,9 @@ final class LaravelEdges
 
     /** @var array<string, list<DispatchEdge>> */
     private array $receivers = [];
+
+    /** @var array<string, list<DispatchEdge>> */
+    private array $observers = [];
 
     /** @var ?array<string, true> */
     private ?array $facadesInCorpus = null;
@@ -195,6 +199,62 @@ final class LaravelEdges
         }
 
         return $this->throughContainer($from, $class, $member, $call);
+    }
+
+    /**
+     * The observer methods a model write runs. `$order->save()` lands in the framework, but the
+     * framework then fires `saving` and `saved` on every observer of `Order`, and that code is
+     * the application's. An event the write always fires is as certain as the registration; one
+     * it fires only sometimes, such as `created` from `save()`, is `inferred`.
+     *
+     * @return list<Edge>
+     */
+    public function observed(string $from, OutgoingCall $call): array
+    {
+        if ($call->target === null || ! str_contains($call->target, '::')) {
+            return [];
+        }
+
+        // The receiver, not the declaring class: `$order->save()` lands in the framework's
+        // `Model::save`, but the events it fires are `Order`'s.
+        [$declaring, $member] = explode('::', $call->target, 2);
+        $model = $call->receiver ?? $declaring;
+        $events = ObserverReader::EVENTS[strtolower($member)] ?? null;
+
+        if ($events === null) {
+            return [];
+        }
+
+        $edges = [];
+
+        foreach ($this->observersOf($model) as $observer) {
+            $loaded = $this->source->load((string) $observer->counterpart);
+
+            if (! $loaded instanceof LoadedClass) {
+                continue;
+            }
+
+            foreach ([...$events[0], ...$events[1]] as $event) {
+                if (! $loaded->node->getMethod($event) instanceof Node\Stmt\ClassMethod) {
+                    continue;
+                }
+
+                $always = in_array($event, $events[0], true);
+
+                $edges[] = new Edge(
+                    from: $from,
+                    to: $loaded->fqn.'::'.$event,
+                    kind: 'observed',
+                    path: $call->path,
+                    line: $call->line,
+                    column: $call->column,
+                    confidence: Confidence::weakest($call->confidence, $always ? $observer->confidence : Confidence::Inferred),
+                    reason: sprintf('%s() fires %s%s; %s', $member, $event, $always ? '' : ' for some models', $observer->note ?? 'observed here'),
+                );
+            }
+        }
+
+        return $edges;
     }
 
     /**
@@ -405,6 +465,32 @@ final class LaravelEdges
         $binding = $this->containerReader()?->concreteFor($abstract);
 
         return $binding instanceof Binding ? $binding->concrete : null;
+    }
+
+    /**
+     * @return list<DispatchEdge>
+     */
+    private function observersOf(string $model): array
+    {
+        $key = Identifier::fold($model);
+
+        if (isset($this->observers[$key])) {
+            return $this->observers[$key];
+        }
+
+        // Only a file that names the model beside one of the three registration spellings can
+        // register an observer for it. A model's short name alone is in hundreds of files.
+        $short = Dispatched::shortName($model);
+        $paths = [];
+
+        foreach (['observe', 'observers', 'ObservedBy'] as $spelling) {
+            $paths = [...$paths, ...$this->store->pathsMentioning($this->project->root, [$short, $spelling])];
+        }
+
+        $paths = array_values(array_unique($paths));
+
+        return $this->observers[$key] = new ObserverReader()
+            ->read($model, $paths, fn (string $path): string => $this->project->path($path));
     }
 
     /**

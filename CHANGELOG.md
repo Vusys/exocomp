@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`reaches` and `graph` follow a model write into its observers.** `$order->save()`, `delete()`, `update()`, `create()` and the other writes that fire model events now continue into each observer method the write fires. Observers registered with `#[ObservedBy]` on the model, with `Order::observe()`, or in an `$observers` array are read. An event the write always fires, such as `deleted` from `delete()`, is as sure as the registration. One it fires only for some models, such as `created` from `save()`, is `inferred`. Mass updates fire no model events and get no observer step. On Koel, three more routes now reach `ModelImageObserver::onModelDeleted`, through `PlaylistObserver`, `AlbumObserver` and `ArtistObserver`.
+
 - **`instanceof` types the variable it tests.** `$x` is the class inside `if ($x instanceof C) {…}` and an `elseif`, on the right of `&&`, and in a ternary's first branch. It is the class for the rest of the body after `assert($x instanceof C)`, and after a guard such as `if (! $x instanceof C) { throw … }` that has no other branch and always leaves. PHP guarantees each of these, so the type is `resolved`. It does not apply in an `else`, before the test in the same condition, or after the block ends. The type the variable had before comes back. `references-to`, `callers-of`, `calls-from`, `reaches` and `query`'s receiver predicates all use it.
 
 ## [0.9.1] - 2026-11-19

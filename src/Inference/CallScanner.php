@@ -105,7 +105,7 @@ final class CallScanner extends NodeVisitorAbstract
 
         $target = $this->types->callTarget((string) $receiver->fqn, $call->name->toString(), $receiver->confidence, $receiver->reason);
 
-        $this->record($call, 'method call', $target->fqn, $target->confidence, $target->reason);
+        $this->record($call, 'method call', $target->fqn, $target->confidence, $target->reason, $receiver->fqn);
     }
 
     private function staticCall(Node\Expr\StaticCall $call): void
@@ -127,7 +127,7 @@ final class CallScanner extends NodeVisitorAbstract
 
         $target = $this->types->callTarget($owner, $call->name->toString(), Confidence::Resolved, 'class name');
 
-        $this->record($call, 'static call', $target->fqn, $target->confidence, $target->reason);
+        $this->record($call, 'static call', $target->fqn, $target->confidence, $target->reason, $owner);
     }
 
     private function functionCall(Node\Expr\FuncCall $call): void
@@ -183,7 +183,7 @@ final class CallScanner extends NodeVisitorAbstract
         $this->record($new, 'new', Analyser::resolvedName($new->class).'::__construct', Confidence::Resolved, 'class name');
     }
 
-    private function record(Node $node, string $kind, ?string $target, Confidence $confidence, string $reason): void
+    private function record(Node $node, string $kind, ?string $target, Confidence $confidence, string $reason, ?string $receiver = null): void
     {
         $start = $node->getStartFilePos();
         $end = $node->getEndFilePos();
@@ -199,6 +199,7 @@ final class CallScanner extends NodeVisitorAbstract
             confidence: $confidence,
             reason: $reason,
             snippet: strlen($flat) <= 90 ? $flat : mb_strcut($flat, 0, 90, 'UTF-8').'…',
+            receiver: $receiver,
         );
     }
 }

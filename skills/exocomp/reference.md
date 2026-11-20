@@ -107,7 +107,7 @@ Read that block. It is where "I could not see past here" lives. Treating an answ
 without it is how an audit gets wrongly signed off. Its title says what kind of gap it is: `unresolved`
 (`references-to`, `callers-of`, `calls-from`), `not reached` (`members`), `not followed` (`reaches`,
 `graph`), `not found` (a multi-address `show`), `not read from the source` (`model`). `references-to`
-also counts each confidence in the header: `38 references to App\Models\Invoice::send  (12 resolved, 18 inferred, 8 unresolved)`.
+also counts each confidence in the header: `39 references to App\Models\Invoice::send  (13 resolved, 18 inferred, 8 unresolved)`.
 A single-address `show` has no block: it found the one thing you named, or exited `1`.
 
 **Nothing is truncated silently.** A capped result says `… 22 more (use --limit)`, and `{"elided": 22}` in
@@ -316,6 +316,20 @@ app/Jobs/ProcessOrder.php:19:9                 method call  →  App\Models\Orde
 Every step carries its own confidence, and **the path is worth its weakest step**. A path through a
 container binding is a different claim from one through five declared calls.
 
+**A model write runs its observers.** `$order->delete()` continues into each observer method the write
+fires, for observers registered with `#[ObservedBy]`, `Order::observe()` or an `$observers` array:
+
+```console
+$ exocomp reaches 'App\Services\ModelWrites::deleteOrder' 'App\Services\AuditLog::record'
+App\Services\ModelWrites::deleteOrder reaches App\Services\AuditLog::record in 2 steps; the weakest step is resolved
+app/Services/ModelWrites.php:23:9     observed  →  App\Observers\OrderObserver::deleted
+app/Observers/OrderObserver.php:22:9  static call  →  App\Services\AuditLog::record
+```
+
+An event the write always fires (`deleted` from `delete()`) is as sure as the registration. One it fires
+only for some models (`created` from `save()`) is `inferred`. A mass update such as
+`Order::where(…)->update(…)` fires no model events, so it has no observer step.
+
 The destination is a shape, not an address:
 
 ```
@@ -425,8 +439,8 @@ a grep and present the result as complete.
   `Order::where(...)->update(...)` is not resolved to the framework's `update()`. A chain through a macro,
   `when()`, `tap()` or a callback stops, and says why. A reference search can rule such a call *out* (see the
   exclusion rule), but never in.
-- **Middleware, observers and policies.** Their registration sites are readable, but their edges are not
-  modelled.
+- **Middleware and policies.** Their registration sites are readable, but their edges are not modelled yet.
+  Nor is a model's own `static::created(fn …)` in `booted()`.
 - **Dependencies, by default.** An edge *into* `vendor/` is recorded and checked against the destination, so
   a path that ends at a framework method is found. Walking on is `--through-vendor`.
 - **A widely implemented interface** fans out rather than leads somewhere. The walk follows twelve
