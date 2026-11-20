@@ -94,9 +94,8 @@ final class CheckCommand extends IndexedCommand
         $baselinePath = $this->stringOption($input, 'baseline');
 
         if ($this->boolOption($input, 'update-baseline')) {
-            if ($baselinePath === null) {
-                throw new RuntimeException('--update-baseline needs --baseline to say where to write');
-            }
+            // Next to the rules file, the way the rules file itself is found.
+            $baselinePath ??= dirname($this->rulePath($input, $context)).'/exocomp-baseline.json';
 
             Baseline::write($baselinePath, $violations);
 
@@ -153,8 +152,32 @@ final class CheckCommand extends IndexedCommand
                 $kept,
             ))],
             elided: $elided,
-            notes: [...$notes, ...$context->notes()],
+            notes: [...$notes, ...$this->undecidedNotes(), ...$context->notes()],
         );
+    }
+
+    /**
+     * Per rule, the matches a receiver predicate could not decide for want of a type: a rule
+     * that passes because the code it targets is untyped has to say so.
+     *
+     * @var array<string, int>
+     */
+    private array $undecided = [];
+
+    /**
+     * @return list<string>
+     */
+    private function undecidedNotes(): array
+    {
+        $notes = [];
+
+        foreach ($this->undecided as $rule => $count) {
+            if ($count > 0) {
+                $notes[] = sprintf('%s: %d match%s not decided, because the receiver\'s type is not known (exocomp query shows them)', $rule, $count, $count === 1 ? ' was' : 'es were');
+            }
+        }
+
+        return $notes;
     }
 
     /**
@@ -175,9 +198,13 @@ final class CheckCommand extends IndexedCommand
                     continue;
                 }
 
-                foreach ($engine->runOn($rule->pattern, SourceFile::fromPath($absolute, $path)) as $match) {
+                [$matches, $undecided] = $engine->runDeciding($rule->pattern, SourceFile::fromPath($absolute, $path));
+
+                foreach ($matches as $match) {
                     $violations[] = Violation::from($rule, $match);
                 }
+
+                $this->undecided[$rule->id] = ($this->undecided[$rule->id] ?? 0) + count($undecided);
             }
         }
 

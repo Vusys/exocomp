@@ -5,21 +5,31 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Console\Command;
 
 use InvalidArgumentException;
+use PhpParser\Node;
+use PhpParser\Node\Expr\ArrowFunction;
+use PhpParser\Node\Expr\Closure;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\Node\Name;
+use PhpParser\NodeFinder;
 use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Analysis\FileAnalysis;
+use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\ExocompCommand;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\MemberElsewhere;
+use Vusys\Exocomp\Inference\ReferenceScanner;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Render\SkeletonRenderer;
+use Vusys\Exocomp\Source\ParseFailure;
 use Vusys\Exocomp\Source\SourceFile;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\FileAddress;
@@ -103,6 +113,11 @@ final class ShowCommand extends ExocompCommand
 
         if ($addresses === []) {
             throw new InvalidArgumentException('show wants at least one address, or --at file.php:line');
+        }
+
+        // An unsaved buffer, standing in for the file at --as: the address is looked for in it.
+        if ($this->readingStdin($input)) {
+            return $this->fromStdin($addresses[0], $skeleton, $this->stdinFile($input, $context));
         }
 
         // One address keeps the answer it has always had: a lone header and body, and a single
@@ -320,9 +335,14 @@ final class ShowCommand extends ExocompCommand
     private function atPosition(string $position, bool $skeleton, CommandContext $context): Result
     {
         // Greedy up to the last colon, so a path that itself contains one still splits where
-        // the line number begins.
+        // the line number begins. Every record this tool prints starts `file:line:col`, so a
+        // trailing column is accepted, and ignored, when the file is there without it.
         if (preg_match('/^(.*):(\d+)$/', $position, $match) !== 1) {
             throw new InvalidArgumentException(sprintf('--at wants a position as file.php:line, not "%s"', $position));
+        }
+
+        if (preg_match('/^(.*):(\d+):(\d+)$/', $position, $withColumn) === 1 && $this->resolvePath($withColumn[1], $context) !== null) {
+            $match = [$withColumn[0], $withColumn[1], $withColumn[2]];
         }
 
         $line = (int) $match[2];
@@ -334,6 +354,10 @@ final class ShowCommand extends ExocompCommand
 
         $analysis = $context->locator->analyse($path);
         $declaration = $analysis->declarationSpanning($line);
+
+        if (! $declaration instanceof Declaration && ($closure = $this->closureAt($analysis->file, $line)) instanceof Result) {
+            return $closure;
+        }
 
         if (! $declaration instanceof Declaration) {
             throw new SymbolNotFound($position, sprintf(
@@ -352,6 +376,69 @@ final class ShowCommand extends ExocompCommand
             body: $found['source'],
             notes: $context->locator->notes(),
             object: $found['object'],
+        );
+    }
+
+    /**
+     * @throws SymbolNotFound
+     */
+    private function fromStdin(string $address, bool $skeleton, FileAnalysis $analysis): Result
+    {
+        $ref = SymbolRef::parse($address);
+        $owner = $analysis->classLike($ref->owner) ?? $analysis->function($ref->owner);
+        $declaration = $owner instanceof Declaration && $ref->hasMember() ? $owner->member((string) $ref->member, $ref->memberIsProperty) : $owner;
+
+        if (! $declaration instanceof Declaration) {
+            throw new SymbolNotFound($address, sprintf('%s is not declared in the source on standard input (%s)', $address, $analysis->file->displayPath));
+        }
+
+        $found = $this->rendered($declaration, $analysis->file, $skeleton);
+
+        return new Result(header: $found['header'], body: $found['source'], object: $found['object']);
+    }
+
+    /**
+     * A closure outside any declaration: a Pest test, a route or console closure. A stack trace
+     * from a Pest failure points into one, and "not inside any declaration" answered none of them.
+     */
+    private function closureAt(SourceFile $file, int $line): ?Result
+    {
+        try {
+            [, $statements] = new Analyser()->analyseWithAst($file);
+        } catch (ParseFailure) {
+            return null;
+        }
+
+        $finder = new NodeFinder;
+        $best = null;
+
+        foreach ($finder->find($statements, static fn (Node $node): bool => $node instanceof Closure || $node instanceof ArrowFunction) as $closure) {
+            if ($closure->getStartLine() <= $line && $closure->getEndLine() >= $line
+                && ($best === null || $closure->getStartLine() >= $best->getStartLine())) {
+                $best = $closure;
+            }
+        }
+
+        if ($best === null) {
+            return null;
+        }
+
+        // `it('refunds', function () { … })`: the description is how the test is known.
+        $described = null;
+
+        foreach ($finder->findInstanceOf($statements, FuncCall::class) as $call) {
+            $arguments = Analyser::arguments($call);
+
+            if (($arguments[1]->value ?? null) === $best && $call->name instanceof Name && ($label = LiteralValue::scalar($arguments[0]->value)) !== null) {
+                $described = sprintf('%s(%s)', $call->name->toString(), var_export($label, true));
+            }
+        }
+
+        $source = $file->slice($best->getStartFilePos(), $best->getEndFilePos());
+
+        return new Result(
+            header: sprintf('%s:%d-%d  %s%s', $file->displayPath, $best->getStartLine(), $best->getEndLine(), ReferenceScanner::closureName(null, $file->displayPath, $best->getStartLine()), $described === null ? '' : '  '.$described),
+            body: $source,
         );
     }
 

@@ -132,7 +132,7 @@ final class MembersCommand extends IndexedCommand
         [$kept, $elided] = $context->budget->apply($members);
 
         return new Result(
-            header: $this->header($subject->path, $subject->fqn, count($members), $total, $matching ?? ($ref->hasMember() ? '' : null)),
+            header: $this->header($subject->path, $subject->fqn, count($members), $total, $matching ?? ($ref->hasMember() ? '' : null), count($resolved['unreachable'])),
             sections: $this->group($kept),
             unresolvedTitle: 'not reached',
             unresolved: $this->unreachable($subject->path, $resolved['unreachable']),
@@ -164,13 +164,18 @@ final class MembersCommand extends IndexedCommand
      * and that is precisely the silent truncation this tool's output contract exists to rule
      * out. Saying "9 of 78" makes a narrow pattern read as narrow.
      */
-    private function header(string $path, string $fqn, int $shown, int $total, ?string $matching): string
+    private function header(string $path, string $fqn, int $shown, int $total, ?string $matching, int $unreached = 0): string
     {
+        // With ancestors out of reach the total is only what could be read, and has to say so,
+        // or a narrow pattern on a framework subclass reads as a small class all over again.
+        $unreachable = $unreached === 0 ? '' : sprintf('; %d ancestor%s not reached', $unreached, $unreached === 1 ? '' : 's');
+        $members = $unreached === 0 ? 'members' : 'reachable members';
+
         if ($matching === null) {
-            return sprintf('%s  %s  (%d members)', $path, $fqn, $total);
+            return sprintf('%s  %s  (%d %s%s)', $path, $fqn, $total, $members, $unreachable);
         }
 
-        return sprintf('%s  %s  (%d of %d members matching)', $path, $fqn, $shown, $total);
+        return sprintf('%s  %s  (%d of %d %s matching%s)', $path, $fqn, $shown, $total, $members, $unreachable);
     }
 
     /**

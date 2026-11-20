@@ -151,7 +151,16 @@ final class Matcher
             return true;
         }
 
-        if (count($pattern) !== count($subject)) {
+        // `$X->whereRaw($S, ...)`: the leading arguments as written, then any number more.
+        $rest = $pattern !== [] && end($pattern) instanceof VariadicPlaceholder;
+
+        if ($rest) {
+            array_pop($pattern);
+
+            if (count($subject) < count($pattern)) {
+                return false;
+            }
+        } elseif (count($pattern) !== count($subject)) {
             return false;
         }
 

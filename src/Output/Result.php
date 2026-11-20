@@ -42,7 +42,48 @@ final readonly class Result
         public bool $found = true,
         public array $objects = [],
         public array $unresolvedGroups = [],
+        public bool $cutByTokens = false,
     ) {}
+
+    /**
+     * This answer with only the first `$keep` listed records, the rest counted as elided, and
+     * the trailing unresolved block summarised by reason when `$summarise` asks. What was not
+     * resolved is the part a reader most needs to see, so a token cut takes listed records
+     * first and keeps the summary.
+     */
+    public function cutTo(int $keep, bool $summarise): self
+    {
+        $sections = [];
+        $remaining = $keep;
+        $dropped = 0;
+
+        foreach ($this->sections as $section) {
+            $kept = array_slice($section->rows, 0, max($remaining, 0));
+            $dropped += count($section->rows) - count($kept);
+            $remaining -= count($kept);
+
+            if ($kept !== []) {
+                $sections[] = new Section($section->title, $kept);
+            }
+        }
+
+        $summarised = $summarise && $this->unresolved !== [];
+
+        return new self(
+            header: $this->header,
+            body: $this->body,
+            sections: $sections,
+            unresolvedTitle: $this->unresolvedTitle,
+            unresolved: $summarised ? [] : $this->unresolved,
+            elided: $this->elided + $dropped,
+            notes: $this->notes,
+            object: $this->object,
+            found: $this->found,
+            objects: $this->objects,
+            unresolvedGroups: $summarised ? UnresolvedGroup::summarise($this->unresolved) : $this->unresolvedGroups,
+            cutByTokens: $dropped > 0 || $summarised || $this->cutByTokens,
+        );
+    }
 
     /**
      * The same answer, with no more records in it than the caller asked for.
@@ -91,6 +132,7 @@ final readonly class Result
             found: $this->found,
             objects: $this->objects,
             unresolvedGroups: $this->unresolvedGroups,
+            cutByTokens: $this->cutByTokens,
         );
     }
 

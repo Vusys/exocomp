@@ -219,6 +219,15 @@ abstract class IndexedCommand extends ExocompCommand
     {
         $this->refuseRevision($context, 'the index describes the working tree');
 
+        // Accepted and then ignored, a buffer on standard input made an answer about the file on
+        // disk read as an answer about the buffer.
+        if ($this->boolOption($input, 'stdin')) {
+            throw new \InvalidArgumentException(sprintf(
+                '--stdin is not available for %s, because it answers from the index of the working tree. show, outline and imports read a buffer from standard input.',
+                $this->getName() ?? 'this command',
+            ));
+        }
+
         $index = $context->index();
         $vendor = $this->boolOption($input, 'vendor');
 

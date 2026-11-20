@@ -100,6 +100,8 @@ final class MatchCollector extends NodeVisitorAbstract
 
             if ($this->predicates->accepts($match)) {
                 $this->matches[] = $match;
+            } elseif ($this->predicates->undecided($match)) {
+                $this->undecided[] = $match;
             }
         }
 
@@ -128,6 +130,19 @@ final class MatchCollector extends NodeVisitorAbstract
     public function matches(): array
     {
         return $this->matches;
+    }
+
+    /** @var list<QueryMatch> */
+    private array $undecided = [];
+
+    /**
+     * Matches a receiver predicate could not decide, for want of the receiver's type.
+     *
+     * @return list<QueryMatch>
+     */
+    public function undecided(): array
+    {
+        return $this->undecided;
     }
 
     private function scopeFor(Node\FunctionLike $function, Scope $enclosing): Scope
