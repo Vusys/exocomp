@@ -74,17 +74,38 @@ final class TokenCeilingTest extends TestCase
         $this->assertStringNotContainsString('default ceiling', $run->output);
     }
 
-    public function test_the_default_is_far_above_any_answer_measured(): void
+    public function test_the_default_page_holds_an_ordinary_answer(): void
     {
-        // Median real answer 1KB, ninetieth percentile 5KB, largest 13KB — against roughly
-        // 100KB here. If this ever needs lowering, the reason will not be these numbers.
-        $this->assertGreaterThanOrEqual(20000, ExocompCommand::DEFAULT_MAX_TOKENS);
+        // One page, the same in a terminal and a pipe: median real answer 1KB, ninetieth
+        // percentile 5KB, against about 16KB here. A bigger answer is paged, never dropped.
+        $this->assertGreaterThanOrEqual(2000, ExocompCommand::DEFAULT_MAX_TOKENS);
+        $this->assertLessThanOrEqual(8000, ExocompCommand::DEFAULT_MAX_TOKENS);
     }
 
-    public function test_an_explicit_ceiling_still_bites_where_asked(): void
+    public function test_an_explicit_ceiling_pages_the_answer_and_names_the_next_page(): void
     {
-        $run = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--max-tokens', '5']);
+        $first = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--max-tokens', '60']);
 
-        $this->assertStringContainsString('more lines', $run->output);
+        $this->assertMatchesRegularExpression('/records 1–\d+ of \d+; next: exocomp members .* --page 2/', $first->output);
+
+        $second = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--max-tokens', '60', '--page', '2']);
+
+        $this->assertMatchesRegularExpression('/records \d+–\d+ of \d+/', $second->output);
+        $this->assertStringNotContainsString('records 1–', $second->output);
+    }
+
+    public function test_every_page_repeats_the_summary(): void
+    {
+        $second = Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--max-tokens', '60', '--page', '2']);
+
+        $header = explode("\n", Cli::inCorpus(['members', 'Fixtures\TierA\Baseline'])->output)[0];
+
+        $this->assertNotSame('', $header);
+        $this->assertSame($header, explode("\n", $second->output)[0]);
+    }
+
+    public function test_all_prints_the_whole_answer(): void
+    {
+        $this->assertStringNotContainsString('records ', Cli::inCorpus(['members', 'Fixtures\TierA\Baseline', '--max-tokens', '60', '--all'])->output);
     }
 }

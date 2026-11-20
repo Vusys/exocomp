@@ -119,11 +119,16 @@ thing the tool guarantees to report, and `head` throws that away with the output
 exit code away too: `exocomp locate Nope | head -1; echo $?` prints `0` after a miss, because a pipeline's
 status is `head`'s.
 
-**A ceiling of about 25,000 tokens applies by default when output is not a terminal**, and says so when it
-applies. It stops one `members` on a god object or one `references-to` on a base class from filling your
-context. `--max-tokens N` raises it, and `--max-tokens 0` removes it.
+**Every answer is at most one page, about 4,000 tokens, wherever it goes.** A longer one is cut on a record
+boundary and ends with which records it holds and the exact command for the next page:
+`── records 1–50 of 312; next: exocomp callers-of 'App\Models\Order::save' --page 2 ──`. In `--json` that is
+a `{"page_first": 1, "page_last": 50, "of": 312, "next": "…"}` record near the top. **Every page leads with
+the summary**: the header, the unresolved or not-listed block (by reason) and the notes come before the
+records, so the first lines are always the ones that say how far to trust the rest. Ask for the page you
+need rather than piping, and use `--all` (or `--max-tokens 0`) only when you really want everything. A later
+page reuses the first one's search for ten minutes, so paging does not repeat a slow query.
 
-**Output shape does not depend on the TTY.** Only the default ceiling and colour do: output that is not a
+**Output shape does not depend on the TTY.** Only colour does: output that is not a
 terminal is plain text even when `FORCE_COLOR` is set (`--ansi` forces colour, and `NO_COLOR` is honoured).
 Text is the default and the denser format. `--json` (JSONL, one record per line) is for `jq` and structural
 joins. `--format=paths` prints deduplicated file paths, for piping into another tool.

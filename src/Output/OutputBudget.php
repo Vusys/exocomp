@@ -66,32 +66,66 @@ final readonly class OutputBudget
      *
      * @param  callable(Result): string  $render
      */
-    public function renderWithin(Result $result, callable $render, bool $json): string
+    public function renderWithin(Result $result, callable $render, bool $json, int $page = 1, string $command = 'exocomp'): string
     {
         $rendered = $render($result);
 
-        if ($this->maxTokens <= 0 || self::tokens($rendered) <= $this->maxTokens) {
+        if ($this->maxTokens <= 0 || (self::tokens($rendered) <= $this->maxTokens && $page <= 1)) {
             return $rendered;
         }
 
-        $low = 0;
-        $high = count($result->rows());
+        // Pages are laid out from the start each time, each as many records as fit beside the
+        // summary, so page N is the same whichever pages were asked for before it.
+        $total = count($result->rows());
+        $start = 0;
         $best = null;
 
-        // The largest number of listed records that fits, found by halving.
+        for ($current = 1; $current <= max($page, 1); $current++) {
+            $next = sprintf('%s --page %d', $command, $current + 1);
+            [$count, $best] = $this->largestFit($result, $render, $start, $next);
+
+            if ($current === $page || $start + $count >= $total) {
+                if ($current !== $page) {
+                    return $render($result->cutTo(0, summarise: true, skip: $total)->withNote(sprintf('there is no page %d; the answer ends on page %d', $page, $current)));
+                }
+
+                break;
+            }
+
+            $start += $count;
+        }
+
+        return $best ?? $this->capRendered($render($result->cutTo(0, summarise: true)), $json);
+    }
+
+    /**
+     * How many records from `$start` fit on one page beside the summary, found by halving, and
+     * the page they make. At least one, so a single record longer than a page still advances.
+     *
+     * @param  callable(Result): string  $render
+     * @return array{int, ?string}
+     */
+    private function largestFit(Result $result, callable $render, int $start, string $next): array
+    {
+        $low = 1;
+        $high = max(count($result->rows()) - $start, 0);
+        // One record however long, so a page always moves the reader on: over the ceiling by a
+        // record is better than a page of nothing.
+        $best = [$high === 0 ? 0 : 1, $high === 0 ? null : $render($result->cutTo(1, summarise: true, skip: $start, next: $next))];
+
         while ($low <= $high) {
             $middle = intdiv($low + $high, 2);
-            $attempt = $render($result->cutTo($middle, summarise: true));
+            $attempt = $render($result->cutTo($middle, summarise: true, skip: $start, next: $next));
 
             if (self::tokens($attempt) <= $this->maxTokens) {
-                $best = $attempt;
+                $best = [$middle, $attempt];
                 $low = $middle + 1;
             } else {
                 $high = $middle - 1;
             }
         }
 
-        return $best ?? $this->capRendered($render($result->cutTo(0, summarise: true)), $json);
+        return $best;
     }
 
     /**

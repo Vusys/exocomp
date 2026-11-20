@@ -275,7 +275,7 @@ final class ModelTest extends TestCase
     public function test_an_annotation_the_source_accounts_for_is_not_reported_as_drift(): void
     {
         $run = Cli::inLaravel(['model', 'Order']);
-        $note = (string) strstr($run->output, 'annotated properties are accounted for');
+        $note = explode("\n", (string) strstr($run->output, 'annotated properties are accounted for'))[0];
 
         foreach (['id', 'reference', 'display_name'] as $accounted) {
             $this->assertStringNotContainsString($accounted, $note, "{$accounted} is a column, cast or accessor");

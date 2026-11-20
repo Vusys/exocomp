@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Output is paged, and the same size wherever it goes.** Every answer is at most one page, about 4,000 tokens, in a terminal and in a pipe alike. Before, the cap was 25,000 tokens in a pipe and none in a terminal.
+  - A longer answer is cut on a record boundary and says which records it holds and the command for the next: `── records 1–50 of 312; next: exocomp … --page 2 ──`, and a `page_first`/`page_last`/`of`/`next` record in JSON.
+  - Each page leads with the summary: the header, then the unresolved or not-listed block and the notes, then the records.
+  - `--page N` prints a later page, from a ten-minute cache of the search, so paging does not repeat it. `--all` prints everything.
+
 - **Routes come from the table Laravel builds, not from the route files.** `routes` and `reaches 'route:…'` read `bootstrap/cache/routes-v7.php`, the array `php artisan route:cache` writes, parsed and never run. Failing that they read `exocomp-routes.json`, the output of `php artisan route:list --json`, or a file given with `--routes`. So routes that providers load, their prefixes and namespaces, package routes and macros are all as the framework registers them. With neither file the route commands refuse, and the error names the command to run. The route files are still read, but only for each route's file and line. A table older than the route files says it may be out of date (#73).
 
 - **Exit code `3`: not found, but incomplete.** A "none" that could not check everything no longer exits like a clean one. `reaches` met edges it could not follow, hit its budget, or left routes unwalked. `callers-of` and `references-to` found nothing certain but have unresolved candidates or unsearched files. `query` found no match but could not decide some for want of a receiver type. `check` found no new violation, with the same proviso. `if exocomp …; then` reads `3` as false, as it reads `1`. In `--json` the leading `found: false` record also says `complete`.
