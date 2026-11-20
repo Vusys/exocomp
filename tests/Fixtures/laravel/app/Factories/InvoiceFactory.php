@@ -13,4 +13,10 @@ class InvoiceFactory
     {
         return $this;
     }
+
+    /** A state method written before return types. */
+    public function overdue()
+    {
+        return $this;
+    }
 }

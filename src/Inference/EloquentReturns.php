@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Inference;
 
 use PhpParser\Node;
+use PhpParser\Node\Expr;
+use PhpParser\NodeFinder;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
@@ -51,6 +53,12 @@ final readonly class EloquentReturns
         'join', 'leftjoin', 'rightjoin', 'crossjoin', 'has', 'orhas', 'doesnthave', 'ordoesnthave',
         'without', 'onlytrashed', 'lockforupdate', 'sharedlock', 'inrandomorder', 'whenhas',
     ];
+
+    /**
+     * `Conditionable`'s `when()`/`unless()`, and `tap()`, which runs `when(true, …)`: they return
+     * what the callback returns, or the builder when that is null.
+     */
+    private const array CONDITIONAL = ['when', 'unless', 'tap'];
 
     /** Builder methods (and static calls on a model) that return one model. */
     private const array BUILDER_TO_MODEL = [
@@ -106,7 +114,7 @@ final readonly class EloquentReturns
     /**
      * A static call on a model class: `Order::query()`, `Order::find($id)`, `Order::factory()`.
      */
-    public function fromModel(string $model, string $method, Node\Expr\StaticCall $call): ?ResolvedType
+    public function fromModel(string $model, string $method, Expr\StaticCall $call): ?ResolvedType
     {
         if (! $this->magic->isModel($model)) {
             return null;
@@ -151,7 +159,23 @@ final readonly class EloquentReturns
 
         return $relation === null
             ? null
-            : ResolvedType::wrapping(self::BUILDER_FQN, self::BUILDER, $relation[0], sprintf('%s() is a %s relation to %s, by Eloquent convention', $method, $relation[1], $relation[0]));
+            : ResolvedType::wrapping(self::relationClass($relation[1]), self::BUILDER, $relation[0], sprintf('%s() is a %s relation to %s, by Eloquent convention', $method, $relation[1], $relation[0]));
+    }
+
+    /**
+     * The framework's relation class for a relation factory: `hasMany` builds a `HasMany`.
+     * A method is looked up there first and forwarded to the query builder only when the
+     * relation does not declare it, as `Relation::__call` does at runtime.
+     */
+    public static function relationClass(string $factory): string
+    {
+        $class = [
+            'hasone' => 'HasOne', 'hasmany' => 'HasMany', 'belongsto' => 'BelongsTo', 'belongstomany' => 'BelongsToMany',
+            'hasonethrough' => 'HasOneThrough', 'hasmanythrough' => 'HasManyThrough', 'morphone' => 'MorphOne',
+            'morphmany' => 'MorphMany', 'morphto' => 'MorphTo', 'morphtomany' => 'MorphToMany', 'morphedbymany' => 'MorphToMany',
+        ][strtolower($factory)] ?? null;
+
+        return $class === null ? self::BUILDER_FQN : 'Illuminate\\Database\\Eloquent\\Relations\\'.$class;
     }
 
     /**
@@ -175,7 +199,7 @@ final readonly class EloquentReturns
     /**
      * One link of a chain whose receiver is a builder, factory or collection of a model.
      */
-    public function step(ResolvedType $owner, string $method, Node\Expr\MethodCall|Node\Expr\NullsafeMethodCall $call): ?ResolvedType
+    public function step(ResolvedType $owner, string $method, Expr\MethodCall|Expr\NullsafeMethodCall $call): ?ResolvedType
     {
         $model = $owner->model;
 
@@ -201,14 +225,14 @@ final readonly class EloquentReturns
             : null;
     }
 
-    private function fromBuilder(string $model, string $method, Node\Expr\CallLike $call): ?ResolvedType
+    private function fromBuilder(string $model, string $method, Expr\CallLike $call): ?ResolvedType
     {
         $name = strtolower($method);
 
         if (in_array($name, self::BUILDER_TO_MODEL, true)) {
             $first = Analyser::arguments($call)[0]->value ?? null;
 
-            if (in_array($name, self::TAKES_KEYS, true) && $first instanceof Node\Expr\Array_) {
+            if (in_array($name, self::TAKES_KEYS, true) && $first instanceof Expr\Array_) {
                 return ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, sprintf('%s() with a list of keys returns a collection, by Eloquent convention', $method));
             }
 
@@ -219,6 +243,12 @@ final readonly class EloquentReturns
             return ResolvedType::wrapping(self::BUILDER_TO_COLLECTION[$name], self::COLLECTION, $model, sprintf('%s() returns the models, by Eloquent convention', $method));
         }
 
+        if (in_array($name, self::CONDITIONAL, true)) {
+            return $this->handsBackItsArgument($call)
+                ? ResolvedType::wrapping(self::BUILDER_FQN, self::BUILDER, $model, sprintf('%s() returns the builder its callback is handed, by Eloquent convention', $method))
+                : null;
+        }
+
         if (in_array($name, self::BUILDER_KEEPS, true)
             || str_starts_with($name, 'where') || str_starts_with($name, 'orwhere') || str_starts_with($name, 'with')
             || $this->isLocalScope($model, $method)) {
@@ -226,6 +256,48 @@ final readonly class EloquentReturns
         }
 
         return null;
+    }
+
+    /**
+     * Whether a `when()`-style call's callback returns nothing, its first parameter, or a chain
+     * on it: then the call returns the builder. A callback returning anything else hands that
+     * back instead, and a call with no callback at all returns a proxy.
+     */
+    private function handsBackItsArgument(Expr\CallLike $call): bool
+    {
+        $callback = null;
+
+        foreach (Analyser::arguments($call) as $argument) {
+            if ($argument->value instanceof Expr\Closure || $argument->value instanceof Expr\ArrowFunction) {
+                $callback = $argument->value;
+
+                break;
+            }
+        }
+
+        $parameter = $callback?->params[0]->var ?? null;
+
+        if ($callback === null || ! $parameter instanceof Expr\Variable || ! is_string($parameter->name)) {
+            return false;
+        }
+
+        $name = $parameter->name;
+        $rooted = static function (?Expr $expression) use ($name): bool {
+            while ($expression instanceof Expr\MethodCall || $expression instanceof Expr\NullsafeMethodCall) {
+                $expression = $expression->var;
+            }
+
+            return ! $expression instanceof Expr || ($expression instanceof Expr\Variable && $expression->name === $name);
+        };
+
+        if ($callback instanceof Expr\ArrowFunction) {
+            return $rooted($callback->expr);
+        }
+
+        $finder = new NodeFinder;
+        $returns = $finder->find($callback->stmts, static fn (Node $node): bool => $node instanceof Node\Stmt\Return_);
+
+        return array_all($returns, static fn (Node $return): bool => $return instanceof Node\Stmt\Return_ && $rooted($return->expr));
     }
 
     /**
@@ -277,6 +349,12 @@ final readonly class EloquentReturns
             return ResolvedType::wrapping(self::COLLECTION_FQN, self::COLLECTION, $model, sprintf('a collection of %s, by Eloquent convention', $model));
         }
 
+        // What `map()` holds depends on the callback, so all that is known is that it is a
+        // collection; the chain goes on as one rather than stopping.
+        if (in_array($name, ['map', 'flatmap', 'mapwithkeys', 'pluck', 'keys', 'groupby', 'chunk', 'collapse', 'flatten'], true)) {
+            return ResolvedType::inferred('Illuminate\\Support\\Collection', sprintf('%s() returns a collection of whatever its callback gives, by Eloquent convention', $method));
+        }
+
         return null;
     }
 
@@ -317,13 +395,42 @@ final readonly class EloquentReturns
      */
     private function returnsItself(string $factory, string $method): bool
     {
-        $type = $this->members->declared($factory, $method, SymbolKind::Method)?->typeFqn;
+        $declared = $this->members->declared($factory, $method, SymbolKind::Method);
 
-        return $type !== null && (in_array(strtolower($type), ['static', 'self'], true) || strcasecmp($type, $factory) === 0);
+        if (! $declared instanceof SymbolRecord) {
+            return false;
+        }
+
+        // A state method written before return types, `public function failed() { return
+        // $this->state(...); }`, returns the factory by the convention every state method follows.
+        $type = $declared->typeFqn ?? $declared->inferredFqn;
+
+        return $type === null || in_array(strtolower($type), ['static', 'self'], true) || strcasecmp($type, $factory) === 0;
     }
 
     private function isLocalScope(string $model, string $method): bool
     {
-        return $this->members->declared($model, 'scope'.ucfirst($method), SymbolKind::Method) instanceof SymbolRecord;
+        return $this->members->declared($model, 'scope'.ucfirst($method), SymbolKind::Method) instanceof SymbolRecord
+            || $this->magic->isAttributeScope($model, $method);
+    }
+
+    /**
+     * The declaration a call on a builder of `$model` runs, where the model declares it: a local
+     * scope, `scopeOpen()` for `->open()` or a `#[Scope]` method of the same name. The builder
+     * itself has no such method, so naming it there pointed at nothing.
+     */
+    public function scopeDeclaration(string $model, string $method): ?string
+    {
+        $legacy = $this->members->declared($model, 'scope'.ucfirst($method), SymbolKind::Method);
+
+        if ($legacy instanceof SymbolRecord) {
+            return $legacy->owner.'::'.$legacy->name;
+        }
+
+        $attribute = $this->members->declared($model, $method, SymbolKind::Method);
+
+        return $attribute instanceof SymbolRecord && $this->magic->isAttributeScope($model, $method)
+            ? $attribute->owner.'::'.$attribute->name
+            : null;
     }
 }

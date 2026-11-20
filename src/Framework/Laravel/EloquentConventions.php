@@ -136,6 +136,30 @@ final class EloquentConventions implements MagicSource
         return $this->relations[$key] = $found;
     }
 
+    /**
+     * Whether a model method is a local scope written the Laravel 12 way, with `#[Scope]`
+     * rather than a `scope` prefix: `#[Scope] protected function paid(Builder $q)` is called
+     * as `Order::paid()` and `->paid()`, and the call returns the builder.
+     */
+    public function isAttributeScope(string $modelFqn, string $method): bool
+    {
+        if (! $this->isModel($modelFqn)) {
+            return false;
+        }
+
+        $method = $this->source->load($modelFqn)?->node->getMethod($method);
+
+        foreach ($method->attrGroups ?? [] as $group) {
+            foreach ($group->attrs as $attribute) {
+                if (strcasecmp(ltrim(Analyser::resolvedName($attribute->name), '\\'), 'Illuminate\\Database\\Eloquent\\Attributes\\Scope') === 0) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public function method(string $ownerFqn, string $name): ?MagicMember
     {
         if (! $this->isModel($ownerFqn)) {

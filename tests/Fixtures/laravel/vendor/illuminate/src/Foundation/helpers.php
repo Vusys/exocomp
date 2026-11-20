@@ -21,6 +21,13 @@ if (! function_exists('auth')) {
     }
 }
 
+if (! function_exists('collect')) {
+    function collect($value = []): \Illuminate\Support\Collection
+    {
+        return new \Illuminate\Support\Collection;
+    }
+}
+
 if (! function_exists('fixture_now')) {
     function fixture_now(): \Illuminate\Http\Request
     {

@@ -96,6 +96,20 @@ final class Magic
         return null;
     }
 
+    /**
+     * Whether a model method is a `#[Scope]` local scope ({@see EloquentConventions::isAttributeScope()}).
+     */
+    public function isAttributeScope(string $modelFqn, string $method): bool
+    {
+        foreach ($this->sources as $source) {
+            if ($source instanceof EloquentConventions) {
+                return $source->isAttributeScope($modelFqn, $method);
+            }
+        }
+
+        return false;
+    }
+
     public function method(string $ownerFqn, string $name): ?MagicMember
     {
         return $this->resolve($ownerFqn, $name, SymbolKind::Method);

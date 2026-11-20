@@ -88,7 +88,7 @@ final class CallScanner extends NodeVisitorAbstract
             $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
         }
 
-        $this->types->enterNarrowing($node, $this->scope);
+        $this->types->enterNarrowing($node, $this->scope, $this->analysis->imports);
 
         match (true) {
             $node instanceof Node\Expr\MethodCall,
@@ -138,7 +138,8 @@ final class CallScanner extends NodeVisitorAbstract
             return;
         }
 
-        $target = $this->types->callTarget((string) $receiver->fqn, $call->name->toString(), $receiver->confidence, $receiver->reason);
+        $target = $this->types->scopeTarget($receiver, $call->name->toString())
+            ?? $this->types->callTarget((string) $receiver->fqn, $call->name->toString(), $receiver->confidence, $receiver->reason);
 
         $this->record($call, 'method call', $target->fqn, $target->confidence, $target->reason, $receiver->fqn, $gate);
     }

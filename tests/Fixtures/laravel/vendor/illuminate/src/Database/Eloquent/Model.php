@@ -29,6 +29,47 @@ abstract class Model
         return true;
     }
 
+    public function push(): bool
+    {
+        return true;
+    }
+
+    public function update(array $attributes = []): bool
+    {
+        return true;
+    }
+
+    public function delete(): ?bool
+    {
+        return true;
+    }
+
+    public function forceDelete(): ?bool
+    {
+        return true;
+    }
+
+    public function increment($column, $amount = 1): int
+    {
+        return 1;
+    }
+
+    public function decrement($column, $amount = 1): int
+    {
+        return 1;
+    }
+
+    /** Forwards anything the model does not declare to its query builder. */
+    public function __call($method, $parameters)
+    {
+        return null;
+    }
+
+    public static function __callStatic($method, $parameters)
+    {
+        return null;
+    }
+
     public function hasNamedScope($scope): bool
     {
         return method_exists($this, 'scope'.ucfirst($scope));

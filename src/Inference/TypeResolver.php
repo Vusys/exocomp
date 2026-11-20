@@ -53,6 +53,9 @@ final readonly class TypeResolver
     /** What {@see beyondTheIndex()} found, per class and method. */
     private TypeMemo $beyond;
 
+    /** Which class beyond the index declares a method, per class and method. */
+    private TypeMemo $declaring;
+
     /**
      * @param  (Closure(string): ?Binding)|null  $boundTo  what the application's providers bind a
      *                                                     class name to, asked only when a
@@ -70,6 +73,7 @@ final readonly class TypeResolver
         $this->members = new Members($graph);
         $this->eloquent = $magic instanceof Magic ? new EloquentReturns($graph, $this->members, $magic) : null;
         $this->beyond = new TypeMemo;
+        $this->declaring = new TypeMemo;
     }
 
     /**
@@ -109,7 +113,7 @@ final readonly class TypeResolver
         $documented = $this->documented($function);
         $elementsDocumented = null;
 
-        foreach ($function->getParams() as $param) {
+        foreach ($function->getParams() as $position => $param) {
             $name = $this->variableName($param->var);
 
             if ($name === null) {
@@ -117,6 +121,12 @@ final readonly class TypeResolver
             }
 
             $declared = self::classLikeTypeOf($param->type);
+
+            // `self $other` and `static $other` are the class being declared, not classes
+            // called "self" and "static".
+            if ($declared !== null && in_array(strtolower($declared), ['self', 'static'], true)) {
+                $declared = $classFqn;
+            }
 
             if ($declared !== null) {
                 $scope->set($name, ResolvedType::declared($declared));
@@ -136,6 +146,14 @@ final readonly class TypeResolver
 
             if ($elements !== []) {
                 $scope->set($name, ResolvedType::arrayOf($this->qualifyAll($elements, $classFqn, $imports), '@param'));
+
+                continue;
+            }
+
+            $hint = $param->type === null && $enclosing instanceof Scope ? $enclosing->callbackHint($function, $position) : null;
+
+            if ($hint instanceof ResolvedType) {
+                $scope->set($name, $hint);
             }
         }
 
@@ -374,10 +392,13 @@ final readonly class TypeResolver
      * that tests it. It is not one in an `else`, nor before the test in the same condition.
      * `assert($x instanceof C)` proves it for the rest of the body, and a `catch` proves its
      * variable is the caught class.
+     *
+     * @param  list<Import>  $imports
      */
-    public function enterNarrowing(Node $node, Scope $scope): void
+    public function enterNarrowing(Node $node, Scope $scope, array $imports = []): void
     {
         $scope->entering($node);
+        $this->hintCallbacks($node, $scope, $imports);
 
         if (($node instanceof Node\Stmt\If_ || $node instanceof Node\Stmt\ElseIf_) && $node->stmts !== []) {
             $scope->narrowBetween($node->stmts[0], $node->stmts[array_key_last($node->stmts)], $this->provedBy($node->cond, true, $scope));
@@ -418,6 +439,92 @@ final readonly class TypeResolver
         return $class === null
             ? ResolvedType::unknown('caught type unknown')
             : ResolvedType::resolvedBy($class, 'the class the catch names');
+    }
+
+    /**
+     * Builder methods whose callback is handed the builder, and collection (or builder) methods
+     * whose callback is handed one model.
+     */
+    private const array PASSES_RECEIVER = ['when', 'unless', 'tap', 'where', 'orwhere', 'wherenot', 'orwherenot'];
+
+    private const array PASSES_ELEMENT = [
+        'each', 'map', 'filter', 'reject', 'first', 'last', 'sortby', 'sortbydesc', 'groupby', 'keyby', 'sum', 'avg',
+        'contains', 'every', 'partition', 'mapwithkeys', 'flatmap', 'pluck', 'transform', 'search', 'firstwhere', 'some',
+    ];
+
+    private const array PASSES_CHUNK = ['chunk', 'chunkbyid', 'chunkmap'];
+
+    /**
+     * Records what a closure written as an argument will be called with, where the method it
+     * is passed to fixes that: `->when($b, fn ($q) => …)` hands on the builder, `->each(fn ($i)
+     * => …)` on a collection of a model hands each model, `->chunk(10, fn ($rows) => …)` hands a
+     * collection of them, and `tap($x, fn ($y) => …)` hands `$x`. Only an untyped parameter
+     * takes it ({@see scopeFor()}), and only the conventions listed, inferred.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function hintCallbacks(Node $node, Scope $scope, array $imports): void
+    {
+        if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && Analyser::isGlobalFunction($node->name, 'tap')) {
+            $args = Analyser::arguments($node);
+            $callback = $args[1]->value ?? null;
+
+            if (($callback instanceof Node\Expr\Closure || $callback instanceof Node\Expr\ArrowFunction) && isset($args[0])) {
+                $snapshot = clone $scope;
+                $value = $args[0]->value;
+                $scope->hintCallback($callback, 0, fn (): ?ResolvedType => ($type = $this->typeOf($value, $snapshot, $imports))->isKnown() ? $type : null);
+            }
+
+            return;
+        }
+
+        if ((! $node instanceof Node\Expr\MethodCall && ! $node instanceof Node\Expr\NullsafeMethodCall) || ! $node->name instanceof Node\Identifier) {
+            return;
+        }
+
+        $method = strtolower($node->name->toString());
+
+        if (! in_array($method, [...self::PASSES_RECEIVER, ...self::PASSES_ELEMENT, ...self::PASSES_CHUNK], true)) {
+            return;
+        }
+
+        $snapshot = clone $scope;
+        $receiver = $node->var;
+        $owner = (fn (): ResolvedType => $this->typeOf($receiver, $snapshot, $imports));
+
+        foreach (Analyser::arguments($node) as $argument) {
+            $callback = $argument->value;
+
+            if (! $callback instanceof Node\Expr\Closure && ! $callback instanceof Node\Expr\ArrowFunction) {
+                continue;
+            }
+
+            $scope->hintCallback($callback, 0, function () use ($owner, $method): ?ResolvedType {
+                $type = $owner();
+
+                if (! $type->isKnown()) {
+                    return null;
+                }
+
+                if (in_array($method, self::PASSES_RECEIVER, true)) {
+                    return $type->wrapper === EloquentReturns::BUILDER || $method === 'tap' ? $type : null;
+                }
+
+                if ($type->model === null) {
+                    return null;
+                }
+
+                if (in_array($method, self::PASSES_CHUNK, true)) {
+                    return $type->wrapper === EloquentReturns::BUILDER
+                        ? ResolvedType::wrapping('Illuminate\\Database\\Eloquent\\Collection', EloquentReturns::COLLECTION, $type->model, sprintf('a chunk of %s, by Eloquent convention', $type->model))
+                        : null;
+                }
+
+                return in_array($type->wrapper, [EloquentReturns::COLLECTION, EloquentReturns::BUILDER], true)
+                    ? ResolvedType::inferred($type->model, sprintf('a %s, as %s() hands its callback, by Eloquent convention', $type->model, $method))
+                    : null;
+            });
+        }
     }
 
     /**
@@ -643,8 +750,9 @@ final readonly class TypeResolver
         }
 
         // A relation method declared to return one of the framework's relation classes: that
-        // class knows nothing of the related model, and the method's body does.
-        if ($owner->isKnown() && $type->isKnown() && str_starts_with((string) $type->fqn, 'Illuminate\\Database\\Eloquent\\Relations\\')) {
+        // class knows nothing of the related model, and the method's body does. One declaring
+        // no return type at all, as relations did before Laravel 9's stubs, is read the same way.
+        if ($owner->isKnown() && (($type->isKnown() && str_starts_with((string) $type->fqn, 'Illuminate\\Database\\Eloquent\\Relations\\')) || ! $type->isKnown())) {
             $type = $this->eloquent?->fromRelation((string) $owner->fqn, $name) ?? $type;
         }
 
@@ -819,6 +927,11 @@ final readonly class TypeResolver
                 return $this->typeOf($first->value, $scope, $imports);
             }
 
+            // `tap($x, …)` returns `$x`, whatever the callback does.
+            if (Analyser::isGlobalFunction($call->name, 'tap') && ($first = Analyser::arguments($call)[0] ?? null) instanceof Node\Arg) {
+                return $this->typeOf($first->value, $scope, $imports);
+            }
+
             // `app()` with no argument is the application itself, by the helper's own signature.
             if (Analyser::isGlobalFunction($call->name, 'app') && Analyser::arguments($call) === []) {
                 return ResolvedType::resolvedBy('Illuminate\\Foundation\\Application', 'app() with no argument returns the application');
@@ -917,7 +1030,7 @@ final readonly class TypeResolver
 
         // A model's framework methods are Eloquent's, which {@see EloquentReturns} answers by
         // convention; walking `Model` and its traits for each one cost more than it found.
-        if ($this->magic?->isModel($ownerFqn) === true || $this->graph->members($ownerFqn)['unreachable'] === []) {
+        if ($this->magic?->isModel($ownerFqn) === true || $this->members->isComplete($ownerFqn)) {
             return $this->beyond->set($key, null);
         }
 
@@ -945,6 +1058,11 @@ final readonly class TypeResolver
 
             $documented = $this->documented($node)['return'] ?? null;
 
+            // `@return static<TKey, TValue>`, the way a fluent collection method is documented.
+            if (is_string($documented) && in_array(strtolower((string) preg_replace('/<.*$/', '', $documented)), ['static', '$this'], true)) {
+                return ResolvedType::inferred($ownerFqn, sprintf('the @return of %s::%s(), read where it is declared', $class->fqn, $method));
+            }
+
             if (is_string($documented) && ! in_array(strtolower($documented), ['static', 'self', '$this'], true)) {
                 return ResolvedType::inferred(
                     $this->qualify($documented, $class->fqn, $class->analysis->imports),
@@ -958,6 +1076,34 @@ final readonly class TypeResolver
         return null;
     }
 
+    /**
+     * The class in `$ownerFqn`'s ancestry, read from source, that declares `$method`.
+     */
+    private function declaringBeyondTheIndex(string $ownerFqn, string $method): ?string
+    {
+        if (! $this->source instanceof ClassSource) {
+            return null;
+        }
+
+        $key = Identifier::fold($ownerFqn.'::'.$method);
+
+        if (! $this->declaring->has($key)) {
+            $found = null;
+
+            foreach ($this->source->withAncestors($ownerFqn) as $class) {
+                if ($class->node->getMethod($method) instanceof Node\Stmt\ClassMethod) {
+                    $found = ResolvedType::resolvedBy($class->fqn, 'declared');
+
+                    break;
+                }
+            }
+
+            $this->declaring->set($key, $found);
+        }
+
+        return $this->declaring->get($key)?->fqn;
+    }
+
     private function whyNoMethod(string $ownerFqn, string $method): string
     {
         // A class that declares `__call` answers to names it does not declare, so "declares no
@@ -965,6 +1111,10 @@ final readonly class TypeResolver
         // what a reader should do about it, so the answer has to distinguish them.
         if ($this->member($ownerFqn, '__call', SymbolKind::Method) instanceof SymbolRecord) {
             return sprintf('%s declares no %s(), and declares __call(), so this resolves at runtime through that', $ownerFqn, $method);
+        }
+
+        if (! $this->graph->classLike($ownerFqn) instanceof SymbolRecord) {
+            return sprintf('%s is not in the index, and its source could not be read for %s()', $ownerFqn, $method);
         }
 
         $unreachable = $this->graph->members($ownerFqn)['unreachable'];
@@ -988,8 +1138,33 @@ final readonly class TypeResolver
      * without checking the member exists is right for code that compiles and confidently wrong
      * for the rest — and "the rest" is where a framework application spends its time.
      */
+    /**
+     * What a call on a builder of a model runs when the model declares it as a local scope.
+     */
+    public function scopeTarget(ResolvedType $receiver, string $name): ?CallTarget
+    {
+        if ($receiver->wrapper !== EloquentReturns::BUILDER || $receiver->model === null) {
+            return null;
+        }
+
+        $declaration = $this->eloquent?->scopeDeclaration($receiver->model, $name);
+
+        return $declaration === null ? null : CallTarget::at($declaration, Confidence::Inferred, sprintf('a local scope of %s, called on its query builder', $receiver->model));
+    }
+
     public function callTarget(string $ownerFqn, string $name, Confidence $confidence, string $reason): CallTarget
     {
+        // A relation: the method is the relation's own where it declares one (`save`, `create`,
+        // `associate`, which set the foreign key), and otherwise the query builder's, where
+        // `Relation::__call` forwards it.
+        if (str_starts_with($ownerFqn, 'Illuminate\\Database\\Eloquent\\Relations\\')) {
+            $declaring = $this->declaringBeyondTheIndex($ownerFqn, $name);
+
+            return $declaring !== null
+                ? CallTarget::at($declaring.'::'.$name, $confidence, $reason)
+                : CallTarget::at('Illuminate\\Database\\Eloquent\\Builder::'.$name, Confidence::weakest($confidence, Confidence::Inferred), $reason.'; forwarded to the query builder by Relation::__call');
+        }
+
         // `Closure` is final and its methods are the language's, so anything else is not there.
         if (strcasecmp(ltrim($ownerFqn, '\\'), 'Closure') === 0) {
             return in_array(strtolower($name), ['bind', 'bindto', 'call', 'fromcallable', '__invoke'], true)
@@ -1009,6 +1184,16 @@ final readonly class TypeResolver
                 Confidence::weakest($confidence, $magic->confidence),
                 $magic->reason,
             );
+        }
+
+        // A model's call that nothing in its ancestry declares, `Order::find()` or `Order::where()`,
+        // runs through `__call`/`__callStatic` on the query builder. The address stays the
+        // model's, where a reader looks for it, but it is a convention, not a declaration.
+        // Only where the ancestry was read as far as the `__call` that forwards: with no `vendor/`
+        // to read, an absence proves nothing.
+        if ($this->magic?->isModel($ownerFqn) === true && $this->declaringBeyondTheIndex($ownerFqn, $name) === null
+            && $this->declaringBeyondTheIndex($ownerFqn, '__call') !== null) {
+            return CallTarget::at($ownerFqn.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its query builder', $ownerFqn, $name));
         }
 
         // Only a class that was read to the end of its ancestry can prove a member is absent.
