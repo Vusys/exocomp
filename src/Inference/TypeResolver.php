@@ -944,7 +944,7 @@ final readonly class TypeResolver
             $binding = $this->boundTo instanceof Closure ? ($this->boundTo)($argument->value) : null;
             $core = self::CORE_KEYS[$argument->value] ?? null;
 
-            if (! ($binding instanceof Binding && $binding->concrete !== null) && $core !== null) {
+            if ((! $binding instanceof Binding || $binding->concrete === null) && $core !== null) {
                 return ResolvedType::inferred($core, sprintf('the framework binds "%s" to it', $argument->value));
             }
 
