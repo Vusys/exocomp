@@ -39,6 +39,21 @@ use Vusys\Exocomp\Symbol\SymbolKind;
  */
 final readonly class TypeResolver
 {
+    /** The container keys the framework itself registers, as its own aliases name them. */
+    private const array CORE_KEYS = [
+        'config' => 'Illuminate\\Config\\Repository', 'db' => 'Illuminate\\Database\\DatabaseManager',
+        'cache' => 'Illuminate\\Cache\\CacheManager', 'log' => 'Illuminate\\Log\\LogManager',
+        'events' => 'Illuminate\\Events\\Dispatcher', 'router' => 'Illuminate\\Routing\\Router',
+        'request' => 'Illuminate\\Http\\Request', 'session' => 'Illuminate\\Session\\SessionManager',
+        'auth' => 'Illuminate\\Auth\\AuthManager', 'view' => 'Illuminate\\View\\Factory',
+        'files' => 'Illuminate\\Filesystem\\Filesystem', 'url' => 'Illuminate\\Routing\\UrlGenerator',
+        'queue' => 'Illuminate\\Queue\\QueueManager', 'filesystem' => 'Illuminate\\Filesystem\\FilesystemManager',
+        'redirect' => 'Illuminate\\Routing\\Redirector', 'translator' => 'Illuminate\\Translation\\Translator',
+        'validator' => 'Illuminate\\Validation\\Factory', 'hash' => 'Illuminate\\Hashing\\HashManager',
+        'mailer' => 'Illuminate\\Mail\\Mailer', 'cookie' => 'Illuminate\\Cookie\\CookieJar',
+        'encrypter' => 'Illuminate\\Encryption\\Encrypter', 'app' => 'Illuminate\\Foundation\\Application',
+    ];
+
     /** What a `user()` call returns the signed-in user from, folded; `Auth` is the facade's alias. */
     private const array AUTH_SOURCES = [
         'illuminate\\contracts\\auth\\factory', 'illuminate\\contracts\\auth\\guard', 'illuminate\\contracts\\auth\\statefulguard',
@@ -927,6 +942,11 @@ final readonly class TypeResolver
         // say what it is.
         if ($argument instanceof Node\Scalar\String_ && ! class_exists($argument->value) && ! str_contains($argument->value, '\\')) {
             $binding = $this->boundTo instanceof Closure ? ($this->boundTo)($argument->value) : null;
+            $core = self::CORE_KEYS[$argument->value] ?? null;
+
+            if (! ($binding instanceof Binding && $binding->concrete !== null) && $core !== null) {
+                return ResolvedType::inferred($core, sprintf('the framework binds "%s" to it', $argument->value));
+            }
 
             return $binding instanceof Binding && $binding->concrete !== null
                 ? ResolvedType::inferred($binding->concrete, sprintf('resolved out of the container, where "%s" is bound to it', $argument->value))
