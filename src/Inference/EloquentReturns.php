@@ -97,7 +97,7 @@ final readonly class EloquentReturns
     private const array COLLECTION_KEEPS = [
         'filter', 'reject', 'sortby', 'sortbydesc', 'sort', 'sortdesc', 'values', 'unique', 'take', 'skip', 'slice',
         'reverse', 'each', 'load', 'loadmissing', 'loadcount', 'fresh', 'except', 'only', 'diff', 'intersect',
-        'shuffle', 'keyby', 'makehidden', 'makevisible',
+        'shuffle', 'keyby', 'makehidden', 'makevisible', 'all',
     ];
 
     /** Model methods that return the model itself, or a fresh copy of it. */

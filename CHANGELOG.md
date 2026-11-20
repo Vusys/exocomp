@@ -35,12 +35,20 @@ All notable changes to this project are documented here. The format follows
   - A method a relation declares itself is that relation's: `$s->invoices()->save($i)` is `HasOneOrMany::save` and `$s->order()->associate()` is `BelongsTo::associate`. Only what the relation doesn't declare goes to the query builder (#57).
   - A local scope called on a builder is the model's scope: `Order::query()->open()` is `Order::scopeOpen`, not `Builder::open`. A `#[Scope]` method is typed like a legacy one, statically and on a builder, and the chain continues (#75).
   - `Order::find()` and `Order::where()`, which nothing in the model's ancestry declares and `__callStatic` forwards, are `inferred` with that reason, not `resolved` "class name" (#58).
+- **A call on a class nothing declares is unresolved, never `resolved`.** A type that is in no index, nowhere Composer would put it and not PHP's own, in a namespace the project has code in, is almost always a missing `use`. A call on it was a `resolved` edge to a class that does not exist, and was missing from `callers-of` the real class. It is now unresolved: "App\Probes\StripeGateway: no such class is declared anywhere (a missing import?)", in `calls-from` and in `callers-of` (#69).
+- **A `@template` name is never a class.** `@return list<TModel>` was read as a list of `App\…\TModel`, and calls on its elements were `inferred` calls on that phantom class (#61).
 - **`self $other` as a parameter type is the declaring class**, not a class called `self`.
 - **`self` in a trait is the class using it.** `?self` and `self` in a trait's signatures were bound to the trait, so `FindsHost::findBySlug('x')->only()` stopped at "Finds declares no only()" (#37).
 
 ### Added
 
 - **More expressions are typed.** A caught exception, `catch (GatewayFailed $e)`, is the class it names (#36). A `match` whose arms agree is that class (#38), and so is `$this->cached ??= new Gateway` (#38). The arm of a `match (true)` that tests `$x instanceof C` narrows `$x` (#38). A backed enum's `from()` and `tryFrom()` return the enum and `cases()` a list of it (#39). PHP 8.5's `$x |> $this->m(...)` and `$x |> (fn (Holder $h) => …)` are what the callable returns, and `clone($x, [...])` is a copy of `$x` rather than a call to a function named `clone` (#83).
+- **Documented element types are followed.**
+  - A generic class's last parameter is what it holds: `@param Collection<int, Invoice> $c` types `foreach ($c as $i)`, `$c->first()`, `$c->filter()->first()` and an `each(fn ($i) => …)` callback.
+  - A class template is bound the same way: `@param Box<Gateway> $b` makes `$b->get()` (`@return T`) a Gateway (#60, #61).
+  - Keyed and positional destructuring take their types from an `array{…}` shape or a list (#60).
+  - `@return static` on a method natively typed `self` is the receiver's class, so a fluent call from a subclass finds the subclass's methods (#61).
+- **Test doubles are the class they double.** `$this->createMock(Gateway::class)`, `createStub()`, `createPartialMock()` and `Mockery::mock()` are a Gateway (`inferred`), not a `MockObject` with methods it doesn't have (#61).
 - **More Eloquent chains continue.**
   - A relation method without a return type is read from its body, as the relation property already was (#56).
   - `when()`, `unless()` and a builder's `tap()` continue as the builder when the callback hands it back, and the callback's untyped parameter is that builder. `tap($x, fn ($y) => …)` returns `$x` and passes it on (#59).
