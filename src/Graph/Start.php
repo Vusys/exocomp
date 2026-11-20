@@ -15,10 +15,15 @@ namespace Vusys\Exocomp\Graph;
  */
 final readonly class Start
 {
+    /**
+     * @param  list<Edge>  $before  what runs before the node and is walked as though it called
+     *                              it: a route's middleware
+     */
     public function __construct(
         public string $node,
         public string $label,
         public string $path,
         public int $line,
+        public array $before = [],
     ) {}
 }

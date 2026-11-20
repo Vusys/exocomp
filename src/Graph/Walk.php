@@ -45,8 +45,11 @@ final class Walk
 
     /**
      * Is there a path from here to there, and what is it.
+     *
+     * @param  list<Edge>  $before  edges out of the start that its own body does not make, such
+     *                              as the middleware a route runs before its controller
      */
-    public function reach(string $start, Target $target): Reachability
+    public function reach(string $start, Target $target, array $before = []): Reachability
     {
         $this->stops = [];
         $this->stopKeys = [];
@@ -79,7 +82,7 @@ final class Walk
 
             $expanded++;
 
-            foreach ($this->edgesFrom($node) as $edge) {
+            foreach ($depth === 0 ? [...$before, ...$this->edgesFrom($node)] : $this->edgesFrom($node) as $edge) {
                 $key = Identifier::fold($edge->to);
 
                 if ($target->matches($edge->to)) {
