@@ -36,6 +36,12 @@ trait TypedInput
 
     protected function stringOption(InputInterface $input, string $name): ?string
     {
+        // A command that does not offer an option (an index-backed one has no `--rev`) reads it
+        // as not given, so the shared code that asks need not know which command it is in.
+        if (! $input->hasOption($name)) {
+            return null;
+        }
+
         $value = $input->getOption($name);
 
         return is_string($value) ? $value : null;
@@ -60,6 +66,6 @@ trait TypedInput
 
     protected function boolOption(InputInterface $input, string $name): bool
     {
-        return $input->getOption($name) === true;
+        return $input->hasOption($name) && $input->getOption($name) === true;
     }
 }

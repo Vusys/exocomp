@@ -98,6 +98,7 @@ final class QueryCommand extends IndexedCommand
         $paths = $this->candidatePaths($context, $pattern, $predicates);
         $wanted = $this->arrayOption($input, 'capture');
         $found = [];
+        $undecided = [];
         $scanned = 0;
 
         foreach ($paths as $path) {
@@ -112,8 +113,14 @@ final class QueryCommand extends IndexedCommand
             // Reduced to plain values before moving on to the next file. A `QueryMatch` holds
             // AST nodes, so accumulating them across a corpus-wide sweep pins every tree that
             // produced one — which exhausted the default memory limit on a large scoped query.
-            foreach ($engine->runOn($pattern, SourceFile::fromPath($absolute, $path)) as $match) {
+            [$matches, $notDecided] = $engine->runDeciding($pattern, SourceFile::fromPath($absolute, $path));
+
+            foreach ($matches as $match) {
                 $found[] = $this->summarise($match, $wanted);
+            }
+
+            foreach ($notDecided as $match) {
+                $undecided[] = $this->summarise($match, $wanted);
             }
         }
 
@@ -140,6 +147,9 @@ final class QueryCommand extends IndexedCommand
                 fn (array $match): Row => $this->row($match, $width),
                 $kept,
             ))],
+            // Kept out of the matches, so the scope holds, and listed, so a zero is checkable.
+            unresolvedTitle: 'not decided: the receiver\'s type is not known',
+            unresolved: array_map(fn (array $match): Row => $this->row($match, $width), $undecided),
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
         );

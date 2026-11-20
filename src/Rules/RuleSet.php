@@ -44,13 +44,20 @@ final readonly class RuleSet
         $rules = [];
         $seen = [];
 
-        foreach ($definitions as $definition) {
+        foreach (array_values($definitions) as $position => $definition) {
             if (! is_array($definition)) {
                 continue;
             }
 
             /** @var array<string, mixed> $definition */
-            $rule = Rule::fromArray($definition);
+            try {
+                $rule = Rule::fromArray($definition);
+            } catch (InvalidArgumentException $problem) {
+                // Which rule, or a file of thirty leaves the reader to find it by elimination.
+                $name = is_string($definition['id'] ?? null) ? $definition['id'] : (is_string($definition['name'] ?? null) ? $definition['name'] : null);
+
+                throw new InvalidArgumentException(sprintf('"%s", rule %d%s: %s', $path, $position + 1, $name === null ? '' : ' ("'.$name.'")', $problem->getMessage()), 0, $problem);
+            }
 
             // Two rules under one id would make a baseline meaningless: a violation could be
             // waived by one and reported by the other, and neither would be wrong.

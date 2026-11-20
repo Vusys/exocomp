@@ -44,7 +44,7 @@ final class TextRenderer implements Renderer
         }
 
         if ($result->elided > 0) {
-            $lines[] = sprintf('… %d more (use --limit)', $result->elided);
+            $lines[] = sprintf('… %d more (use %s)', $result->elided, $result->cutByTokens ? '--max-tokens' : '--limit');
         }
 
         if ($result->unresolvedGroups !== []) {

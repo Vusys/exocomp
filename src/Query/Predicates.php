@@ -66,6 +66,25 @@ final readonly class Predicates
     }
 
     /**
+     * Whether a match meets every predicate except a receiver one, whose receiver's type could
+     * not be established: not a match, and not provably not one. Listed apart, so a scoped
+     * audit's zero can be told from "nothing here could be checked".
+     */
+    public function undecided(QueryMatch $match): bool
+    {
+        $type = $match->receiverType;
+
+        return $this->needsReceiver()
+            && (! $type instanceof ResolvedType || ! $type->isKnown())
+            && $this->withinNamespace($match)
+            && $this->carriesAnnotations($match)
+            && $this->carriesAttributes($match)
+            && $this->argumentsAreAsRequired($match)
+            && $this->signatureMatches($match)
+            && $this->classMatches($match);
+    }
+
+    /**
      * Whether any predicate here needs a receiver's type worked out. Resolving one walks the
      * hierarchy, so a query that never asks should never pay for it.
      */
