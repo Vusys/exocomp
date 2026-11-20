@@ -25,10 +25,11 @@ final readonly class IndexReport
         public array $failures,
         public int $knownFailures,
         public float $seconds,
+        public int $adopted = 0,
     ) {}
 
     public function changedAnything(): bool
     {
-        return $this->parsed > 0 || $this->removed > 0;
+        return $this->parsed > 0 || $this->removed > 0 || $this->adopted > 0;
     }
 }

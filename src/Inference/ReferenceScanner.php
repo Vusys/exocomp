@@ -266,6 +266,12 @@ final class ReferenceScanner extends NodeVisitorAbstract
         $related = $this->relation((string) $type->fqn);
         $relation = $spelled ? null : $related;
 
+        // A trait method the receiver's `insteadof` replaced is not the one a call to that name
+        // runs: `Pings::hello insteadof Greets` makes `$host->hello()` no caller of Greets::hello.
+        if ($relation !== null && $this->magic?->excludedByInsteadof((string) $type->fqn, $this->target->owner, (string) $this->target->member) === true) {
+            return;
+        }
+
         // Asked when the hierarchy connects the receiver to the target — where a convention can
         // land — or when the receiver can hand the name somewhere else entirely.
         if ($relation === null && $written !== null && ($related !== null || $this->couldForward((string) $type->fqn))) {

@@ -316,34 +316,195 @@ final class ConfigReader
      */
     private function readsIn(array $statements, string $key, string $path): array
     {
+        $finder = new NodeFinder;
         $found = [];
 
-        foreach (new NodeFinder()->find($statements, static fn (Node $node): bool => $node instanceof Node\Expr\FuncCall || $node instanceof Node\Expr\StaticCall) as $node) {
-            $call = $this->configCall($node);
+        // `$config = $app['config']['search'];` then `$config['hosts']`: the variable is the
+        // group read, and indexing it reads a key beneath.
+        $held = [];
 
-            if ($call === null) {
+        foreach ($finder->findInstanceOf($statements, Node\Expr\Assign::class) as $assign) {
+            $read = $assign->var instanceof Node\Expr\Variable && is_string($assign->var->name) ? $this->accessedKey($assign->expr, []) : null;
+
+            if ($read !== null && $read[0] !== null) {
+                $held[$assign->var->name] = $read[0];
+            }
+        }
+
+        // Only the outermost of `$a['x']['y']`: the inner fetch is part of the same read.
+        $inner = [];
+
+        foreach ($finder->findInstanceOf($statements, Node\Expr\ArrayDimFetch::class) as $fetch) {
+            $inner[spl_object_id($fetch->var)] = true;
+        }
+
+        $candidates = $finder->find($statements, static fn (Node $node): bool => $node instanceof Node\Expr\FuncCall || $node instanceof Node\Expr\StaticCall
+            || $node instanceof Node\Expr\MethodCall || $node instanceof Node\Expr\ArrayDimFetch);
+
+        foreach ($candidates as $node) {
+            if ($node instanceof Node\Expr\ArrayDimFetch && isset($inner[spl_object_id($node)])) {
                 continue;
             }
 
-            [$kind, $arguments] = $call;
-            $literal = $arguments === [] ? null : LiteralValue::scalar($arguments[0]->value);
+            foreach ($this->accesses($node, $held) as [$literal, $kind, $confidence, $note]) {
+                if ($literal === null) {
+                    // `config($name)` is a read of a key this file does not name. Silently
+                    // skipping it would let "no reads" mean "no reads I could see".
+                    $found[] = new ConfigEntry('?', null, $path, $node->getStartLine(), Confidence::Textual, $kind, 'the key is computed, so it may or may not be this one');
 
-            if (! is_string($literal)) {
-                // `config($name)` is a read of a key this file does not name. Silently skipping
-                // it would let "no reads" mean "no reads I could see".
-                $found[] = new ConfigEntry('?', null, $path, $node->getStartLine(), Confidence::Textual, $kind, 'the key is computed, so it may or may not be this one');
+                    continue;
+                }
 
-                continue;
+                if ($literal !== $key && ! str_starts_with($literal, $key.'.') && ! str_starts_with($key, $literal.'.')) {
+                    continue;
+                }
+
+                $found[] = new ConfigEntry($literal, null, $path, $node->getStartLine(), $confidence, $kind, $note);
             }
-
-            if ($literal !== $key && ! str_starts_with($literal, $key.'.') && ! str_starts_with($key, $literal.'.')) {
-                continue;
-            }
-
-            $found[] = new ConfigEntry($literal, null, $path, $node->getStartLine(), Confidence::Resolved, $kind);
         }
 
         return $found;
+    }
+
+    /** Repository methods that read a key, and the one that writes it. */
+    private const array REPOSITORY_READS = ['get', 'has', 'string', 'integer', 'float', 'boolean', 'array', 'collection'];
+
+    /**
+     * Each key a node reads or writes: [key or null when computed, how, confidence, note].
+     * A write's kind starts `write:`.
+     *
+     * @param  array<string, string>  $held  variables holding a config group, by name
+     * @return list<array{?string, string, Confidence, ?string}>
+     */
+    private function accesses(Node $node, array $held): array
+    {
+        // `config(['payments.driver' => 'fake'])` sets every key it lists.
+        if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && Analyser::isGlobalFunction($node->name, 'config')
+            && ($first = Analyser::arguments($node)[0]->value ?? null) instanceof Node\Expr\Array_) {
+            $writes = [];
+
+            foreach ($first->items as $item) {
+                $written = $item->key instanceof Node\Expr ? LiteralValue::scalar($item->key) : null;
+                $writes[] = [is_string($written) ? $written : null, 'write: config([...])', Confidence::Resolved, null];
+            }
+
+            return $writes;
+        }
+
+        // `config()` with nothing is the repository; the method called on it is the read.
+        if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && Analyser::isGlobalFunction($node->name, 'config') && Analyser::arguments($node) === []) {
+            return [];
+        }
+
+        $call = $this->configCall($node);
+
+        if ($call !== null) {
+            [$kind, $arguments] = $call;
+            $literal = $arguments === [] ? null : LiteralValue::scalar($arguments[0]->value);
+
+            return [[is_string($literal) ? $literal : null, str_ends_with(strtolower($kind), '::set') ? 'write: '.$kind : $kind, Confidence::Resolved, null]];
+        }
+
+        // `config()->get('x')`, `app('config')->get('x')`, `$this->config->get('x')`.
+        if ($node instanceof Node\Expr\MethodCall && $node->name instanceof Node\Identifier) {
+            $method = strtolower($node->name->toString());
+            $repository = $this->repository($node->var);
+
+            if ($repository === null || (! in_array($method, self::REPOSITORY_READS, true) && $method !== 'set')) {
+                return [];
+            }
+
+            $literal = ($first = Analyser::arguments($node)[0]->value ?? null) instanceof Node\Expr ? LiteralValue::scalar($first) : null;
+            $kind = $repository[0].'->'.$node->name->toString();
+
+            return [[is_string($literal) ? $literal : null, $method === 'set' ? 'write: '.$kind : $kind, $repository[1], $repository[2]]];
+        }
+
+        $read = $this->accessedKey($node, $held);
+
+        return $read === null ? [] : [[$read[0], $read[1], $read[2], $read[3]]];
+    }
+
+    /**
+     * The key an array fetch reads: `$app['config']['search']` is `search`, `$config['hosts']`
+     * after `$config = …['search']` is `search.hosts`, `config('a')['b']` is `a.b`.
+     *
+     * @param  array<string, string>  $held
+     * @return ?array{?string, string, Confidence, ?string}
+     */
+    private function accessedKey(Node $node, array $held): ?array
+    {
+        $segments = [];
+        $base = $node;
+
+        while ($base instanceof Node\Expr\ArrayDimFetch) {
+            $dim = $base->dim instanceof Node\Expr ? LiteralValue::scalar($base->dim) : null;
+
+            if (! is_string($dim) && ! is_int($dim)) {
+                return null;
+            }
+
+            array_unshift($segments, (string) $dim);
+            $base = $base->var;
+        }
+
+        if ($segments === []) {
+            return null;
+        }
+
+        if ($base instanceof Node\Expr\Variable && is_string($base->name) && isset($held[$base->name])) {
+            return [$held[$base->name].'.'.implode('.', $segments), sprintf('$%s[...]', $base->name), Confidence::Inferred, 'read through a variable holding the config group'];
+        }
+
+        // `$app['config']['a']`: the first segment is the container's `config`.
+        if ($segments[0] === 'config' && count($segments) > 1 && ! $base instanceof Node\Expr\FuncCall) {
+            return [implode('.', array_slice($segments, 1)), "['config'][...]", Confidence::Resolved, null];
+        }
+
+        $repository = $this->repository($base);
+
+        return $repository === null ? null : [implode('.', $segments), $repository[0].'[...]', $repository[1], $repository[2]];
+    }
+
+    /**
+     * Whether an expression is the config repository: `config()`, `app('config')`,
+     * `$app->make('config')`, `$app['config']`, or a variable or property named for it, which
+     * is how an injected `Repository` is usually held.
+     *
+     * @return ?array{string, Confidence, ?string}
+     */
+    private function repository(Node $expression): ?array
+    {
+        if ($expression instanceof Node\Expr\FuncCall && $expression->name instanceof Node\Name) {
+            $first = Analyser::arguments($expression)[0]->value ?? null;
+
+            if (Analyser::isGlobalFunction($expression->name, 'config') && $first === null) {
+                return ['config()', Confidence::Resolved, null];
+            }
+
+            return Analyser::isGlobalFunction($expression->name, 'app') && $first instanceof Node\Expr && LiteralValue::scalar($first) === 'config'
+                ? ["app('config')", Confidence::Resolved, null]
+                : null;
+        }
+
+        if ($expression instanceof Node\Expr\ArrayDimFetch && $expression->dim instanceof Node\Expr && LiteralValue::scalar($expression->dim) === 'config') {
+            return ["['config']", Confidence::Resolved, null];
+        }
+
+        if ($expression instanceof Node\Expr\MethodCall && $expression->name instanceof Node\Identifier && strtolower($expression->name->toString()) === 'make'
+            && ($first = Analyser::arguments($expression)[0]->value ?? null) instanceof Node\Expr && LiteralValue::scalar($first) === 'config') {
+            return ["make('config')", Confidence::Resolved, null];
+        }
+
+        $name = match (true) {
+            $expression instanceof Node\Expr\Variable && is_string($expression->name) => $expression->name,
+            $expression instanceof Node\Expr\PropertyFetch && $expression->name instanceof Node\Identifier => $expression->name->toString(),
+            default => null,
+        };
+
+        return $name !== null && preg_match('/config$/i', $name) === 1
+            ? [($expression instanceof Node\Expr\PropertyFetch ? '->' : '$').$name, Confidence::Inferred, 'a config repository, by its name']
+            : null;
     }
 
     /**

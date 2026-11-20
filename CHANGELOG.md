@@ -35,6 +35,27 @@ All notable changes to this project are documented here. The format follows
   - A method a relation declares itself is that relation's: `$s->invoices()->save($i)` is `HasOneOrMany::save` and `$s->order()->associate()` is `BelongsTo::associate`. Only what the relation doesn't declare goes to the query builder (#57).
   - A local scope called on a builder is the model's scope: `Order::query()->open()` is `Order::scopeOpen`, not `Builder::open`. A `#[Scope]` method is typed like a legacy one, statically and on a builder, and the chain continues (#75).
   - `Order::find()` and `Order::where()`, which nothing in the model's ancestry declares and `__callStatic` forwards, are `inferred` with that reason, not `resolved` "class name" (#58).
+- **Trait `as` aliases and `insteadof` are followed.** `Greets::hello as greet` makes `$host->greet()` a call to `Greets::hello`, in `calls-from` and in `callers-of` (which also searches for the alias). `secret as public revealed` works the same way. A method `insteadof` excluded no longer collects the calls that run the other trait's method (#70). `members` does not list aliases yet.
+- **`overrides` looks down from an interface and up into dependencies.**
+  - From an interface it lists every implementation ("implements it").
+  - It reads ancestors the index doesn't hold, so `Model::save` appears beside a model's own `save()`, and a model that doesn't override it is no longer "not declared anywhere in its hierarchy".
+  - A vendor class can be the starting point.
+  - A descendant's declaration is labelled as overriding the member, not as "inherited" (#71).
+- **`config` finds reads through the repository, and lists writes apart.**
+  - Reads: `config()->get()`, `config()->string()` and the other typed getters, `app('config')->get()`, `$app['config']['a']`, a variable that holds such a group (`$config['hosts']`), and an injected repository held in a `$config` property.
+  - Writes: `Config::set()` and `config([...])` are listed under "written", not as reads.
+  - Config files whose keys are class constants are read (#65).
+- **`schema` reads other connections, attributes raw SQL to its table, and explains missing tables.**
+  - `Schema::connection('x')->create(...)` is read, with a note naming the connection.
+  - A `DB::statement()` is noted against the table its SQL names.
+  - A column added under an `if` or in a loop, or with a computed name, is in the "not read" block.
+  - Asking for a table that was renamed or dropped says so, and by which migration (#78).
+- **`show` finds an Eloquent accessor by its attribute name.** `show Order::shippingAddress` and `show Order::shipping_address` find `getShippingAddressAttribute()`, or an `Attribute`-returning `shippingAddress()`, with a note. Before, the fallback suggested same-named properties on unrelated classes (#74).
+- **An attribute cast to a class is typed when read.** `$order->status->label()` follows a cast to an enum or class. A custom cast is typed by what its `get()` returns, `datetime` and `date` by Carbon, and `collection` by `Collection` (#76).
+- **`bindings` reads more shapes, and `app('key')` uses them.**
+  - New shapes: `public $bindings` and `$singletons`, `tag()`, `extend()`, contextual bindings given to several classes, and primitive ones (`needs('$currency')->give('GBP')`).
+  - `app('payments')` is typed from the binding of that key, in `calls-from`, `reaches` and `callers-of`. When there is none, the reason says so, instead of "app(), in an installed package, does not return a class" (#54).
+- **A second checkout sharing the cache no longer misses classes.** A sync that only adopted files another checkout had already parsed reported "nothing changed", so lookups memoised before it kept answering from the empty index.
 - **`query '$X->m($S, ...)'` matches.** A named argument followed by `...` matched nothing at all, not even calls with two arguments. It now binds the leading arguments and matches any number more (#48).
 - **A `--max-tokens` cut is JSON in `--json`, and keeps what could not be resolved.** The cap cut the rendered text by lines, so the unresolved block and the notes went first, and in `--json` the cut was a line of plain text. It now cuts listed records, summarises the unresolved block by reason, and reports the cut as `{"elided": N, "reason": "max-tokens"}` (#49).
 - **Small option fixes** (#64):

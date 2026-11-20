@@ -922,6 +922,17 @@ final readonly class TypeResolver
     private function containerLookup(Node\Expr\FuncCall|Node\Expr\MethodCall|Node\Expr\NullsafeMethodCall|Node\Expr\StaticCall $call, Scope $scope): ?ResolvedType
     {
         $argument = Analyser::arguments($call)[0]->value ?? null;
+
+        // `app('payments')`: a key, not a class, so only a binding the providers register can
+        // say what it is.
+        if ($argument instanceof Node\Scalar\String_ && ! class_exists($argument->value) && ! str_contains($argument->value, '\\')) {
+            $binding = $this->boundTo instanceof Closure ? ($this->boundTo)($argument->value) : null;
+
+            return $binding instanceof Binding && $binding->concrete !== null
+                ? ResolvedType::inferred($binding->concrete, sprintf('resolved out of the container, where "%s" is bound to it', $argument->value))
+                : ResolvedType::unknown(sprintf('"%s" is a container key, and no binding of it to a class was read', $argument->value));
+        }
+
         $class = $argument instanceof Node\Expr\ClassConstFetch ? LiteralValue::className($argument, $scope->classFqn) : null;
 
         if ($class === null || in_array(strtolower($class), ['self', 'static', 'parent'], true)) {
