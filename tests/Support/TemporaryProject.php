@@ -30,6 +30,18 @@ final readonly class TemporaryProject
         return new self($root);
     }
 
+    /**
+     * A copy of the Laravel-shaped fixture, for a test that adds routes, migrations or
+     * providers without moving the counts other tests read off the shared one.
+     */
+    public static function copyOfLaravel(): self
+    {
+        $root = sys_get_temp_dir().'/exocomp-laravel-'.bin2hex(random_bytes(6));
+        self::copy(Cli::laravelRoot(), $root);
+
+        return new self($root);
+    }
+
     public function path(string $relative): string
     {
         return $this->root.'/'.ltrim($relative, '/');

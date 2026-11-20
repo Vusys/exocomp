@@ -1348,6 +1348,11 @@ final readonly class TypeResolver
         // Only where the ancestry was read as far as the `__call` that forwards: with no `vendor/`
         // to read, an absence proves nothing.
         if ($this->magic?->isModel($ownerFqn) === true && $this->declaringBeyondTheIndex($ownerFqn, $name) === null
+            && ($builder = $this->eloquent?->builderOf($ownerFqn)) !== null && $this->members->declared($builder, $name, SymbolKind::Method) instanceof SymbolRecord) {
+            return CallTarget::at($builder.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its builder, %s', $ownerFqn, $name, $builder));
+        }
+
+        if ($this->magic?->isModel($ownerFqn) === true && $this->declaringBeyondTheIndex($ownerFqn, $name) === null
             && $this->declaringBeyondTheIndex($ownerFqn, '__call') !== null) {
             return CallTarget::at($ownerFqn.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its query builder', $ownerFqn, $name));
         }

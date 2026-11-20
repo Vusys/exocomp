@@ -57,6 +57,7 @@ final class ModelCommand extends IndexedFrameworkCommand
         ['with', 'eager loaded'],
         ['touches', 'touches'],
         ['dates', 'dates'],
+        ['local scope', 'local scopes'],
         ['scope', 'global scopes'],
         ['trait', 'traits'],
         ['annotated', 'annotated properties'],
@@ -113,7 +114,8 @@ final class ModelCommand extends IndexedFrameworkCommand
         $shown = 0;
 
         foreach (self::GROUPS as [$group, $title]) {
-            if ($only !== null && $only !== $group) {
+            // `--only scope` means scopes of either kind.
+            if ($only !== null && $only !== $group && ($only !== 'scope' || $group !== 'local scope')) {
                 continue;
             }
 

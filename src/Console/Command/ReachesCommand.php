@@ -8,6 +8,7 @@ use PhpParser\Node\Stmt\ClassMethod;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\GraphCommand;
 use Vusys\Exocomp\Framework\Laravel\MiddlewareReader;
@@ -67,7 +68,8 @@ final class ReachesCommand extends GraphCommand
 
         $this
             ->addArgument('from', InputArgument::REQUIRED, 'Where to start: a method address, or "route:<pattern>" for every matching endpoint')
-            ->addArgument('to', InputArgument::REQUIRED, 'What counts as arriving: "App\Models\Order::save", "App\Models\Order" for any member, or "::save" for any class\'s');
+            ->addArgument('to', InputArgument::REQUIRED, 'What counts as arriving: "App\Models\Order::save", "App\Models\Order" for any member, or "::save" for any class\'s')
+            ->addOption('max-routes', null, InputOption::VALUE_REQUIRED, 'How many matching routes a route: sweep walks; 0 walks them all', (string) self::MAX_STARTS);
     }
 
     protected function answer(InputInterface $input, CommandContext $context): Result
@@ -91,11 +93,12 @@ final class ReachesCommand extends GraphCommand
             $target = strcasecmp($known, $owner) === 0 ? $target : $target->withOwner($known);
         }
 
-        $starts = $this->starts($from, $context, $notes);
+        $matched = 0;
+        $starts = $this->starts($from, $context, $notes, $this->intOption($input, 'max-routes', self::MAX_STARTS), $matched);
 
-        return count($starts) === 1
+        return count($starts) === 1 && $matched <= 1
             ? $this->one($walk, $starts[0], $target, $context, $notes)
-            : $this->sweep($walk, $starts, $target, $context, $notes);
+            : $this->sweep($walk, $starts, $target, $context, $notes, $matched);
     }
 
     /**
@@ -157,8 +160,9 @@ final class ReachesCommand extends GraphCommand
      * @param  list<Start>  $starts
      * @param  list<string>  $notes
      */
-    private function sweep(Walk $walk, array $starts, Target $target, CommandContext $context, array $notes): Result
+    private function sweep(Walk $walk, array $starts, Target $target, CommandContext $context, array $notes, int $matched = 0): Result
     {
+        $matched = max($matched, count($starts));
         $rows = [];
         $reached = 0;
         $addressWidth = Address::width(array_map(
@@ -173,13 +177,18 @@ final class ReachesCommand extends GraphCommand
             $rows[] = $this->verdict($start, $reach, $addressWidth, $labelWidth);
         }
 
+        // The coverage is in the headline: a capped sweep that said "2 of 100" read as the answer
+        // for the whole app, with the rest mentioned only in a note.
+        $skipped = $matched - count($starts);
+
         return new Result(
             header: sprintf(
-                '%d of %d starting point%s reach %s',
+                '%d of %d starting point%s reach %s%s',
                 $reached,
                 count($starts),
                 count($starts) === 1 ? '' : 's',
                 (string) $target,
+                $skipped > 0 ? sprintf('; %d more matched and were not walked (--max-routes %d; 0 walks them all)', $skipped, count($starts)) : '',
             ),
             sections: [new Section('', $rows)],
             notes: [
@@ -365,7 +374,7 @@ final class ReachesCommand extends GraphCommand
      * @param  list<string>  $notes
      * @return list<Start>
      */
-    private function starts(string $from, CommandContext $context, array &$notes): array
+    private function starts(string $from, CommandContext $context, array &$notes, int $limit = self::MAX_STARTS, int &$matched = 0): array
     {
         if (! str_starts_with($from, 'route:')) {
             return [new Start($from, $from, '', 0)];
@@ -428,9 +437,10 @@ final class ReachesCommand extends GraphCommand
             $notes[] = sprintf('%d matching route%s answered by a closure rather than a controller, so there is no declaration to start from', $closures, $closures === 1 ? ' is' : 's are');
         }
 
-        if (count($starts) > self::MAX_STARTS) {
-            $notes[] = sprintf('%d routes matched; the first %d were walked. Narrow the pattern to cover the rest.', count($starts), self::MAX_STARTS);
-            $starts = array_slice($starts, 0, self::MAX_STARTS);
+        $matched = count($starts);
+
+        if ($limit > 0 && count($starts) > $limit) {
+            $starts = array_slice($starts, 0, $limit);
         }
 
         return $starts;
@@ -439,6 +449,13 @@ final class ReachesCommand extends GraphCommand
     private function routeMatches(RouteDefinition $route, string $pattern): bool
     {
         if ($pattern === '' || $pattern === '*') {
+            return true;
+        }
+
+        // `POST /both` matches a route answering several methods, `GET|POST /both`, as it does one.
+        if (preg_match('/^([A-Za-z]+(?:\|[A-Za-z]+)*)\s+(\S.*)$/', $pattern, $parts) === 1
+            && array_intersect(explode('|', strtoupper($parts[1])), explode('|', $route->method)) !== []
+            && (Target::glob($parts[2], $route->uri) || $parts[2] === $route->uri)) {
             return true;
         }
 

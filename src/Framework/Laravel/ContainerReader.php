@@ -117,6 +117,14 @@ final class ContainerReader
     }
 
     /**
+     * @param  list<string>  $notes  what reading the config said, which the morph map is read from
+     */
+    public function addNotes(array $notes): void
+    {
+        $this->notes = [...$this->notes, ...$notes];
+    }
+
+    /**
      * What an abstract name resolves to, if anything registered it.
      */
     public function concreteFor(string $abstract): ?Binding
@@ -151,7 +159,7 @@ final class ContainerReader
                 continue;
             }
 
-            $abstract = $arguments === [] ? null : $this->name($arguments[0]->value);
+            $abstract = $arguments === [] ? null : $this->name($arguments[0]->value, $class);
 
             if ($abstract === null) {
                 $this->declined[] = new Binding('?', null, $method, $class->path, $line, Confidence::Textual, 'the abstract is not named literally', $class->fqn);
@@ -190,6 +198,21 @@ final class ContainerReader
                 $class->fqn,
                 $context,
             );
+
+            return;
+        }
+
+        $looked = $this->containerLookup($expression);
+
+        if ($looked !== null) {
+            $this->bindings[] = new Binding($abstract, $looked, $method, $class->path, $line, Confidence::Inferred, 'the factory resolves it from the container', $class->fqn, $context);
+
+            return;
+        }
+
+        // `instance('x', new Gateway())`: the object itself, not a factory.
+        if ($expression instanceof Expr\New_ && $expression->class instanceof Node\Name) {
+            $this->bindings[] = new Binding($abstract, Analyser::resolvedName($expression->class), $method, $class->path, $line, Confidence::Resolved, 'the instance is a `new`', $class->fqn, $context);
 
             return;
         }
@@ -442,8 +465,43 @@ final class ContainerReader
             && Analyser::isGlobalFunction($receiver->name, 'app');
     }
 
-    private function name(Expr $expression): ?string
+    private function name(Expr $expression, ?LoadedClass $in = null): ?string
     {
-        return LiteralValue::className($expression) ?? (is_string($value = LiteralValue::scalar($expression)) ? $value : null);
+        $named = LiteralValue::className($expression) ?? (is_string($value = LiteralValue::scalar($expression)) ? $value : null);
+
+        // `self::GATEWAY_KEY`, `Keys::GATEWAY`: a constant holding the name.
+        if ($named === null && $expression instanceof Expr\ClassConstFetch && $expression->class instanceof Node\Name && $expression->name instanceof Node\Identifier) {
+            $owner = in_array($expression->class->toLowerString(), ['self', 'static'], true) && $in instanceof LoadedClass
+                ? $in->fqn
+                : Analyser::resolvedName($expression->class);
+            $named = $this->source->constantValue($owner, $expression->name->toString());
+        }
+
+        return $named;
+    }
+
+    /**
+     * A factory whose one return is a container lookup, `$app->make(X::class)`, `app(X::class)`,
+     * `resolve(X::class)` or `$app[X::class]`: it builds whatever X resolves to.
+     */
+    private function containerLookup(Expr $expression): ?string
+    {
+        if ($expression instanceof Expr\ArrowFunction) {
+            $returned = $expression->expr;
+        } elseif ($expression instanceof Expr\Closure) {
+            $returns = new NodeFinder()->findInstanceOf($expression->stmts, Node\Stmt\Return_::class);
+            $returned = count($returns) === 1 ? $returns[0]->expr : null;
+        } else {
+            return null;
+        }
+
+        $argument = match (true) {
+            $returned instanceof Expr\MethodCall && $returned->name instanceof Node\Identifier && in_array($returned->name->toLowerString(), ['make', 'makewith', 'get'], true) => Analyser::arguments($returned)[0]->value ?? null,
+            $returned instanceof Expr\FuncCall && $returned->name instanceof Node\Name && (Analyser::isGlobalFunction($returned->name, 'app') || Analyser::isGlobalFunction($returned->name, 'resolve')) => Analyser::arguments($returned)[0]->value ?? null,
+            $returned instanceof Expr\ArrayDimFetch => $returned->dim,
+            default => null,
+        };
+
+        return $argument instanceof Expr ? LiteralValue::className($argument) : null;
     }
 }

@@ -169,6 +169,8 @@ final class ModelReader
             $this->readRelations($class);
             $this->readScopeCalls($class);
             $this->readScopedByAttribute($class);
+            $this->readLocalScopes($class);
+            $this->readModelAttributes($class, $class->fqn === $own->fqn);
             $this->readAccessors($class);
             $this->readAnnotations($class);
         }
@@ -696,6 +698,77 @@ final class ModelReader
     }
 
     /**
+     * Local scopes: `scopeOpen()`, called as `->open()`, and since Laravel 12 a method marked
+     * `#[Scope]`, called by its own name.
+     */
+    private function readLocalScopes(LoadedClass $class): void
+    {
+        foreach ($class->node->getMethods() as $method) {
+            $name = $method->name->toString();
+
+            if (str_starts_with($name, 'scope') && strlen($name) > 5 && ctype_upper($name[5])) {
+                $called = lcfirst(substr($name, 5));
+                $this->facts[] = new ModelFact('local scope', $called, $name.'()', Confidence::Resolved, $class->path, $method->getStartLine(), sprintf('called as ::%s() or ->%s()', $called, $called), $class->fqn);
+
+                continue;
+            }
+
+            foreach ($method->attrGroups as $group) {
+                foreach ($group->attrs as $attribute) {
+                    if (strcasecmp(ltrim(Analyser::resolvedName($attribute->name), '\\'), 'Illuminate\\Database\\Eloquent\\Attributes\\Scope') === 0) {
+                        $this->facts[] = new ModelFact('local scope', $name, '#[Scope] '.$name.'()', Confidence::Resolved, $class->path, $method->getStartLine(), sprintf('called as ::%s() or ->%s()', $name, $name), $class->fqn);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Laravel 13's `#[Table('legacy_lines', key: 'uuid', …)]`, which says what the matching
+     * properties say, and `#[UseEloquentBuilder]` and `#[CollectedBy]`, which name the classes
+     * a query and a result set are.
+     */
+    private function readModelAttributes(LoadedClass $class, bool $own): void
+    {
+        if (! $own) {
+            return;
+        }
+
+        foreach ($class->node->attrGroups as $group) {
+            foreach ($group->attrs as $attribute) {
+                $name = ltrim(Analyser::resolvedName($attribute->name), '\\');
+
+                if (strcasecmp($name, 'Illuminate\\Database\\Eloquent\\Attributes\\Table') === 0) {
+                    $names = ['name' => 'table', 'key' => 'primaryKey', 'keytype' => 'keyType', 'incrementing' => 'incrementing', 'timestamps' => 'timestamps', 'dateformat' => 'dateFormat'];
+
+                    foreach ($attribute->args as $position => $argument) {
+                        $key = $argument->name === null ? ($position === 0 ? 'name' : null) : strtolower($argument->name->toString());
+                        $value = LiteralValue::scalar($argument->value);
+
+                        if ($key !== null && isset($names[$key]) && $value !== null) {
+                            $this->facts[] = new ModelFact('attribute', $names[$key], is_bool($value) ? ($value ? 'true' : 'false') : (string) $value, Confidence::Resolved, $class->path, $attribute->getStartLine(), '#[Table]', $class->fqn);
+                        }
+                    }
+                }
+
+                foreach (['UseEloquentBuilder' => 'builder', 'CollectedBy' => 'collection'] as $short => $what) {
+                    if (strcasecmp($name, 'Illuminate\\Database\\Eloquent\\Attributes\\'.$short) === 0 && ($target = LiteralValue::className($attribute->args[0]->value ?? new Expr\ConstFetch(new Node\Name('null')))) !== null) {
+                        $this->facts[] = new ModelFact('attribute', $what, $target, Confidence::Resolved, $class->path, $attribute->getStartLine(), '#['.$short.']', $class->fqn);
+                    }
+                }
+            }
+        }
+
+        foreach (['newEloquentBuilder' => 'builder', 'newCollection' => 'collection'] as $method => $what) {
+            $node = $class->node->getMethod($method);
+
+            if ($node instanceof Node\Stmt\ClassMethod && $node->returnType instanceof Node\Name) {
+                $this->facts[] = new ModelFact('attribute', $what, Analyser::resolvedName($node->returnType), Confidence::Resolved, $class->path, $node->getStartLine(), $method.'()', $class->fqn);
+            }
+        }
+    }
+
+    /**
      * @return list<string>
      */
     private function attributeTargets(Expr $expression): array
@@ -1059,7 +1132,11 @@ final class ModelReader
                 $own->fqn,
             );
 
-            if (str_ends_with($ancestor, '\\SoftDeletes')) {
+            // Only when the trait's own body was not read: there the registration was found as it
+            // is written, and adding the convention too listed the one scope twice.
+            $registered = array_any($this->facts, static fn (ModelFact $fact): bool => $fact->group === 'scope' && $fact->name === 'Illuminate\\Database\\Eloquent\\SoftDeletingScope');
+
+            if (str_ends_with($ancestor, '\\SoftDeletes') && ! $registered) {
                 $this->facts[] = new ModelFact(
                     'scope',
                     'Illuminate\Database\Eloquent\SoftDeletingScope',
