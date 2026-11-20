@@ -56,7 +56,8 @@ final class ReferencesToCommand extends IndexedCommand
             Only `resolved` may safely be rewritten mechanically. The rest is handed back for
             you to judge, which is the point: a rename with 98% recall is not 98% good.
 
-            Exit codes: 0 references found, 1 none found, 2 error.
+            Exit codes: 0 references found, 1 none found, 2 error, 3 none found but some candidates
+            were unresolved or some files were not searched.
             HELP);
     }
 
@@ -150,8 +151,10 @@ final class ReferencesToCommand extends IndexedCommand
                 ...$incompleteNotes,
                 ...$context->notes(),
             ],
-            found: ! $finder->searchedForNothing(),
+            found: $certain !== [] || $likely !== [],
             unresolvedGroups: $groups,
+            // Matches of a member declared nowhere are names, not candidates: that none is clean.
+            complete: ($unsure === [] || $finder->searchedForNothing()) && $finder->unsearched() === 0,
         );
     }
 

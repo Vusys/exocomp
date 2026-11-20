@@ -43,6 +43,7 @@ final readonly class Result
         public array $objects = [],
         public array $unresolvedGroups = [],
         public bool $cutByTokens = false,
+        public bool $complete = true,
     ) {}
 
     /**
@@ -82,6 +83,7 @@ final readonly class Result
             objects: $this->objects,
             unresolvedGroups: $summarised ? UnresolvedGroup::summarise($this->unresolved) : $this->unresolvedGroups,
             cutByTokens: $dropped > 0 || $summarised || $this->cutByTokens,
+            complete: $this->complete,
         );
     }
 
@@ -133,6 +135,7 @@ final readonly class Result
             objects: $this->objects,
             unresolvedGroups: $this->unresolvedGroups,
             cutByTokens: $this->cutByTokens,
+            complete: $this->complete,
         );
     }
 

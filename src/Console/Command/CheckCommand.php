@@ -67,7 +67,8 @@ final class CheckCommand extends IndexedCommand
             returns, uses-trait, extends, implements, receiver-type, receiver-implements,
             receiver-extends.
 
-            Exit codes: 0 no new violations, 1 new violations, 2 error.
+            Exit codes: 0 no new violations, 1 new violations, 2 error, 3 no new violations but a
+            rule could not decide some matches because the receiver's type is not known.
             HELP);
     }
 
@@ -77,7 +78,13 @@ final class CheckCommand extends IndexedCommand
 
         // `check` reports rather than searches, so a run that found violations must not be
         // reported as a run that found nothing.
-        return $exit === self::EXIT_FOUND && $this->hasNewViolations ? self::EXIT_NOT_FOUND : $exit;
+        // No new violation, but a rule could not decide some matches for want of a type: the
+        // pass is not a clean one, so it says so the way every other command does.
+        return match (true) {
+            $exit === self::EXIT_FOUND && $this->hasNewViolations => self::EXIT_NOT_FOUND,
+            $exit === self::EXIT_FOUND && array_sum($this->undecided) > 0 => self::EXIT_INCOMPLETE,
+            default => $exit,
+        };
     }
 
     protected function answer(InputInterface $input, CommandContext $context): Result

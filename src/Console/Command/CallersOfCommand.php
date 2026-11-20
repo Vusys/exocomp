@@ -93,8 +93,12 @@ final class CallersOfCommand extends IndexedCommand
                 ...$incompleteNotes,
                 ...$context->notes(),
             ],
-            found: ! $finder->searchedForNothing(),
+            // Found when anything calls it; a "none" with unresolved candidates or files left
+            // unsearched is not a clean none.
+            found: $resolved !== [],
             unresolvedGroups: $groups,
+            // Matches of a member declared nowhere are names, not candidates: that none is clean.
+            complete: ($unsure === [] || $finder->searchedForNothing()) && $finder->unsearched() === 0,
         );
     }
 
