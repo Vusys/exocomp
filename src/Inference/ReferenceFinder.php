@@ -87,7 +87,10 @@ final class ReferenceFinder
         $eloquent = $target->hasMember() ? new EloquentChain($target->owner, $graph, $source, $magic) : null;
         $references = [];
 
-        $candidates = $this->candidates($shortName, $spellings, $this->shortName($target->owner));
+        // A trait method's alias is called on the class using the trait, whose file need not
+        // mention the trait at all, so for a trait the spelling alone narrows.
+        $isTrait = $graph->classLike($target->owner)?->kind === SymbolKind::TraitType;
+        $candidates = $this->candidates($shortName, $spellings, $isTrait ? null : $this->shortName($target->owner));
 
         foreach ($candidates as $searched => $path) {
             if ($deadline !== null && microtime(true) > $deadline) {
@@ -293,11 +296,11 @@ final class ReferenceFinder
      * @param  list<string>  $spellings
      * @return list<string>
      */
-    private function candidates(string $primary, array $spellings, string $owner): array
+    private function candidates(string $primary, array $spellings, ?string $owner): array
     {
         $paths = [];
 
-        foreach ([[$primary], ...array_map(static fn (string $spelling): array => [$spelling, $owner], $spellings)] as $names) {
+        foreach ([[$primary], ...array_map(static fn (string $spelling): array => $owner === null ? [$spelling] : [$spelling, $owner], $spellings)] as $names) {
             foreach ($this->index->store->pathsMentioning($this->project->root, $names) as $path) {
                 $paths[$path] = true;
             }

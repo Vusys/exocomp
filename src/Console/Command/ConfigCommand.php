@@ -16,8 +16,8 @@ use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
+use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\SymbolNotFound;
-use Vusys\Exocomp\Symbol\Confidence;
 
 /**
  * Where a config key is defined and where it is read.
@@ -61,7 +61,7 @@ final class ConfigCommand extends IndexedFrameworkCommand
             $context->index()->freshness($this->boolOption($input, 'vendor'))->full();
         }
 
-        $reader = new ConfigReader;
+        $reader = new ConfigReader(constant: new ClassSource($context->project, $context->index()->graph(validate: false), $context->locator)->constantValue(...));
         $reader->readDirectory(
             $profile->configDirectory($context->project),
             static fn (string $absolute): string => $context->project->displayPath($absolute),
@@ -79,8 +79,11 @@ final class ConfigCommand extends IndexedFrameworkCommand
             )
             : [];
 
-        $certain = array_values(array_filter($usages, static fn (ConfigEntry $entry): bool => $entry->confidence === Confidence::Resolved));
-        $computed = array_values(array_filter($usages, static fn (ConfigEntry $entry): bool => $entry->confidence !== Confidence::Resolved));
+        // Writes are their own answer: "who changes this at runtime?" is a different question.
+        $writes = array_values(array_filter($usages, static fn (ConfigEntry $entry): bool => str_starts_with($entry->kind, 'write: ') && $entry->key !== '?'));
+        $usages = array_values(array_filter($usages, static fn (ConfigEntry $entry): bool => ! str_starts_with($entry->kind, 'write: ') || $entry->key === '?'));
+        $certain = array_values(array_filter($usages, static fn (ConfigEntry $entry): bool => $entry->key !== '?'));
+        $computed = array_values(array_filter($usages, static fn (ConfigEntry $entry): bool => $entry->key === '?'));
 
         if ($definitions === [] && $certain === []) {
             throw new SymbolNotFound($key, sprintf(
@@ -100,6 +103,10 @@ final class ConfigCommand extends IndexedFrameworkCommand
 
         if ($certain !== []) {
             $sections[] = new Section('read', $kept);
+        }
+
+        if ($writes !== []) {
+            $sections[] = new Section('written', $this->rows($writes));
         }
 
         // The computed reads go in the trailing block rather than being dropped: a key with
@@ -139,7 +146,7 @@ final class ConfigCommand extends IndexedFrameworkCommand
                     '%s  %-46s %s%s',
                     str_pad(Address::of($entry->path, $entry->line), $width),
                     $entry->key,
-                    $entry->value ?? $entry->kind,
+                    $entry->value ?? (str_starts_with($entry->kind, 'write: ') ? substr($entry->kind, 7) : $entry->kind),
                     $withNote && $entry->note !== null ? '   '.$entry->note : '',
                 )),
                 confidence: $entry->confidence,

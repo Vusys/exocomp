@@ -5,7 +5,12 @@ declare(strict_types=1);
 namespace Vusys\Exocomp\Framework\Laravel;
 
 use PhpParser\Node;
+use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Name;
+use PhpParser\Node\NullableType;
+use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\Return_;
 use PhpParser\NodeFinder;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\LiteralValue;
@@ -86,15 +91,15 @@ final class EloquentConventions implements MagicSource
         $class = $owner === null ? null : $this->source->load($owner);
         $node = $class?->node->getMethod($method);
 
-        if (! $node instanceof Node\Stmt\ClassMethod) {
+        if (! $node instanceof ClassMethod) {
             return $this->relations[$key] = null;
         }
 
-        foreach (new NodeFinder()->findInstanceOf([$node], Node\Stmt\Return_::class) as $return) {
+        foreach (new NodeFinder()->findInstanceOf([$node], Return_::class) as $return) {
             $expression = $return->expr;
 
-            while ($expression instanceof Node\Expr\MethodCall) {
-                if ($expression->var instanceof Node\Expr\Variable && $expression->var->name === 'this'
+            while ($expression instanceof Expr\MethodCall) {
+                if ($expression->var instanceof Expr\Variable && $expression->var->name === 'this'
                     && $expression->name instanceof Node\Identifier
                     && in_array($factory = strtolower($expression->name->toString()), ModelReader::RELATIONS, true)) {
                     $first = Analyser::arguments($expression)[0]->value ?? null;
@@ -118,8 +123,8 @@ final class EloquentConventions implements MagicSource
 
         $found = null;
 
-        foreach (new NodeFinder()->findInstanceOf([$node], Node\Expr\MethodCall::class) as $call) {
-            if (! $call->var instanceof Node\Expr\Variable || $call->var->name !== 'this' || ! $call->name instanceof Node\Identifier
+        foreach (new NodeFinder()->findInstanceOf([$node], Expr\MethodCall::class) as $call) {
+            if (! $call->var instanceof Expr\Variable || $call->var->name !== 'this' || ! $call->name instanceof Node\Identifier
                 || ! in_array($factory = strtolower($call->name->toString()), ModelReader::RELATIONS, true)) {
                 continue;
             }
@@ -265,6 +270,83 @@ final class EloquentConventions implements MagicSource
                 Confidence::Inferred,
                 sprintf('relation read as an attribute, declared as %s(): %s', $relation->name, $this->shortName((string) $relation->typeFqn)),
             );
+        }
+
+        $cast = $this->castType($ownerFqn, $name);
+
+        return $cast === null ? null : MagicMember::claimed($cast[0], $cast[1]);
+    }
+
+    /** Built-in casts and the class a read of the attribute then is. */
+    private const array CASTS = [
+        'date' => 'Illuminate\\Support\\Carbon', 'datetime' => 'Illuminate\\Support\\Carbon', 'timestamp' => 'Illuminate\\Support\\Carbon',
+        'custom_datetime' => 'Illuminate\\Support\\Carbon', 'immutable_date' => 'Carbon\\CarbonImmutable', 'immutable_datetime' => 'Carbon\\CarbonImmutable',
+        'immutable_custom_datetime' => 'Carbon\\CarbonImmutable', 'collection' => 'Illuminate\\Support\\Collection',
+        'illuminate\\database\\eloquent\\casts\\ascollection' => 'Illuminate\\Support\\Collection',
+        'illuminate\\database\\eloquent\\casts\\asarrayobject' => 'Illuminate\\Database\\Eloquent\\Casts\\ArrayObject',
+        'illuminate\\database\\eloquent\\casts\\asstringable' => 'Illuminate\\Support\\Stringable',
+    ];
+
+    /**
+     * The class an attribute is read as through its cast: an enum or value class cast is that
+     * class, a `CastsAttributes` class gives what its `get()` declares, `datetime` is Carbon.
+     * Read from `$casts` or `casts()` on the model and the parents the source can read.
+     *
+     * @return ?array{string, string}
+     */
+    private function castType(string $modelFqn, string $attribute): ?array
+    {
+        foreach ($this->source->withAncestors($modelFqn, stopAt: LaravelProfile::MODEL) as $class) {
+            $declared = null;
+
+            foreach ($class->node->getProperties() as $property) {
+                foreach ($property->props as $item) {
+                    if ($item->name->toString() === 'casts' && $item->default instanceof Array_) {
+                        $declared = $item->default;
+                    }
+                }
+            }
+
+            $method = $class->node->getMethod('casts');
+
+            foreach (new NodeFinder()->findInstanceOf($method->stmts ?? [], Return_::class) as $return) {
+                if ($return->expr instanceof Array_) {
+                    $declared = $return->expr;
+                }
+            }
+
+            foreach ($declared->items ?? [] as $item) {
+                if (! $item->key instanceof Expr || LiteralValue::scalar($item->key) !== $attribute) {
+                    continue;
+                }
+
+                $class = LiteralValue::className($item->value);
+                $spelled = $class ?? LiteralValue::scalar($item->value);
+
+                if (! is_string($spelled)) {
+                    return null;
+                }
+
+                $known = self::CASTS[strtolower(explode(':', $spelled, 2)[0])] ?? null;
+
+                if ($known !== null) {
+                    return [$known, sprintf('cast to %s', $spelled)];
+                }
+
+                if ($class === null) {
+                    return null;
+                }
+
+                // A custom cast: what it hands back is what `get()` declares.
+                $get = $this->source->load($class)?->node->getMethod('get')?->returnType;
+                $returned = $get instanceof NullableType ? $get->type : $get;
+
+                if ($this->source->load($class)?->node->getMethod('get') instanceof ClassMethod) {
+                    return $returned instanceof Name ? [Analyser::resolvedName($returned), sprintf('cast by %s, whose get() returns it', $class)] : null;
+                }
+
+                return [$class, sprintf('cast to %s', $class)];
+            }
         }
 
         return null;

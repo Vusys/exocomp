@@ -255,13 +255,35 @@ final class SchemaReplay
 
         $mentioned = [];
 
-        foreach (new NodeFinder()->findInstanceOf([$up], Node\Expr\StaticCall::class) as $call) {
+        // In source order, a static call and a call on `Schema::connection('x')` alike.
+        $calls = new NodeFinder()->find([$up], static fn (Node $node): bool => $node instanceof Node\Expr\StaticCall
+            || ($node instanceof Node\Expr\MethodCall && $node->var instanceof Node\Expr\StaticCall
+                && $node->var->name instanceof Node\Identifier && strtolower($node->var->name->toString()) === 'connection'));
+
+        foreach ($calls as $call) {
+            if ($call instanceof Node\Expr\MethodCall && $call->var instanceof Node\Expr\StaticCall) {
+                $connection = LiteralValue::scalar(Analyser::arguments($call->var)[0]->value ?? new Node\Expr\ConstFetch(new Node\Name('null')));
+                $this->applyConnectionCall($call, $call->var, is_string($connection) ? $connection : '?', $path);
+
+                continue;
+            }
+
+            if (! $call instanceof Node\Expr\StaticCall) {
+                continue;
+            }
+
             $this->applyStaticCall($call, $path);
 
             $named = $this->tableMentionedBy($call);
 
             if ($named !== null) {
                 $mentioned[$named] = true;
+            }
+
+            // A rename's new name is a table the migration touches too.
+            if ($call->name instanceof Node\Identifier && strtolower($call->name->toString()) === 'rename'
+                && is_string($to = LiteralValue::scalar(Analyser::arguments($call)[1]->value ?? new Node\Expr\ConstFetch(new Node\Name('null'))))) {
+                $mentioned[$to] = true;
             }
         }
 
@@ -308,16 +330,51 @@ final class SchemaReplay
         match ($method) {
             'create' => $this->createTable($arguments, $call, $path),
             'table' => $this->alterTable($arguments, $call, $path),
-            'drop', 'dropifexists' => $this->dropTable($arguments),
-            'rename' => $this->renameTable($arguments),
+            'drop', 'dropifexists' => $this->dropTable($arguments, $path, $call->getStartLine()),
+            'rename' => $this->renameTable($arguments, $path, $call->getStartLine()),
             default => null,
         };
     }
 
     /**
+     * `Schema::connection('reporting')->create(...)`: the same calls, on a named connection.
+     */
+    private function applyConnectionCall(Node\Expr\MethodCall $call, Node\Expr\StaticCall $schema, string $connection, string $path): void
+    {
+        if (! $schema->class instanceof Node\Name || ! $call->name instanceof Node\Identifier) {
+            return;
+        }
+
+        $class = Analyser::resolvedName($schema->class);
+
+        if (! str_ends_with($class, '\\Schema') && $class !== 'Schema') {
+            return;
+        }
+
+        $arguments = Analyser::arguments($call);
+        $name = $this->tableName($arguments);
+
+        if ($name === null) {
+            return;
+        }
+
+        match (strtolower($call->name->toString())) {
+            'create' => $this->createTable($arguments, $call, $path),
+            'table' => $this->alterTable($arguments, $call, $path),
+            'drop', 'dropifexists' => $this->dropTable($arguments, $path, $call->getStartLine()),
+            'rename' => $this->renameTable($arguments, $path, $call->getStartLine()),
+            default => null,
+        };
+
+        if (isset($this->tables[$name])) {
+            $this->tables[$name]->connection = $connection;
+        }
+    }
+
+    /**
      * @param  array<int, Node\Arg>  $arguments
      */
-    private function createTable(array $arguments, Node\Expr\StaticCall $call, string $path): void
+    private function createTable(array $arguments, Node\Expr\StaticCall|Node\Expr\MethodCall $call, string $path): void
     {
         $name = $this->tableName($arguments);
 
@@ -335,7 +392,7 @@ final class SchemaReplay
     /**
      * @param  array<int, Node\Arg>  $arguments
      */
-    private function alterTable(array $arguments, Node\Expr\StaticCall $call, string $path): void
+    private function alterTable(array $arguments, Node\Expr\StaticCall|Node\Expr\MethodCall $call, string $path): void
     {
         $name = $this->tableName($arguments);
 
@@ -361,19 +418,36 @@ final class SchemaReplay
     /**
      * @param  array<int, Node\Arg>  $arguments
      */
-    private function dropTable(array $arguments): void
+    private function dropTable(array $arguments, string $path = '', int $line = 0): void
     {
         $name = $this->tableName($arguments);
 
-        if ($name !== null) {
+        if ($name !== null && isset($this->tables[$name])) {
+            $this->history[$name] = sprintf('created by %s, and dropped by %s:%d', $this->tables[$name]->createdIn ?? 'a migration', $path, $line);
             unset($this->tables[$name]);
         }
     }
 
     /**
+     * What happened to a table no longer in the schema: dropped, or renamed and to what.
+     *
+     * @var array<string, string>
+     */
+    private array $history = [];
+
+    /**
+     * Why there is no table of this name, where the migrations say: "created by …, renamed to
+     * components by …" reads very differently from "no migration creates it".
+     */
+    public function history(string $name): ?string
+    {
+        return $this->history[$name] ?? null;
+    }
+
+    /**
      * @param  array<int, Node\Arg>  $arguments
      */
-    private function renameTable(array $arguments): void
+    private function renameTable(array $arguments, string $path = '', int $line = 0): void
     {
         $from = $this->tableName($arguments);
         $to = isset($arguments[1]) ? LiteralValue::scalar($arguments[1]->value) : null;
@@ -385,6 +459,7 @@ final class SchemaReplay
         $table = $this->tables[$from] ?? null;
 
         if ($table instanceof Table) {
+            $this->history[$from] = sprintf('created by %s, and renamed to %s by %s:%d', $table->createdIn ?? 'a migration', $to, $path, $line);
             unset($this->tables[$from]);
             $table->name = $to;
             $this->tables[$to] = $table;
@@ -465,10 +540,42 @@ final class SchemaReplay
 
         $table->migrations[] = $path;
 
+        // A call inside an `if`, a loop or a `match` runs only sometimes: its column is listed,
+        // and also flagged as depending on runtime.
+        $conditional = [];
+
+        foreach (new NodeFinder()->find([$closure], static fn (Node $node): bool => $node instanceof Node\Stmt\If_ || $node instanceof Node\Stmt\Foreach_
+            || $node instanceof Node\Stmt\For_ || $node instanceof Node\Stmt\While_ || $node instanceof Node\Stmt\Do_ || $node instanceof Node\Stmt\Switch_
+            || $node instanceof Node\Expr\Match_ || $node instanceof Node\Expr\Ternary) as $branch) {
+            foreach (new NodeFinder()->findInstanceOf([$branch], Node\Expr\MethodCall::class) as $inside) {
+                $conditional[spl_object_id($inside)] = $branch instanceof Node\Stmt\Foreach_ || $branch instanceof Node\Stmt\For_ || $branch instanceof Node\Stmt\While_ || $branch instanceof Node\Stmt\Do_ ? 'in a loop' : 'under a condition';
+            }
+        }
+
         // Only the outermost call of each chain: `$table->string('a')->nullable()` is one
         // column, and walking every MethodCall would count the modifiers as columns too.
         foreach ($this->outermostCalls($closure, $blueprint) as $chain) {
+            $before = count($table->columns);
             $this->applyChain($table, $chain, $path);
+            $where = $conditional[spl_object_id($chain)] ?? null;
+            $base = $chain;
+
+            while ($base->var instanceof Node\Expr\MethodCall) {
+                $base = $base->var;
+            }
+
+            $first = Analyser::arguments($base)[0]->value ?? null;
+            $computed = $first instanceof Node\Scalar\InterpolatedString || $first instanceof Node\Expr\Variable || $first instanceof Node\Expr\BinaryOp\Concat;
+
+            if ($where !== null || ($computed && count($table->columns) === $before)) {
+                $table->unread[] = [
+                    'reason' => $computed && count($table->columns) === $before
+                        ? sprintf('a column whose name is computed%s, so it depends on runtime', $where === null ? '' : ' '.$where)
+                        : sprintf('a column added %s, so it depends on runtime', $where),
+                    'path' => $path,
+                    'line' => $chain->getStartLine(),
+                ];
+            }
         }
     }
 
@@ -863,7 +970,14 @@ final class SchemaReplay
             $entry = ['reason' => 'this migration also runs raw SQL, which was not interpreted', 'path' => $path, 'line' => $call->getStartLine()];
             $attributed = false;
 
-            foreach ($mentioned as $name) {
+            // The table the statement names, where it names one this replay knows; otherwise
+            // every table the migration touches, as before.
+            $sql = LiteralValue::scalar(Analyser::arguments($call)[0]->value ?? new Node\Expr\ConstFetch(new Node\Name('null')));
+            $named = is_string($sql) && preg_match_all('/\b(?:ALTER\s+TABLE|UPDATE|INSERT\s+INTO|DELETE\s+FROM|CREATE\s+(?:UNIQUE\s+)?INDEX\s+\S+\s+ON|TRUNCATE(?:\s+TABLE)?)\s+[`"]?(\w+)/i', $sql, $tables) > 0
+                ? array_values(array_filter(array_unique($tables[1]), fn (string $name): bool => isset($this->tables[$name])))
+                : [];
+
+            foreach ($named === [] ? $mentioned : $named as $name) {
                 $table = $this->tables[$name] ?? null;
 
                 if ($table instanceof Table) {

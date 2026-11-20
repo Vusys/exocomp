@@ -235,9 +235,35 @@ final class ShowCommand extends ExocompCommand
             return $this->rendered($member, $owner->analysis->file, $skeleton);
         }
 
+        // `$order->shippingAddress` and `$order->shipping_address` are what Eloquent serves from
+        // `getShippingAddressAttribute()`, an `Attribute`-returning `shippingAddress()`, or a
+        // relation method of that name. Tried before same-named members of unrelated classes.
+        $accessor = $this->eloquentAccessor($owner->declaration, (string) $ref->member);
+
+        if ($accessor instanceof Declaration) {
+            $this->notes[] = sprintf('%s is not a declared member; Eloquent reads it through %s(), by naming convention', $ref->member, $accessor->name);
+
+            return $this->rendered($accessor, $owner->analysis->file, $skeleton);
+        }
+
         [$elsewhere, $file] = $this->declaredOnAnother(SymbolRef::parse($owner->declaration->fqn.'::'.($ref->memberIsProperty ? '$' : '').$ref->member), $context);
 
         return $this->rendered($elsewhere, $file, $skeleton);
+    }
+
+    private function eloquentAccessor(Declaration $class, string $name): ?Declaration
+    {
+        $studly = str_replace(' ', '', ucwords(str_replace(['_', '-'], ' ', $name)));
+
+        foreach (['get'.$studly.'Attribute', lcfirst($studly)] as $candidate) {
+            $method = $class->member($candidate, false);
+
+            if ($method instanceof Declaration && $method->kind === SymbolKind::Method && ($candidate !== $name)) {
+                return $method;
+            }
+        }
+
+        return null;
     }
 
     /**

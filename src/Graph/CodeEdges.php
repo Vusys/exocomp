@@ -9,6 +9,8 @@ use PhpParser\NodeTraverser;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\Declaration;
 use Vusys\Exocomp\Framework\Laravel\AuthModel;
+use Vusys\Exocomp\Framework\Laravel\Binding;
+use Vusys\Exocomp\Framework\Laravel\ContainerReader;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\CallScanner;
@@ -103,7 +105,14 @@ final class CodeEdges
         // caches that make the whole thing affordable — a fresh resolver per body threw away
         // every memoised member lookup and re-confirmed the framework's conventions each time,
         // which cost a hundred-endpoint sweep about as long again as it had taken in total.
-        $types = $this->types ??= new TypeResolver($this->graph, Magic::forProject($this->graph, $this->source, $this->project), null, InstalledFunctions::forProject($this->project), $this->source, AuthModel::lazily($this->project));
+        $container = null;
+        $graph = $this->graph;
+        $source = $this->source;
+        $types = $this->types ??= new TypeResolver($this->graph, Magic::forProject($this->graph, $this->source, $this->project), static function (string $abstract) use (&$container, $graph, $source): ?Binding {
+            $container ??= new ContainerReader($graph, $source)->read();
+
+            return $container->concreteFor($abstract);
+        }, InstalledFunctions::forProject($this->project), $this->source, AuthModel::lazily($this->project));
         $scope = $types->scopeFor($body->classFqn, $body->parentFqn, $body->node, $body->analysis->imports);
         $scanner = new CallScanner($body->analysis, $types, $scope, $this->graph);
 

@@ -50,6 +50,7 @@ final class Magic
         $map = $project instanceof Project ? AutoloadMap::forProject($project) : null;
 
         $sources = [
+            new TraitAdaptations($source, $graph),
             new EloquentConventions($source, $members, $map),
             new AnnotatedMembers($source, $members),
             new Forwarders($source, $members),
@@ -94,6 +95,15 @@ final class Magic
         }
 
         return null;
+    }
+
+    /**
+     * Whether a class's `insteadof` rules keep a call to `$method` from ever running `$trait`'s
+     * ({@see TraitAdaptations::excludes()}).
+     */
+    public function excludedByInsteadof(string $host, string $trait, string $method): bool
+    {
+        return array_any($this->sources, fn (MagicSource $source): bool => $source instanceof TraitAdaptations && $source->excludes($host, $trait, $method));
     }
 
     /**

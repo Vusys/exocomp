@@ -58,6 +58,10 @@ final class SchemaCommand extends FrameworkCommand
     {
         $table = $schema->table($name);
 
+        if (! $table instanceof Table && $schema->history($name) !== null) {
+            throw new SymbolNotFound($name, sprintf('there is no table called "%s" now: it was %s', $name, $schema->history($name)));
+        }
+
         if (! $table instanceof Table) {
             throw new SymbolNotFound($name, sprintf(
                 'no migration in %s creates a table called "%s" — %d migrations were read%s',
@@ -115,7 +119,11 @@ final class SchemaCommand extends FrameworkCommand
                 $table->unread,
             ),
             elided: $elided,
-            notes: [...$this->provenance($schema), ...$schema->notes()],
+            notes: [
+                ...($table->connection === null ? [] : [sprintf('created on the "%s" connection, not the default one', $table->connection)]),
+                ...$this->provenance($schema),
+                ...$schema->notes(),
+            ],
         );
     }
 

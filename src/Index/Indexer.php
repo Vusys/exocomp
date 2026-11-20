@@ -42,6 +42,7 @@ final readonly class Indexer
         $knownFailures = $this->store->failuresIn($project->root);
 
         $seen = 0;
+        $adopted = 0;
         $parsed = 0;
         $reused = 0;
         $carriedFailures = 0;
@@ -84,9 +85,11 @@ final readonly class Indexer
                 }
 
                 if ($this->store->hasBlob($hash)) {
-                    // Same bytes, different path or different worktree. Nothing to parse.
+                    // Same bytes, different path or different worktree. Nothing to parse, but the
+                    // file is new to this root, so the index did change.
                     $this->store->putFile($project->root, $path, $hash, $mtime, $size);
                     $reused++;
+                    $adopted++;
 
                     continue;
                 }
@@ -124,7 +127,7 @@ final readonly class Indexer
 
         $this->store->commitBatch();
 
-        return new IndexReport($seen, $parsed, $reused, $removed, $failures, $carriedFailures + count($failures), microtime(true) - $start);
+        return new IndexReport($seen, $parsed, $reused, $removed, $failures, $carriedFailures + count($failures), microtime(true) - $start, $adopted);
     }
 
     /**
