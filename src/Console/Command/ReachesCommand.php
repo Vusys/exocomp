@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Console\Command;
 
+use PhpParser\Node\Stmt\ClassMethod;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\GraphCommand;
+use Vusys\Exocomp\Framework\Laravel\MiddlewareReader;
 use Vusys\Exocomp\Framework\Laravel\RouteDefinition;
 use Vusys\Exocomp\Framework\Laravel\RouteNamespace;
 use Vusys\Exocomp\Framework\Laravel\RouteReader;
@@ -23,6 +25,7 @@ use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
 use Vusys\Exocomp\Project\ClassSource;
+use Vusys\Exocomp\Project\LoadedClass;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Symbol\Confidence;
 
@@ -82,7 +85,7 @@ final class ReachesCommand extends GraphCommand
      */
     private function one(Walk $walk, Start $start, Target $target, CommandContext $context, array $notes): Result
     {
-        $reach = $walk->reach($start->node, $target);
+        $reach = $walk->reach($start->node, $target, $start->before);
         $width = $this->stepWidth($reach->path);
 
         if ($reach->found) {
@@ -119,7 +122,7 @@ final class ReachesCommand extends GraphCommand
         $labelWidth = array_reduce($starts, static fn (int $widest, Start $start): int => max($widest, strlen($start->label)), 0);
 
         foreach ($starts as $start) {
-            $reach = $walk->reach($start->node, $target);
+            $reach = $walk->reach($start->node, $target, $start->before);
             $reached += $reach->found ? 1 : 0;
             $rows[] = $this->verdict($start, $reach, $addressWidth, $labelWidth);
         }
@@ -281,6 +284,38 @@ final class ReachesCommand extends GraphCommand
     }
 
     /**
+     * A step into each middleware's `handle()`, which runs before the controller.
+     *
+     * @param  list<array{string, Confidence, string}>  $runs
+     * @return list<Edge>
+     */
+    private function middlewareEdges(string $node, RouteDefinition $route, array $runs, ClassSource $classes, string $source): array
+    {
+        $edges = [];
+
+        foreach ($runs as [$class, $confidence, $how]) {
+            $loaded = $classes->load($class);
+
+            if (! $loaded instanceof LoadedClass || ! $loaded->node->getMethod('handle') instanceof ClassMethod) {
+                continue;
+            }
+
+            $edges[] = new Edge(
+                from: $node,
+                to: $loaded->fqn.'::handle',
+                kind: 'middleware',
+                path: $route->path,
+                line: $route->line,
+                column: 1,
+                confidence: $confidence,
+                reason: sprintf('runs before the controller: %s, read from %s', $how, $source),
+            );
+        }
+
+        return $edges;
+    }
+
+    /**
      * @param  list<string>  $notes
      * @return list<Start>
      */
@@ -301,6 +336,9 @@ final class ReachesCommand extends GraphCommand
 
         $starts = [];
         $closures = 0;
+        $middleware = MiddlewareReader::forProject($context->project);
+        $classes = new ClassSource($context->project, $graph, $context->locator);
+        $undeclared = [];
 
         foreach ($reader->routes() as $route) {
             if (! $this->routeMatches($route, $pattern)) {
@@ -313,12 +351,22 @@ final class ReachesCommand extends GraphCommand
                 continue;
             }
 
+            $node = $route->controller.'::'.$route->action;
+            [$runs, $unresolved] = $middleware->forRoute($route->middleware, $route->path);
+            $undeclared = [...$undeclared, ...$unresolved];
+
             $starts[] = new Start(
-                node: $route->controller.'::'.$route->action,
+                node: $node,
                 label: $route->method.' '.$route->uri,
                 path: $route->path,
                 line: $route->line,
+                before: $this->middlewareEdges($node, $route, $runs, $classes, $middleware->source()),
             );
+        }
+
+        if ($undeclared !== []) {
+            $names = array_values(array_unique($undeclared));
+            $notes[] = sprintf('middleware the application does not declare (%s) was not followed; the framework\'s own aliases and groups are not read', implode(', ', $names));
         }
 
         if ($starts === []) {

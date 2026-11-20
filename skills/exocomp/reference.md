@@ -345,6 +345,20 @@ found only by Laravel's naming convention (`App\Policies\OrderPolicy`) is `infer
 is not a literal, whose subject's type is unknown, or that finds no policy method is listed as not followed,
 with the reason. It is never a "no".
 
+**A route runs its middleware first.** A walk from `route:…` starts at each middleware's `handle()` as well as
+at the controller. The middleware comes from global middleware, the route's own middleware and its groups,
+resolved through the aliases and groups in `app/Http/Kernel.php` or `bootstrap/app.php`'s `withMiddleware()`:
+
+```console
+$ exocomp reaches 'route:GET /admin/orders' 'App\Services\AuditLog::record'
+GET /admin/orders (App\Http\Controllers\OrderController::index) reaches App\Services\AuditLog::record in 2 steps; the weakest step is resolved
+routes/web.php:9:1                         middleware  →  App\Http\Middleware\Authenticate::handle
+app/Http/Middleware/Authenticate.php:17:9  static call  →  App\Services\AuditLog::record
+```
+
+The `web` and `api` groups that Laravel applies to `routes/web.php` and `routes/api.php` by convention are
+`inferred`. A starting point that is a method, not a route, runs no middleware.
+
 The destination is a shape, not an address:
 
 ```
@@ -454,8 +468,9 @@ a grep and present the result as complete.
   `Order::where(...)->update(...)` is not resolved to the framework's `update()`. A chain through a macro,
   `when()`, `tap()` or a callback stops, and says why. A reference search can rule such a call *out* (see the
   exclusion rule), but never in.
-- **Middleware.** Its registration sites are readable, but its edges are not modelled yet. Nor is a model's
-  own `static::created(fn …)` in `booted()`, a `can:` route middleware, or a form request's `authorize()`.
+- **The framework's own middleware**, such as `throttle` or the stock `web` group's classes: the answer
+  names them as not followed. Nor are a controller's own `middleware()` declarations, a `can:` route
+  middleware's policy, a form request's `authorize()`, or a model's `static::created(fn …)` in `booted()`.
 - **Calls inside a closure passed as an argument** in `reaches`, `calls-from` and `graph`: a closure's
   parameters are not typed there, so `->each(fn (Song $song) => $song->delete())` stops with the reason.
 - **Dependencies, by default.** An edge *into* `vendor/` is recorded and checked against the destination, so
