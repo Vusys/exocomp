@@ -8,9 +8,11 @@ use PhpParser\Node;
 use PhpParser\NodeVisitorAbstract;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\FileAnalysis;
+use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Symbol\Confidence;
+use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
@@ -25,6 +27,19 @@ use Vusys\Exocomp\Symbol\SymbolKind;
  */
 final class CallScanner extends NodeVisitorAbstract
 {
+    private const string GATE = 'Illuminate\Support\Facades\Gate';
+
+    /**
+     * Where each spelling of an authorization check takes its ability: `authorizeForUser()` is
+     * given the user first.
+     *
+     * @var array<string, int>
+     */
+    private const array GATE_METHODS = ['authorize' => 0, 'authorizeforuser' => 1, 'can' => 0, 'cannot' => 0, 'cant' => 0];
+
+    /** @var array<string, int> */
+    private const array GATE_FACADE = ['allows' => 0, 'denies' => 0, 'check' => 0, 'any' => 0, 'none' => 0, 'authorize' => 0, 'inspect' => 0];
+
     /** @var list<OutgoingCall> */
     private array $calls = [];
 
@@ -96,16 +111,17 @@ final class CallScanner extends NodeVisitorAbstract
         }
 
         $receiver = $this->types->typeOf($call->var, $this->scope, $this->analysis->imports);
+        $gate = $this->gateCheck($call, $call->name->toString(), false, $receiver->isKnown());
 
         if (! $receiver->isKnown()) {
-            $this->record($call, 'method call', null, Confidence::Textual, $receiver->reason);
+            $this->record($call, 'method call', null, Confidence::Textual, $receiver->reason, gate: $gate);
 
             return;
         }
 
         $target = $this->types->callTarget((string) $receiver->fqn, $call->name->toString(), $receiver->confidence, $receiver->reason);
 
-        $this->record($call, 'method call', $target->fqn, $target->confidence, $target->reason, $receiver->fqn);
+        $this->record($call, 'method call', $target->fqn, $target->confidence, $target->reason, $receiver->fqn, $gate);
     }
 
     private function staticCall(Node\Expr\StaticCall $call): void
@@ -126,8 +142,51 @@ final class CallScanner extends NodeVisitorAbstract
         }
 
         $target = $this->types->callTarget($owner, $call->name->toString(), Confidence::Resolved, 'class name');
+        $gate = Identifier::fold($owner) === Identifier::fold(self::GATE) ? $this->gateCheck($call, $call->name->toString(), true, true) : null;
 
-        $this->record($call, 'static call', $target->fqn, $target->confidence, $target->reason, $owner);
+        $this->record($call, 'static call', $target->fqn, $target->confidence, $target->reason, $owner, $gate);
+    }
+
+    /**
+     * An authorization check with a literal ability and something to check it against. The
+     * subject is a class written as `Order::class`, or the type of the value passed, or the
+     * first element of an array of arguments. A receiver whose type is unknown leaves the
+     * check `inferred`: `can()` is the framework's on a user, but any class may declare one.
+     */
+    private function gateCheck(Node\Expr\MethodCall|Node\Expr\NullsafeMethodCall|Node\Expr\StaticCall $call, string $method, bool $facade, bool $knownReceiver): ?GateCheck
+    {
+        $at = ($facade ? self::GATE_FACADE : self::GATE_METHODS)[strtolower($method)] ?? null;
+        $args = $call->args;
+        $ability = $at === null ? null : ($args[$at] ?? null);
+        $subject = $at === null ? null : ($args[$at + 1] ?? null);
+
+        // With nothing to check against, an ability is a gate defined by name, not a policy.
+        if (! $ability instanceof Node\Arg || ! $subject instanceof Node\Arg) {
+            return null;
+        }
+
+        if (! $ability->value instanceof Node\Scalar\String_) {
+            return new GateCheck(null, null, Confidence::Textual, 'an authorization check whose ability is not a literal, so which policy method runs is not known');
+        }
+
+        $value = $subject->value instanceof Node\Expr\Array_ ? ($subject->value->items[0]->value ?? null) : $subject->value;
+        $class = $value instanceof Node\Expr ? LiteralValue::className($value) : null;
+        $type = match (true) {
+            $class !== null => ResolvedType::resolvedBy($class, 'class name'),
+            $value instanceof Node\Expr => $this->types->typeOf($value, $this->scope, $this->analysis->imports),
+            default => ResolvedType::unknown('no subject'),
+        };
+
+        if (! $type->isKnown()) {
+            return new GateCheck($ability->value->value, null, Confidence::Textual, sprintf('an authorization check for "%s" on something whose type is not known, so which policy runs is not known', $ability->value->value));
+        }
+
+        return new GateCheck(
+            ability: $ability->value->value,
+            subject: (string) $type->fqn,
+            confidence: $knownReceiver ? $type->confidence : Confidence::Inferred,
+            reason: $type->reason,
+        );
     }
 
     private function functionCall(Node\Expr\FuncCall $call): void
@@ -183,7 +242,7 @@ final class CallScanner extends NodeVisitorAbstract
         $this->record($new, 'new', Analyser::resolvedName($new->class).'::__construct', Confidence::Resolved, 'class name');
     }
 
-    private function record(Node $node, string $kind, ?string $target, Confidence $confidence, string $reason, ?string $receiver = null): void
+    private function record(Node $node, string $kind, ?string $target, Confidence $confidence, string $reason, ?string $receiver = null, ?GateCheck $gate = null): void
     {
         $start = $node->getStartFilePos();
         $end = $node->getEndFilePos();
@@ -200,6 +259,7 @@ final class CallScanner extends NodeVisitorAbstract
             reason: $reason,
             snippet: strlen($flat) <= 90 ? $flat : mb_strcut($flat, 0, 90, 'UTF-8').'…',
             receiver: $receiver,
+            gate: $gate,
         );
     }
 }

@@ -330,6 +330,21 @@ An event the write always fires (`deleted` from `delete()`) is as sure as the re
 only for some models (`created` from `save()`) is `inferred`. A mass update such as
 `Order::where(…)->update(…)` fires no model events, so it has no observer step.
 
+**An authorization check runs its policy.** `$this->authorize('update', $order)`, `Gate::allows(…)`,
+`Gate::authorize(…)` and `$user->can(…)` continue into the policy for the class they check: its `before()`
+where it has one, then the method the ability names (`forceDelete` for `force-delete`):
+
+```console
+$ exocomp reaches 'App\Http\Controllers\AuthorizedActions::updateOrder' 'App\Policies\OrderPolicy::update'
+App\Http\Controllers\AuthorizedActions::updateOrder reaches App\Policies\OrderPolicy::update in 1 step; the weakest step is resolved
+app/Http/Controllers/AuthorizedActions.php:20:9  authorizes  →  App\Policies\OrderPolicy::update
+```
+
+A policy registered in `$policies`, with `Gate::policy()` or by `#[UsePolicy]` is as sure as the check. One
+found only by Laravel's naming convention (`App\Policies\OrderPolicy`) is `inferred`. A check whose ability
+is not a literal, whose subject's type is unknown, or that finds no policy method is listed as not followed,
+with the reason. It is never a "no".
+
 The destination is a shape, not an address:
 
 ```
@@ -439,8 +454,10 @@ a grep and present the result as complete.
   `Order::where(...)->update(...)` is not resolved to the framework's `update()`. A chain through a macro,
   `when()`, `tap()` or a callback stops, and says why. A reference search can rule such a call *out* (see the
   exclusion rule), but never in.
-- **Middleware and policies.** Their registration sites are readable, but their edges are not modelled yet.
-  Nor is a model's own `static::created(fn …)` in `booted()`.
+- **Middleware.** Its registration sites are readable, but its edges are not modelled yet. Nor is a model's
+  own `static::created(fn …)` in `booted()`, a `can:` route middleware, or a form request's `authorize()`.
+- **Calls inside a closure passed as an argument** in `reaches`, `calls-from` and `graph`: a closure's
+  parameters are not typed there, so `->each(fn (Song $song) => $song->delete())` stops with the reason.
 - **Dependencies, by default.** An edge *into* `vendor/` is recorded and checked against the destination, so
   a path that ends at a framework method is found. Walking on is `--through-vendor`.
 - **A widely implemented interface** fans out rather than leads somewhere. The walk follows twelve

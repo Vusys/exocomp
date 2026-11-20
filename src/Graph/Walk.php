@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vusys\Exocomp\Graph;
 
+use Vusys\Exocomp\Inference\GateCheck;
 use Vusys\Exocomp\Inference\OutgoingCall;
 use Vusys\Exocomp\Symbol\Identifier;
 
@@ -223,6 +224,24 @@ final class Walk
                 }
 
                 continue;
+            }
+
+            // An authorization check names its policy through its arguments, not its receiver,
+            // so `$user->can('update', $order)` reaches the policy even when `$user` is untyped.
+            $authorizes = $this->framework instanceof LaravelEdges ? $this->framework->authorizes($node, $call) : [];
+
+            foreach ($authorizes as $edge) {
+                $edges[] = $edge;
+            }
+
+            // A check that names no policy method is a gap, not a dead end: some code decides it,
+            // whether a policy this reader could not find or a gate defined by name.
+            if ($this->framework instanceof LaravelEdges && $call->gate instanceof GateCheck && $authorizes === []) {
+                $reason = $call->gate->subject === null
+                    ? $call->gate->reason
+                    : sprintf('an authorization check for "%s" on %s, for which no policy method could be found', $call->gate->ability, $call->gate->subject);
+
+                $this->stop(new Stop($node, Stop::UNRESOLVED, $call->path, $call->line, $call->column, $reason, $call->snippet));
             }
 
             if ($call->target === null) {

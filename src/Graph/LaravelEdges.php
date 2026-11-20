@@ -17,9 +17,11 @@ use Vusys\Exocomp\Framework\Laravel\DispatchReader;
 use Vusys\Exocomp\Framework\Laravel\FacadeResolver;
 use Vusys\Exocomp\Framework\Laravel\LaravelProfile;
 use Vusys\Exocomp\Framework\Laravel\ObserverReader;
+use Vusys\Exocomp\Framework\Laravel\PolicyReader;
 use Vusys\Exocomp\Index\IndexStore;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Inference\GateCheck;
 use Vusys\Exocomp\Inference\OutgoingCall;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\LoadedClass;
@@ -60,6 +62,9 @@ final class LaravelEdges
 
     /** @var array<string, list<DispatchEdge>> */
     private array $observers = [];
+
+    /** @var array<string, ?DispatchEdge> */
+    private array $policies = [];
 
     /** @var ?array<string, true> */
     private ?array $facadesInCorpus = null;
@@ -252,6 +257,52 @@ final class LaravelEdges
                     reason: sprintf('%s() fires %s%s; %s', $member, $event, $always ? '' : ' for some models', $observer->note ?? 'observed here'),
                 );
             }
+        }
+
+        return $edges;
+    }
+
+    /**
+     * The policy methods an authorization check runs. `$this->authorize('update', $order)`
+     * lands in the framework, which calls the policy for `Order`: its `before()` first, where it
+     * has one, then the method the ability names (`update`, or `forceDelete` for
+     * `force-delete`). A policy found only by Laravel's naming convention is `inferred`.
+     *
+     * @return list<Edge>
+     */
+    public function authorizes(string $from, OutgoingCall $call): array
+    {
+        $gate = $call->gate;
+
+        if (! $gate instanceof GateCheck || $gate->ability === null || $gate->subject === null) {
+            return [];
+        }
+
+        $policy = $this->policyOf($gate->subject);
+        $loaded = $policy instanceof DispatchEdge ? $this->source->load((string) $policy->counterpart) : null;
+
+        if (! $policy instanceof DispatchEdge || ! $loaded instanceof LoadedClass) {
+            return [];
+        }
+
+        $method = str_contains($gate->ability, '-') ? lcfirst(str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $gate->ability)))) : $gate->ability;
+        $edges = [];
+
+        foreach (['before', $method] as $entry) {
+            if (! $loaded->node->getMethod($entry) instanceof Node\Stmt\ClassMethod) {
+                continue;
+            }
+
+            $edges[] = new Edge(
+                from: $from,
+                to: $loaded->fqn.'::'.$entry,
+                kind: 'authorizes',
+                path: $call->path,
+                line: $call->line,
+                column: $call->column,
+                confidence: Confidence::weakest($gate->confidence, $policy->confidence),
+                reason: sprintf('checks "%s" on %s; %s', $gate->ability, Dispatched::shortName($gate->subject), $policy->note ?? 'its policy'),
+            );
         }
 
         return $edges;
@@ -491,6 +542,48 @@ final class LaravelEdges
 
         return $this->observers[$key] = new ObserverReader()
             ->read($model, $paths, fn (string $path): string => $this->project->path($path));
+    }
+
+    /**
+     * A registered policy, or else the one Laravel's naming convention finds:
+     * `App\Policies\OrderPolicy` or `App\Models\Policies\OrderPolicy` for `App\Models\Order`.
+     */
+    private function policyOf(string $model): ?DispatchEdge
+    {
+        $key = Identifier::fold($model);
+
+        if (array_key_exists($key, $this->policies)) {
+            return $this->policies[$key];
+        }
+
+        $short = Dispatched::shortName($model);
+        $paths = [];
+
+        foreach (['policy', 'policies', 'UsePolicy'] as $spelling) {
+            $paths = [...$paths, ...$this->store->pathsMentioning($this->project->root, [$short, $spelling])];
+        }
+
+        $registered = new PolicyReader()->read($model, array_values(array_unique($paths)), fn (string $path): string => $this->project->path($path));
+
+        if ($registered instanceof DispatchEdge) {
+            return $this->policies[$key] = $registered;
+        }
+
+        $namespace = mb_strcut($model, 0, max(0, (int) strrpos($model, '\\')));
+        $guesses = array_unique([
+            str_replace('\\Models', '\\Policies', $namespace).'\\'.$short.'Policy',
+            $namespace.'\\Policies\\'.$short.'Policy',
+        ]);
+
+        foreach ($guesses as $guess) {
+            $loaded = $this->source->load($guess);
+
+            if ($loaded instanceof LoadedClass) {
+                return $this->policies[$key] = new DispatchEdge('policy', $model, $loaded->fqn, $loaded->path, $loaded->node->getStartLine(), Confidence::Inferred, 'found by Laravel\'s policy naming convention');
+            }
+        }
+
+        return $this->policies[$key] = null;
     }
 
     /**
