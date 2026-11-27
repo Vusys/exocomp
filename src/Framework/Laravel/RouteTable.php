@@ -8,6 +8,7 @@ use PhpParser\Node;
 use PhpParser\NodeFinder;
 use RuntimeException;
 use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Project\Project;
 use Vusys\Exocomp\Source\ParseFailure;
 use Vusys\Exocomp\Source\SourceFile;
@@ -249,24 +250,59 @@ final class RouteTable
         return (string) preg_replace('/\{[^}]+\}/', '{}', '/'.trim($uri, '/'));
     }
 
+    /** Route files this much newer than the table are a change; less is a checkout's spread. */
+    private const int CHECKOUT_SPREAD = 300;
+
     /**
      * A table older than the route files may be missing what was added since.
+     *
+     * File times alone said so after every fresh clone, which writes files in any order (#112).
+     * So the table and the route files are hashed each time they are read: once this table has
+     * been seen beside other route files, a change to them is a change. Before that, only route
+     * files newer than the table by more than a checkout's spread count.
      */
     private function checkAge(Project $project, string $routesDirectory): void
     {
-        $table = @filemtime($project->path($this->source));
+        $table = $project->path($this->source);
+        $tableTime = @filemtime($table);
 
-        if ($table === false || ! is_dir($routesDirectory)) {
+        if ($tableTime === false || ! is_dir($routesDirectory)) {
             return;
         }
 
-        foreach (glob($routesDirectory.'/*.php') ?: [] as $file) {
-            if ((@filemtime($file) ?: 0) > $table) {
-                $this->notes[] = sprintf('%s is newer than %s, so the table may be out of date — regenerate it', $project->displayPath($file), $this->source);
+        $files = glob($routesDirectory.'/*.php') ?: [];
+        sort($files);
+        $tableHash = (string) @hash_file('xxh128', $table);
+        $routesHash = hash('xxh128', implode("\n", array_map(static fn (string $file): string => $file.' '.@hash_file('xxh128', $file), $files)));
 
-                return;
+        $record = Index::cacheDirectory().'/routes/'.hash('xxh128', $project->root.'|'.$this->source).'.json';
+        $seen = is_file($record) ? json_decode((string) file_get_contents($record), true) : null;
+        $seen = is_array($seen) && is_string($seen['table'] ?? null) && is_string($seen['routes'] ?? null) ? $seen : null;
+
+        if ($seen === null || $seen['table'] !== $tableHash) {
+            // A table not seen before: keep what the route files are now, and judge by time.
+            @mkdir(dirname($record), 0o777, true);
+            @file_put_contents($record, (string) json_encode(['table' => $tableHash, 'routes' => $routesHash]));
+
+            foreach ($files as $file) {
+                if ((@filemtime($file) ?: 0) > $tableTime + self::CHECKOUT_SPREAD) {
+                    $this->stale($project, $file);
+
+                    return;
+                }
             }
+
+            return;
         }
+
+        if ($seen['routes'] !== $routesHash) {
+            $this->notes[] = sprintf('the route files have changed since %s was written, so the table may be out of date — regenerate it', $this->source);
+        }
+    }
+
+    private function stale(Project $project, string $file): void
+    {
+        $this->notes[] = sprintf('%s is newer than %s, so the table may be out of date — regenerate it', $project->displayPath($file), $this->source);
     }
 
     /**

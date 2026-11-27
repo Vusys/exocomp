@@ -99,6 +99,25 @@ final class LaravelWiringTest extends TestCase
         $this->assertStringContainsString('may be out of date', $this->exocomp(['routes'])->output);
     }
 
+    public function test_a_fresh_checkout_is_not_called_stale(): void
+    {
+        // A clone writes the table a moment before the route files: that is no change.
+        touch($this->project->path('exocomp-routes.json'), time() - 20);
+        touch($this->project->path('routes/web.php'), time());
+
+        $this->assertStringNotContainsString('out of date', $this->exocomp(['routes'])->output);
+    }
+
+    public function test_a_route_file_changed_since_the_table_was_seen_says_so(): void
+    {
+        touch($this->project->path('exocomp-routes.json'), time() - 20);
+        $this->exocomp(['routes']);
+
+        file_put_contents($this->project->path('routes/web.php'), "\n// a route added later\n", FILE_APPEND);
+
+        $this->assertStringContainsString('the route files have changed since exocomp-routes.json was written', $this->exocomp(['routes'])->output);
+    }
+
     public function test_a_capped_sweep_says_how_many_routes_it_did_not_walk(): void
     {
         $output = $this->exocomp(['reaches', 'route:*', '::neverCalledAnywhere', '--max-routes', '1'])->output;
