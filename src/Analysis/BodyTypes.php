@@ -104,11 +104,16 @@ final readonly class BodyTypes
                 continue;
             }
 
-            if ($method->returnType instanceof Node || $method->stmts === null) {
+            // A native `object` or `mixed` names no class, so a docblock may still narrow it, and
+            // an abstract or interface method has only its docblock to say.
+            $loose = ! $method->returnType instanceof Node
+                || ($method->returnType instanceof Node\Identifier && in_array($method->returnType->toLowerString(), ['object', 'mixed'], true));
+
+            if (! $loose) {
                 continue;
             }
 
-            $type = $this->returnedType($method, $methods, $propertyTypes, $classFqn)
+            $type = ($method->stmts === null ? null : $this->returnedType($method, $methods, $propertyTypes, $classFqn))
                 ?? $this->documented($method, 'return', $classFqn, $imports, $templates);
 
             if ($type !== null) {
@@ -145,14 +150,25 @@ final readonly class BodyTypes
             }
 
             $docblock = $statement->getDocComment()?->getText() ?? '';
-            $templates = [...$this->docblocks->templates($class->getDocComment()?->getText() ?? ''), ...$this->docblocks->templates($docblock)];
-            $elements = array_filter(
-                $this->docblocks->elements($docblock)[$tag],
-                static fn (string $name): bool => ! in_array($name, $templates, true),
-            );
+            $classTemplates = $this->docblocks->templates($class->getDocComment()?->getText() ?? '');
+            $templates = [...$classTemplates, ...$this->docblocks->templates($docblock)];
+            // `@return list<TModel>`, TModel the class's last template: a list of what the
+            // receiver holds, filled in at the call. Any other template is no class at all.
+            $held = $tag === 'return' && $classTemplates !== [] && ! in_array($classTemplates[array_key_last($classTemplates)], $this->docblocks->templates($docblock), true)
+                ? $classTemplates[array_key_last($classTemplates)]
+                : null;
+            $elements = [];
+
+            foreach ($this->docblocks->elements($docblock)[$tag] as $position => $name) {
+                if ($name === $held) {
+                    $elements[$position] = self::RECEIVER_ELEMENT;
+                } elseif (! in_array($name, $templates, true)) {
+                    $elements[$position] = Analyser::qualify($name, $classFqn, $imports);
+                }
+            }
 
             if ($elements !== []) {
-                $found[$key] = array_map(static fn (string $name): string => Analyser::qualify($name, $classFqn, $imports), $elements);
+                $found[$key] = $elements;
             }
         }
 

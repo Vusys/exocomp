@@ -9,6 +9,9 @@ namespace App\Inference;
  */
 abstract class Repository
 {
+    /** @return TModel */
+    abstract public function find(int $id): object;
+
     /** @return list<TModel> */
     public function all(): array
     {
