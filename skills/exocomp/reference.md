@@ -137,7 +137,7 @@ joins. `--format=paths` prints deduplicated file paths, for piping into another 
 | `subclasses` / `implementors` / `traits-users` `<name>` | transitive by default; `--direct` for one level |
 | `overrides <symbol>` | every declaration of one member across the hierarchy, up and down |
 | `references-to <symbol>` | also finds call sites written under another name (a scope, an accessor). `--resolved-only` emits `resolved` alone, the set a rename may rewrite. `--strings` also searches string literals (slower, and every hit is `textual`) |
-| `callers-of <symbol>` / `calls-from <symbol>` | the call graph, one step, in either direction |
+| `callers-of <symbol>` / `calls-from <symbol>` | the call graph, one step, in either direction. A call is addressed as reached through its receiver (`Order::find`, `Order::save`, `TraitHost::greet`); where it runs is shown after an arrow, `→ Builder::find`, and is `lands` in JSON. `callers-of` the landing declaration finds the call too, `reaches` arrives at either name, and `show Order::find` prints the landing declaration |
 | `query <pattern>` | structural search; see below |
 | `check [rules.json]` | saved rules against a baseline; exits `1` on anything new |
 | `index` | what the symbol cache holds. `--warm` brings it up to date now, and `--vendor` includes dependencies |
