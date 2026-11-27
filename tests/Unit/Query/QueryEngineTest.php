@@ -69,6 +69,29 @@ final class QueryEngineTest extends TestCase
         $this->assertSame(['config("services.timeout")', "config(['services.timeout'])"], $snippets(new Predicates(literalArguments: [0])));
     }
 
+    public function test_a_constant_expression_counts_as_a_literal(): void
+    {
+        $file = SourceFile::fromString(<<<'PHP_WRAP'
+        <?php
+        query('a = ' . '1');
+        query(self::SQL);
+        query(Status::Paid->value);
+        query(['a' => self::SQL, 'b' => 1 + 2]);
+        query(PHP_EOL);
+        query(APP_DEFINED);
+        query($runtime . ' = 1');
+        PHP_WRAP, 'calls.php');
+
+        $snippets = static fn (Predicates $predicates): array => array_map(
+            static fn (QueryMatch $m): string => $m->snippet(),
+            new QueryEngine($predicates)->runOn(Pattern::parse('query(...)'), $file),
+        );
+
+        // A constant `define()`d by the application can be set from anything, so it is not one.
+        $this->assertSame(['query(APP_DEFINED)', "query(\$runtime . ' = 1')"], $snippets(new Predicates(nonLiteralArguments: [0])));
+        $this->assertCount(5, $snippets(new Predicates(literalArguments: [0])));
+    }
+
     public function test_captures_bind_and_carry_their_source(): void
     {
         $matches = $this->matchesFor('$this->repository->_M($A)');

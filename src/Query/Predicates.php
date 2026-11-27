@@ -7,6 +7,7 @@ namespace Vusys\Exocomp\Query;
 use PhpParser\Comment\Doc;
 use PhpParser\Node;
 use PhpParser\Node\ArrayItem;
+use PhpParser\Node\Expr;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Inference\ResolvedType;
@@ -246,24 +247,39 @@ final readonly class Predicates
             return null;
         }
 
-        $value = $argument->value;
-
-        return $this->isLiteralScalar($value)
-            || ($value instanceof Node\Expr\ConstFetch && in_array(strtolower($value->name->toString()), ['true', 'false', 'null'], true))
-            || ($value instanceof Node\Expr\Array_ && $this->everyItemIsLiteral($value));
-    }
-
-    private function everyItemIsLiteral(Node\Expr\Array_ $array): bool
-    {
-        return array_all($array->items, fn (ArrayItem $item): bool => $this->isLiteralScalar($item->value));
+        return $this->isConstant($argument->value);
     }
 
     /**
-     * An interpolated string is a Scalar to the parser, but its value is computed at runtime.
+     * Whether a value is fixed when the code is written: a literal, a nowdoc or a heredoc
+     * without interpolation, `true`/`false`/`null` and PHP's own constants, a class constant
+     * (whose initialiser the language requires to be constant), an enum case's `->value` or
+     * `->name`, and any `.`, arithmetic, `??` or array of those. This is what "literal" means
+     * to an audit: `'a = '.'1'` and `self::SQL` can carry no runtime data, so flagging them as
+     * not literal was noise in exactly the code being audited.
      */
-    private function isLiteralScalar(Node\Expr $value): bool
+    private function isConstant(Expr $value): bool
     {
-        return $value instanceof Node\Scalar && ! $value instanceof Node\Scalar\InterpolatedString;
+        return match (true) {
+            $value instanceof Node\Scalar => ! $value instanceof Node\Scalar\InterpolatedString,
+            $value instanceof Expr\ConstFetch => in_array(strtolower($value->name->toString()), ['true', 'false', 'null'], true) || $this->isBuiltInConstant($value->name->toString()),
+            $value instanceof Expr\ClassConstFetch => $value->class instanceof Node\Name && $value->name instanceof Node\Identifier,
+            $value instanceof Expr\PropertyFetch => $value->var instanceof Expr\ClassConstFetch && $value->name instanceof Node\Identifier
+                && in_array($value->name->toString(), ['value', 'name'], true) && $this->isConstant($value->var),
+            $value instanceof Expr\BinaryOp => $this->isConstant($value->left) && $this->isConstant($value->right),
+            $value instanceof Expr\UnaryMinus, $value instanceof Expr\UnaryPlus, $value instanceof Expr\BitwiseNot, $value instanceof Expr\BooleanNot => $this->isConstant($value->expr),
+            $value instanceof Expr\Array_ => array_all($value->items, fn (ArrayItem $item): bool => (! $item->key instanceof Expr || $this->isConstant($item->key)) && $this->isConstant($item->value)),
+            default => false,
+        };
+    }
+
+    /**
+     * `PHP_EOL`, `E_ALL`: constants PHP itself defines. One an application `define()`s can be
+     * set from anything at runtime, so it does not count.
+     */
+    private function isBuiltInConstant(string $name): bool
+    {
+        return array_any(get_defined_constants(true), fn (array $constants, $extension): bool => $extension !== 'user' && array_key_exists(ltrim($name, '\\'), $constants));
     }
 
     private function signatureMatches(QueryMatch $match): bool

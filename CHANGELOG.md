@@ -18,6 +18,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **A constant expression counts as a literal argument.** `--arg-is-literal` and `--arg-is-not-literal` (in `query` and `check`) treat a value fixed in the source as literal: concatenations of literals, class constants (`self::SQL`), an enum case's `->value`, PHP's own constants, and arithmetic and arrays of those. They can carry no runtime data, so an SQL audit flagged them as noise. An interpolated string, and a constant the application `define()`s, still don't count (#86).
+
 - **Every kind of magic is reported the same way: the address it was reached by, and where it lands.** A call is addressed as reached through its receiver: `Order::find`, `Order::save`, `$builder->open()`, `$s->invoices()->save()`, `$host->greet()`. Its record also names the declaration that runs: `Builder::find`, `Model::save`, `Order::scopeOpen`, `HasOneOrMany::save` and `Greets::hello`. `calls-from` prints it after an arrow (`→`), and JSON carries it as `lands`.
   - `callers-of` the landing declaration finds the call too: `callers-of 'Illuminate\Database\Eloquent\Builder::find'` now lists `Order::find(1)`.
   - `reaches` arrives at either name, and walks on from where the call lands.
