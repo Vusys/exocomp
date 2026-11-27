@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
   - `graph` of a method that calls nothing.
 
   `check` and `index --status` report rather than search, and are unchanged.
+- An address with line 0 is printed as the bare path everywhere, not only in `routes` and `reaches` (#113). Counted nouns in headers share one helper, and a sweep rule flags new hand-written plurals.
 - Pint no longer reformats the test fixtures when given a directory such as `tests` (#117).
 
 ## [0.10.1] - 2026-11-27

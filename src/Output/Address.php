@@ -13,9 +13,13 @@ namespace Vusys\Exocomp\Output;
  */
 final class Address
 {
+    /**
+     * A line of 0 or less is no line: a record placed at a file but not in it, such as a route
+     * known only from the table Laravel builds. `path:0` reads as a position and is not one.
+     */
     public static function of(string $path, ?int $line = null, ?int $column = null): string
     {
-        if ($line === null) {
+        if ($line === null || $line <= 0) {
             return $path;
         }
 

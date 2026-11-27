@@ -13,6 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedCommand;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -107,7 +108,7 @@ final class CheckCommand extends IndexedCommand
             Baseline::write($baselinePath, $violations);
 
             return new Result(
-                header: sprintf('%d violation%s recorded in %s', count($violations), count($violations) === 1 ? '' : 's', $baselinePath),
+                header: sprintf('%s recorded in %s', Counted::of(count($violations), 'violation'), $baselinePath),
                 notes: $notes,
                 found: true,
             );

@@ -15,6 +15,7 @@ use Vusys\Exocomp\Framework\Laravel\RouteNamespace;
 use Vusys\Exocomp\Framework\Laravel\RouteReader;
 use Vusys\Exocomp\Framework\Laravel\RouteTable;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -78,7 +79,7 @@ final class RoutesCommand extends IndexedFrameworkCommand
 
         return new Result(
             // Where the table came from is the first note; "from 1 file" read as one route file.
-            header: sprintf('%d route%s', count($routes), count($routes) === 1 ? '' : 's'),
+            header: Counted::of(count($routes), 'route'),
             sections: [new Section('', $kept)],
             unresolvedTitle: 'declared, but not readable',
             unresolved: $this->rows($declined, false, withNote: false),
@@ -115,7 +116,7 @@ final class RoutesCommand extends IndexedFrameworkCommand
     private function rows(array $routes, bool $withMiddleware, bool $withNote = true): array
     {
         $width = Address::width(array_map(
-            static fn (RouteDefinition $route): string => Address::of($route->path, $route->line === 0 ? null : $route->line),
+            static fn (RouteDefinition $route): string => Address::of($route->path, $route->line),
             $routes,
         ));
 
@@ -134,8 +135,7 @@ final class RoutesCommand extends IndexedFrameworkCommand
                 kind: 'route',
                 text: rtrim(sprintf(
                     '%s  %-10s %s %s%s%s',
-                    // A route the route files do not place is at the table, with no line.
-                    str_pad(Address::of($route->path, $route->line === 0 ? null : $route->line), $width),
+                    str_pad(Address::of($route->path, $route->line), $width),
                     $route->method,
                     str_pad($route->uri, $uriWidth),
                     $route->target(),

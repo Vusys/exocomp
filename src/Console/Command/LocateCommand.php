@@ -12,6 +12,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedCommand;
 use Vusys\Exocomp\Index\SymbolRecord;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -138,7 +139,7 @@ final class LocateCommand extends IndexedCommand
         ));
 
         return new Result(
-            header: sprintf('%d declaration%s of "%s"', count($records), count($records) === 1 ? '' : 's', $name),
+            header: sprintf('%s of "%s"', Counted::of(count($records), 'declaration'), $name),
             sections: [new Section('', $kept)],
             elided: $elided,
             notes: [...$notes, ...$context->notes()],

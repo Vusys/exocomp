@@ -11,6 +11,7 @@ use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\UnresolvedGroup;
 use Vusys\Exocomp\Project\SymbolNotFound;
@@ -127,7 +128,7 @@ abstract class IndexedCommand extends ExocompCommand
         }
 
         return [
-            sprintf('  — incomplete, %d file%s not searched', $unsearched, $unsearched === 1 ? '' : 's'),
+            sprintf('  — incomplete, %s not searched', Counted::of($unsearched, 'file')),
             [sprintf(
                 'stopped at the %ds time limit with %d candidate file%s not searched, so this is a lower bound (--time-limit N to raise it, 0 to remove it)',
                 $this->intOption($input, 'time-limit', self::DEFAULT_TIME_LIMIT),

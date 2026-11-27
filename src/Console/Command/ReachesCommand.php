@@ -25,6 +25,7 @@ use Vusys\Exocomp\Graph\Walk;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -169,7 +170,7 @@ final class ReachesCommand extends GraphCommand
         $rows = [];
         $reached = 0;
         $addressWidth = Address::width(array_map(
-            $this->startAddress(...),
+            static fn (Start $start): string => Address::of($start->path, $start->line, 1),
             $starts,
         ));
         $labelWidth = array_reduce($starts, static fn (int $widest, Start $start): int => max($widest, strlen($start->label)), 0);
@@ -212,7 +213,7 @@ final class ReachesCommand extends GraphCommand
     {
         $summary = match (true) {
             $reach->found && $reach->path === [] => 'is the destination',
-            $reach->found => sprintf('reached in %d step%s', count($reach->path), count($reach->path) === 1 ? '' : 's'),
+            $reach->found => sprintf('reached in %s', Counted::of(count($reach->path), 'step')),
             $reach->exhausted => 'not reached within the budget',
             default => 'not reached',
         };
@@ -223,7 +224,7 @@ final class ReachesCommand extends GraphCommand
             column: $start->line === 0 ? null : 1,
             fqn: $start->node,
             kind: $reach->found ? 'reached' : 'not reached',
-            text: rtrim(str_pad($this->startAddress($start), $addressWidth).'  '.str_pad($start->label, $labelWidth).'  '.$summary),
+            text: rtrim(str_pad(Address::of($start->path, $start->line, 1), $addressWidth).'  '.str_pad($start->label, $labelWidth).'  '.$summary),
             confidence: $reach->found ? $reach->confidence() : Confidence::Textual,
             extra: ['steps' => count($reach->path), 'expanded' => $reach->expanded],
             carriesAddress: $start->path !== '',
@@ -375,14 +376,6 @@ final class ReachesCommand extends GraphCommand
         }
 
         return $edges;
-    }
-
-    /**
-     * A route the route files do not place has only the table it came from: no line, no column.
-     */
-    private function startAddress(Start $start): string
-    {
-        return $start->line === 0 ? Address::of($start->path) : Address::of($start->path, $start->line, 1);
     }
 
     /**

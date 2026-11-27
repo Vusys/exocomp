@@ -14,6 +14,7 @@ use Vusys\Exocomp\Graph\Body;
 use Vusys\Exocomp\Graph\CodeEdges;
 use Vusys\Exocomp\Inference\OutgoingCall;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -79,7 +80,7 @@ final class CallsFromCommand extends IndexedCommand
         [$kept, $elided] = $context->budget->apply($resolved);
 
         return new Result(
-            header: sprintf('%d call%s from %s', count($calls), count($calls) === 1 ? '' : 's', $body->fqn),
+            header: sprintf('%s from %s', Counted::of(count($calls), 'call'), $body->fqn),
             sections: [new Section('', array_map(fn (OutgoingCall $c): Row => $this->row($c, $width), $kept))],
             unresolvedTitle: 'unresolved',
             unresolved: array_map(fn (OutgoingCall $c): Row => $this->row($c, $width, true), $unsure),
