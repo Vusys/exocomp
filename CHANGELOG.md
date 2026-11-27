@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows
 - `reaches 'route:…'` now carries the route table's notes, including the warning that the table is older than the route files.
 - Wording: `routes` no longer says "from 1 file" for the table it read; `bindings` says how many providers were read rather than implying every binding came from all of them; `config` says "1 read", not "1 reads"; `model` says "1 of 4 annotated properties is backed by no column…".
 - `schema` aligns its index rows like its column rows.
+- Pint no longer reformats the test fixtures when given a directory such as `tests` (#117).
 
 ## [0.10.1] - 2026-11-27
 
