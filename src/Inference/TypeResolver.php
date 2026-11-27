@@ -8,6 +8,7 @@ use Closure;
 use PhpParser\Comment\Doc;
 use PhpParser\Node;
 use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Analysis\BodyTypes;
 use Vusys\Exocomp\Analysis\Import;
 use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Framework\Laravel\AuthModel;
@@ -16,6 +17,7 @@ use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\InstalledFunctions;
+use Vusys\Exocomp\Project\LoadedClass;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\Identifier;
 use Vusys\Exocomp\Symbol\SymbolKind;
@@ -129,7 +131,11 @@ final readonly class TypeResolver
             }
 
             if ($declared !== null) {
-                $scope->set($name, ResolvedType::declared($declared));
+                // `Collection $c` documented as `Collection<int, Order>`: the class, holding Orders.
+                $elements = ($elementsDocumented ??= $this->docblocks->elements($function->getDocComment()?->getText() ?? ''))['params'][$name] ?? [];
+                $scope->set($name, $elements === []
+                    ? ResolvedType::declared($declared)
+                    : ResolvedType::declared($declared)->withElements($this->qualifyAll($elements, $classFqn, $imports)));
 
                 continue;
             }
@@ -137,7 +143,9 @@ final readonly class TypeResolver
             $fromDoc = $documented['params'][$name] ?? null;
 
             if ($fromDoc !== null) {
-                $scope->set($name, ResolvedType::inferred($this->qualify($fromDoc, $classFqn, $imports), '@param'));
+                $elements = ($elementsDocumented ??= $this->docblocks->elements($function->getDocComment()?->getText() ?? ''))['params'][$name] ?? [];
+                $type = ResolvedType::inferred($this->qualify($fromDoc, $classFqn, $imports), '@param');
+                $scope->set($name, $elements === [] ? $type : $type->withElements($this->qualifyAll($elements, $classFqn, $imports)));
 
                 continue;
             }
@@ -510,8 +518,9 @@ final readonly class TypeResolver
                     return $type->wrapper === EloquentReturns::BUILDER || $method === 'tap' ? $type : null;
                 }
 
+                // `Collection<int, Order>` from a docblock: its callbacks are handed an Order.
                 if ($type->model === null) {
-                    return null;
+                    return in_array($method, self::PASSES_ELEMENT, true) ? $type->element(null) : null;
                 }
 
                 if (in_array($method, self::PASSES_CHUNK, true)) {
@@ -621,6 +630,12 @@ final readonly class TypeResolver
      */
     public function observeAssignment(Node\Expr\Assign $assign, Scope $scope, array $imports): void
     {
+        if ($assign->var instanceof Node\Expr\Array_ || $assign->var instanceof Node\Expr\List_) {
+            $this->observeDestructuring($assign->var, $assign->expr, $scope, $imports);
+
+            return;
+        }
+
         $name = $this->variableName($assign->var);
 
         if ($name === null) {
@@ -652,6 +667,37 @@ final readonly class TypeResolver
                 ? ResolvedType::arrayOf($this->qualifyAll($elements, $snapshot->classFqn, $imports), '@var')
                 : $snapshot->get($name);
         });
+    }
+
+    /**
+     * `['inv' => $x] = $this->pair()` and `[$a, $b] = $list`: each variable is the element the
+     * right side documents at that key or position, as `$this->pair()['inv']` already is.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function observeDestructuring(Node\Expr\Array_|Node\Expr\List_ $pattern, Node\Expr $value, Scope $scope, array $imports): void
+    {
+        $snapshot = clone $scope;
+
+        foreach ($pattern->items as $position => $item) {
+            $name = $item === null ? null : $this->variableName($item->value);
+
+            if ($item === null || $name === null) {
+                continue;
+            }
+
+            $key = match (true) {
+                $item->key instanceof Node\Scalar\String_, $item->key instanceof Node\Scalar\Int_ => (string) $item->key->value,
+                $item->key === null => (string) $position,
+                default => null,
+            };
+
+            $scope->setLazy($name, function () use ($value, $snapshot, $imports, $key, $name): ?ResolvedType {
+                $type = $this->typeOf($value, $snapshot, $imports);
+
+                return $this->eloquent?->elementOf($type) ?? $type->element($key) ?? $snapshot->get($name);
+            });
+        }
     }
 
     private function variableType(Node\Expr\Variable $variable, Scope $scope): ResolvedType
@@ -760,6 +806,19 @@ final readonly class TypeResolver
             $type = $this->authenticatedUser((string) $owner->fqn, $name) ?? $type;
         }
 
+        $type = $this->withReceiverElements($owner, $name, $type);
+
+        // `$this->createMock(Gateway::class)`: a double of the class named, which is what the
+        // test calls methods on. PHPUnit declares `MockObject&RealInstanceType`, and the native
+        // `MockObject` alone named members that do not exist.
+        if (in_array(strtolower($name), ['createmock', 'createstub', 'createpartialmock', 'createconfiguredmock', 'createconfiguredstub', 'getmockforabstractclass', 'createtestproxy'], true)) {
+            $double = $this->doubleOf($call, $scope);
+
+            if ($double instanceof ResolvedType) {
+                return $double;
+            }
+        }
+
         // `app()->make(X::class)`, `$this->app->make(X::class)` and friends: the container's own
         // signature says `mixed`, so this only steps in where nothing declared said otherwise.
         if (! $type->isKnown() && in_array(strtolower($call->name->toString()), ['make', 'makewith'], true)) {
@@ -769,12 +828,63 @@ final readonly class TypeResolver
         return $type;
     }
 
+    /** Collection methods that return one of what the collection holds. */
+    private const array RETURNS_AN_ELEMENT = ['first', 'last', 'get', 'pop', 'shift', 'pull', 'sole', 'firstwhere', 'firstorfail', 'random', 'find', 'current', 'offsetget'];
+
+    /** Collection methods that return a collection of the same elements. */
+    private const array KEEPS_THE_ELEMENTS = [
+        'filter', 'reject', 'sortby', 'sortbydesc', 'sort', 'sortdesc', 'values', 'unique', 'take', 'skip', 'slice', 'reverse',
+        'each', 'except', 'only', 'diff', 'intersect', 'shuffle', 'keyby', 'merge', 'concat', 'push', 'prepend', 'where',
+        'wherein', 'wherenotin', 'wherenull', 'wherenotnull', 'whereinstanceof', 'tap', 'when', 'unless', 'collect', 'all',
+    ];
+
+    /**
+     * What a receiver documented to hold something (`Collection<int, Order>`) passes on: an
+     * element where the method returns one, and its elements where the method returns the same
+     * collection back.
+     */
+    private function withReceiverElements(ResolvedType $owner, string $method, ResolvedType $type): ResolvedType
+    {
+        if ($owner->elements === []) {
+            return $type->receiverElement ? ResolvedType::unknown('returns what the receiver holds, and the receiver does not say what that is') : $type;
+        }
+
+        $name = strtolower($method);
+
+        if ($type->receiverElement || (! $type->isKnown() && in_array($name, self::RETURNS_AN_ELEMENT, true))) {
+            return $owner->element(null) ?? $type;
+        }
+
+        if (in_array($name, self::KEEPS_THE_ELEMENTS, true) && ($type->isKnown() ? strcasecmp((string) $type->fqn, (string) $owner->fqn) === 0 : true) && $owner->isKnown()) {
+            return ($type->isKnown() ? $type : ResolvedType::inferred((string) $owner->fqn, sprintf('%s() keeps what the collection holds', $method)))->withElements($owner->elements);
+        }
+
+        return $type;
+    }
+
+    private function doubleOf(Node\Expr\CallLike $call, Scope $scope): ?ResolvedType
+    {
+        $first = Analyser::arguments($call)[0]->value ?? null;
+        $class = $first instanceof Node\Expr\ClassConstFetch ? LiteralValue::className($first, $scope->classFqn) : null;
+
+        return $class === null ? null : ResolvedType::inferred($class, sprintf('a test double of %s', $class));
+    }
+
     private function staticReturnType(Node\Expr\StaticCall $call, Scope $scope): ResolvedType
     {
         $owner = $this->className($call->class, $scope);
 
         if ($owner === null || ! $call->name instanceof Node\Identifier) {
             return ResolvedType::unknown('static call on an unknown class');
+        }
+
+        // `Mockery::mock(Gateway::class)` and `Mockery::spy()`, the other common double.
+        if (strcasecmp(ltrim($owner, '\\'), 'Mockery') === 0 && in_array(strtolower($call->name->toString()), ['mock', 'spy', 'namedmock'], true)) {
+            $double = $this->doubleOf($call, $scope);
+
+            if ($double instanceof ResolvedType) {
+                return $double;
+            }
         }
 
         $type = $this->returnTypeOf($owner, $call->name->toString());
@@ -880,8 +990,17 @@ final readonly class TypeResolver
      */
     private function memberType(SymbolRecord $member, string $ownerFqn): ?ResolvedType
     {
-        if ($member->typeFqn !== null) {
-            return ResolvedType::declared($this->relativeTo($member->typeFqn, $member, $ownerFqn));
+        if ($member->inferredFqn === BodyTypes::RECEIVER_ELEMENT) {
+            return ResolvedType::receiverElement((string) $member->inferredReason);
+        }
+
+        // A native `self` the docblock narrows to `static` is the receiver's class.
+        $narrowed = $member->typeFqn !== null && strtolower($member->typeFqn) === 'self' && strtolower((string) $member->inferredFqn) === 'static';
+
+        if ($member->typeFqn !== null && ! $narrowed) {
+            $declared = ResolvedType::declared($this->relativeTo($member->typeFqn, $member, $ownerFqn));
+
+            return $member->inferredElements === [] ? $declared : $declared->withElements($member->inferredElements);
         }
 
         if ($member->inferredFqn !== null) {
@@ -1057,6 +1176,17 @@ final readonly class TypeResolver
             }
 
             $documented = $this->documented($node)['return'] ?? null;
+            $templates = $this->docblocks->templates($class->node->getDocComment()?->getText() ?? '');
+
+            if (is_string($documented) && in_array($documented, $templates, true)) {
+                return $documented === $templates[array_key_last($templates)]
+                    ? ResolvedType::receiverElement(sprintf('%s::%s() returns %s, what the collection holds', $class->fqn, $method, $documented))
+                    : ResolvedType::unknown(sprintf('%s::%s() returns the template %s', $class->fqn, $method, $documented));
+            }
+
+            if (is_string($documented) && in_array($documented, $this->docblocks->templates($node->getDocComment()?->getText() ?? ''), true)) {
+                return ResolvedType::unknown(sprintf('%s::%s() returns the template %s', $class->fqn, $method, $documented));
+            }
 
             // `@return static<TKey, TValue>`, the way a fluent collection method is documented.
             if (is_string($documented) && in_array(strtolower((string) preg_replace('/<.*$/', '', $documented)), ['static', '$this'], true)) {
@@ -1074,6 +1204,32 @@ final readonly class TypeResolver
         }
 
         return null;
+    }
+
+    /**
+     * Whether a class name is declared nowhere: not in the index, not where Composer would put
+     * it, not by PHP, while its namespace is one the index holds code in, so the absence is
+     * not just a dependency that was never installed.
+     */
+    public function existsNowhere(string $fqn): bool
+    {
+        $fqn = ltrim($fqn, '\\');
+        $position = strrpos($fqn, '\\');
+
+        if ($position === false || $this->graph->classLike($fqn) instanceof SymbolRecord
+            || class_exists($fqn, false) || interface_exists($fqn, false) || trait_exists($fqn, false) || enum_exists($fqn, false)) {
+            return false;
+        }
+
+        $key = '@exists:'.Identifier::fold($fqn);
+
+        if (! $this->declaring->has($key)) {
+            $missing = $this->source instanceof ClassSource && ! $this->source->load($fqn) instanceof LoadedClass
+                && $this->graph->holdsNamespace(mb_strcut($fqn, 0, $position));
+            $this->declaring->set($key, $missing ? ResolvedType::unknown('missing') : null);
+        }
+
+        return $this->declaring->get($key) instanceof ResolvedType;
     }
 
     /**
@@ -1196,6 +1352,13 @@ final readonly class TypeResolver
             return CallTarget::at($ownerFqn.'::'.$name, Confidence::weakest($confidence, Confidence::Inferred), sprintf('%s declares no %s(); the model forwards it to its query builder', $ownerFqn, $name));
         }
 
+        // A type no declaration anywhere carries, in a namespace the project's own code is in:
+        // a missing `use`, or a template name read as a class. Code calling it would fail, so
+        // the call is not a resolved edge to a class that does not exist.
+        if ($this->existsNowhere($ownerFqn)) {
+            return CallTarget::none(sprintf('%s: no such class is declared anywhere (a missing import?)', $ownerFqn));
+        }
+
         // Only a class that was read to the end of its ancestry can prove a member is absent.
         // Everything else — a framework base class, an interface in a dependency, a name the
         // corpus never indexed — is a class whose API is larger than anything readable, and an
@@ -1300,12 +1463,17 @@ final readonly class TypeResolver
             return;
         }
 
-        foreach ($this->docblocks->read($comment->getText())['vars'] as $variable => $type) {
+        $classes = $this->docblocks->read($comment->getText())['vars'];
+
+        foreach ($classes as $variable => $type) {
             $scope->set($variable, ResolvedType::inferred($this->qualify($type, $scope->classFqn, $imports), '@var'));
         }
 
         foreach ($this->docblocks->elements($comment->getText())['vars'] as $variable => $elements) {
-            $scope->set($variable, ResolvedType::arrayOf($this->qualifyAll($elements, $scope->classFqn, $imports), '@var'));
+            $qualified = $this->qualifyAll($elements, $scope->classFqn, $imports);
+            $scope->set($variable, isset($classes[$variable])
+                ? ResolvedType::inferred($this->qualify($classes[$variable], $scope->classFqn, $imports), '@var')->withElements($qualified)
+                : ResolvedType::arrayOf($qualified, '@var'));
         }
     }
 

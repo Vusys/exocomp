@@ -28,11 +28,19 @@ final readonly class BodyTypes
     public function __construct(private DocBlockTypes $docblocks = new DocBlockTypes) {}
 
     /**
+     * The marker an index record carries for a method documented to return its class's last
+     * template, the type of what it holds: `@return TValue` on a collection.
+     */
+    public const string RECEIVER_ELEMENT = '@element';
+
+    /**
      * @param  list<Import>  $imports
      * @return array<string, array{string, string}> member name (`$prop` or `method`) to [type, reason]
      */
     public function of(Stmt\ClassLike $class, string $classFqn, array $imports): array
     {
+        // The class's `@template` names: placeholders, never classes.
+        $templates = $this->docblocks->templates($class->getDocComment()?->getText() ?? '');
         $properties = [];
         $methods = [];
 
@@ -63,7 +71,7 @@ final readonly class BodyTypes
             }
 
             $type = $this->assignedType($name, $property, $methods, $classFqn)
-                ?? $this->documented($property, 'var', $classFqn, $imports);
+                ?? $this->documented($property, 'var', $classFqn, $imports, $templates);
 
             if ($type !== null) {
                 $found['$'.$name] = $type;
@@ -84,12 +92,24 @@ final readonly class BodyTypes
         }
 
         foreach ($methods as $method) {
+            // `self` natively and `@return static` in the docblock is the usual way to write a
+            // fluent method before `static` was a return type: the docblock is the narrower claim.
+            if ($method->returnType instanceof Node\Name && $method->returnType->toLowerString() === 'self') {
+                $documented = $this->documented($method, 'return', $classFqn, $imports, $templates);
+
+                if ($documented !== null && $documented[0] === 'static') {
+                    $found[$method->name->toString()] = $documented;
+                }
+
+                continue;
+            }
+
             if ($method->returnType instanceof Node || $method->stmts === null) {
                 continue;
             }
 
             $type = $this->returnedType($method, $methods, $propertyTypes, $classFqn)
-                ?? $this->documented($method, 'return', $classFqn, $imports);
+                ?? $this->documented($method, 'return', $classFqn, $imports, $templates);
 
             if ($type !== null) {
                 $found[$method->name->toString()] = $type;
@@ -120,11 +140,16 @@ final readonly class BodyTypes
                 continue;
             }
 
-            if ($type instanceof Node && (! $type instanceof Node\Identifier || ! in_array($type->toLowerString(), ['array', 'iterable'], true))) {
+            if ($type instanceof Node && ! $type instanceof Node\Name && ! $type instanceof Node\NullableType && (! $type instanceof Node\Identifier || ! in_array($type->toLowerString(), ['array', 'iterable'], true))) {
                 continue;
             }
 
-            $elements = $this->docblocks->elements($statement->getDocComment()?->getText() ?? '')[$tag];
+            $docblock = $statement->getDocComment()?->getText() ?? '';
+            $templates = [...$this->docblocks->templates($class->getDocComment()?->getText() ?? ''), ...$this->docblocks->templates($docblock)];
+            $elements = array_filter(
+                $this->docblocks->elements($docblock)[$tag],
+                static fn (string $name): bool => ! in_array($name, $templates, true),
+            );
 
             if ($elements !== []) {
                 $found[$key] = array_map(static fn (string $name): string => Analyser::qualify($name, $classFqn, $imports), $elements);
@@ -258,14 +283,31 @@ final readonly class BodyTypes
 
     /**
      * @param  list<Import>  $imports
+     * @param  list<string>  $templates  the class's `@template` names
      * @return ?array{string, string}
      */
-    private function documented(Stmt\Property|ClassMethod $node, string $tag, string $classFqn, array $imports): ?array
+    private function documented(Stmt\Property|ClassMethod $node, string $tag, string $classFqn, array $imports, array $templates = []): ?array
     {
-        $name = $this->docblocks->read($node->getDocComment()?->getText() ?? '')[$tag];
+        $docblock = $node->getDocComment()?->getText() ?? '';
+        $name = $this->docblocks->read($docblock)[$tag];
 
         if (! is_string($name)) {
             return null;
+        }
+
+        // A template is a placeholder. The class's last one is what it holds, so a method
+        // returning it returns whatever the receiver is documented to hold; any other is not a
+        // class at all, and qualifying it as one invented `App\Repositories\TModel`.
+        $methodTemplates = $this->docblocks->templates($docblock);
+
+        if (in_array($name, $methodTemplates, true)) {
+            return null;
+        }
+
+        if (in_array($name, $templates, true)) {
+            return $tag === 'return' && $name === $templates[array_key_last($templates)]
+                ? [self::RECEIVER_ELEMENT, sprintf('@return %s, the class template for what it holds', $name)]
+                : null;
         }
 
         $type = in_array(strtolower($name), ['static', '$this'], true) && $tag === 'return'

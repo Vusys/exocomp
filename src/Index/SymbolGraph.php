@@ -95,6 +95,19 @@ final class SymbolGraph
         return $this->classLike($fqn);
     }
 
+    /** @var array<string, bool> */
+    private array $memoisedNamespaces = [];
+
+    /**
+     * Whether any indexed declaration is in this namespace or below it.
+     */
+    public function holdsNamespace(string $namespace): bool
+    {
+        $key = Identifier::fold($namespace);
+
+        return $this->memoisedNamespaces[$key] ??= $this->store->paths($this->root, [$namespace.'\\']) !== [];
+    }
+
     public function classLike(string $fqn): ?SymbolRecord
     {
         foreach ($this->byFqn($fqn) as $record) {

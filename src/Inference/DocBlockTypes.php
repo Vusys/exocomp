@@ -11,6 +11,7 @@ use PHPStan\PhpDocParser\Ast\PhpDoc\MixinTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\ParamTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\PropertyTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\ReturnTagValueNode;
+use PHPStan\PhpDocParser\Ast\PhpDoc\TemplateTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\VarTagValueNode;
 use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
 use PHPStan\PhpDocParser\Ast\Type\ArrayTypeNode;
@@ -19,6 +20,7 @@ use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\NullableTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\ThisTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
+use PHPStan\PhpDocParser\Ast\Type\UnionTypeNode;
 use PHPStan\PhpDocParser\Lexer\Lexer;
 use PHPStan\PhpDocParser\Parser\ConstExprParser;
 use PHPStan\PhpDocParser\Parser\PhpDocParser;
@@ -209,6 +211,29 @@ final readonly class DocBlockTypes
     }
 
     /**
+     * The names a docblock declares as templates: `@template T`, `@template-covariant TValue`.
+     * Such a name is a placeholder, never a class.
+     *
+     * @return list<string>
+     */
+    public function templates(string $docblock): array
+    {
+        if (trim($docblock) === '') {
+            return [];
+        }
+
+        $names = [];
+
+        foreach ($this->parser->parse(new TokenIterator($this->lexer->tokenize($docblock)))->getTags() as $tag) {
+            if ($tag->value instanceof TemplateTagValueNode) {
+                $names[] = $tag->value->name;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
      * @return array<string, string>
      */
     private static function elementsOf(TypeNode $type): array
@@ -217,9 +242,11 @@ final readonly class DocBlockTypes
             return self::elementsOf($type->type);
         }
 
+        // `array<int, Order>`, `list<Order>`, and a generic class, `Collection<int, Order>`,
+        // whose last parameter is what it holds.
         $any = match (true) {
             $type instanceof ArrayTypeNode => $type->type,
-            $type instanceof GenericTypeNode && $type->type instanceof IdentifierTypeNode && in_array(strtolower($type->type->name), ['array', 'list', 'non-empty-array', 'non-empty-list', 'iterable'], true) => $type->genericTypes[array_key_last($type->genericTypes)] ?? null,
+            $type instanceof GenericTypeNode && $type->type instanceof IdentifierTypeNode => $type->genericTypes[array_key_last($type->genericTypes)] ?? null,
             default => null,
         };
 
@@ -259,6 +286,13 @@ final readonly class DocBlockTypes
     {
         if ($type instanceof NullableTypeNode) {
             return self::nameOf($type->type);
+        }
+
+        // `Order|null`, `null|Order`: the one class, as `?Order` is.
+        if ($type instanceof UnionTypeNode) {
+            $rest = array_values(array_filter($type->types, static fn (TypeNode $part): bool => ! $part instanceof IdentifierTypeNode || strtolower($part->name) !== 'null'));
+
+            return count($rest) === 1 ? self::nameOf($rest[0]) : null;
         }
 
         // `$this` is the receiver's class, as `static` is.

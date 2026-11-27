@@ -34,7 +34,27 @@ final readonly class ResolvedType
         public array $elements = [],
         public ?self $invokes = null,
         public ?string $callable = null,
+        public bool $receiverElement = false,
     ) {}
+
+    /**
+     * What a method documented to return its class's template gives back: whatever the receiver
+     * holds, `Collection<int, Order>`'s `first()` an Order. Unknown until the receiver says.
+     */
+    public static function receiverElement(string $reason): self
+    {
+        return new self(null, Confidence::Textual, $reason, receiverElement: true);
+    }
+
+    /**
+     * This type, holding these elements: a `Collection` documented as `Collection<int, Order>`.
+     *
+     * @param  array<string, string>  $elements
+     */
+    public function withElements(array $elements): self
+    {
+        return new self($this->fqn, $this->confidence, $this->reason, $this->wrapper, $this->model, $elements, $this->invokes, $this->callable);
+    }
 
     /**
      * A first-class callable: a `Closure`, with what calling it returns and, when it is known,
