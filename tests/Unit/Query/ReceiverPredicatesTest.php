@@ -50,8 +50,11 @@ final class ReceiverPredicatesTest extends TestCase
         $run = Cli::inCorpus(['query', '$X->send($M)', '--receiver-type', 'Fixtures\TierD\Notifier']);
 
         // `$anything->send()` has no type behind it. Including it would make the predicate a
-        // suggestion rather than a filter.
-        $this->assertStringNotContainsString('X=$anything', $run->output);
+        // suggestion rather than a filter, so it is listed apart, as not decided.
+        [$matches, $undecided] = explode('not decided', $run->output, 2) + ['', ''];
+
+        $this->assertStringNotContainsString('X=$anything', $matches);
+        $this->assertStringContainsString('X=$anything', $undecided);
     }
 
     public function test_without_a_receiver_predicate_every_call_is_returned(): void

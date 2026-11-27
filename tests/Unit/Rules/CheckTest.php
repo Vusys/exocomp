@@ -144,11 +144,11 @@ final class CheckTest extends TestCase
         $this->assertStringContainsString('twice', $run->errors);
     }
 
-    public function test_update_baseline_without_a_path_is_an_error(): void
+    public function test_update_baseline_without_a_path_writes_next_to_the_rules(): void
     {
         $run = Cli::inProject($this->project, ['check', $this->rules, '--update-baseline']);
 
-        $this->assertSame(2, $run->exitCode);
-        $this->assertStringContainsString('--baseline', $run->errors);
+        $this->assertSame(0, $run->exitCode, $run->errors);
+        $this->assertFileExists(dirname($this->rules).'/exocomp-baseline.json');
     }
 }

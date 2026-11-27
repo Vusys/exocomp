@@ -13,6 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Output\StreamOutput;
 use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Framework\SourceRoots;
+use Vusys\Exocomp\Output\JsonRenderer;
 use Vusys\Exocomp\Output\OutputBudget;
 use Vusys\Exocomp\Output\OutputFormat;
 use Vusys\Exocomp\Output\Result;
@@ -121,8 +122,11 @@ abstract class ExocompCommand extends Command
             return self::EXIT_ERROR;
         }
 
-        $rendered = $context->budget->capRendered(
-            $context->format->renderer()->render($result->capped($context->budget)),
+        $renderer = $context->format->renderer();
+        $rendered = $context->budget->renderWithin(
+            $result->capped($context->budget),
+            $renderer->render(...),
+            $renderer instanceof JsonRenderer,
         );
 
         // Raw mode, always. The payload is PHP source and PHP source contains `<?php`, `<` in

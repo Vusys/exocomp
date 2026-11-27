@@ -74,9 +74,9 @@ final readonly class Baseline
         $waived = [];
 
         foreach ($violations as $violation) {
-            $fingerprint = $violation->fingerprint();
+            $fingerprint = $this->claim($remaining, $violation);
 
-            if (($remaining[$fingerprint] ?? 0) > 0) {
+            if ($fingerprint !== null) {
                 $remaining[$fingerprint]--;
                 $waived[] = $violation;
 
@@ -101,14 +101,31 @@ final readonly class Baseline
         $remaining = $this->counts;
 
         foreach ($violations as $violation) {
-            $fingerprint = $violation->fingerprint();
+            $fingerprint = $this->claim($remaining, $violation);
 
-            if (($remaining[$fingerprint] ?? 0) > 0) {
+            if ($fingerprint !== null) {
                 $remaining[$fingerprint]--;
             }
         }
 
         return array_sum($remaining);
+    }
+
+    /**
+     * The baseline entry a violation is waived by: its shape, or, for a baseline written before
+     * shapes were kept, the code as it was written then.
+     *
+     * @param  array<string, int>  $remaining
+     */
+    private function claim(array $remaining, Violation $violation): ?string
+    {
+        foreach ([$violation->fingerprint(), $violation->legacyFingerprint()] as $fingerprint) {
+            if (($remaining[$fingerprint] ?? 0) > 0) {
+                return $fingerprint;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -133,6 +150,7 @@ final readonly class Baseline
                 'file' => $violation->path,
                 'context' => $violation->context,
                 'code' => $violation->snippet,
+                'shape' => $violation->shape ?? $violation->snippet,
                 'count' => $counts[$fingerprint],
             ];
         }
@@ -160,6 +178,8 @@ final readonly class Baseline
             }
         }
 
-        return $entry['rule']."\0".$entry['file']."\0".$entry['context']."\0".$entry['code'];
+        $code = is_string($entry['shape'] ?? null) ? $entry['shape'] : $entry['code'];
+
+        return $entry['rule']."\0".$entry['file']."\0".$entry['context']."\0".$code;
     }
 }

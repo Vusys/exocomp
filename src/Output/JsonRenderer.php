@@ -65,7 +65,7 @@ final class JsonRenderer implements Renderer
         // Truncation is a terminal record rather than a silent stop: a consumer that reads to
         // end-of-stream must be able to tell a complete answer from a capped one.
         if ($result->elided > 0) {
-            $lines[] = $this->encode(['elided' => $result->elided]);
+            $lines[] = $this->encode($result->cutByTokens ? ['elided' => $result->elided, 'reason' => 'max-tokens'] : ['elided' => $result->elided]);
         }
 
         return implode("\n", $lines);

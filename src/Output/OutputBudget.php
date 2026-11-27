@@ -56,11 +56,50 @@ final readonly class OutputBudget
     }
 
     /**
+     * Renders an answer within the token ceiling, cutting listed records rather than lines.
+     *
+     * Cutting the rendered text kept the first lines, so the unresolved block and the notes,
+     * which come last, went first; and in `--json` the cut was a line of plain text in a stream
+     * of JSON. Here the records are cut, the unresolved block is summarised by reason, and the
+     * renderer says how many went, as a record in JSON. Only an answer whose header and summary
+     * alone are over the ceiling falls back to a line cut.
+     *
+     * @param  callable(Result): string  $render
+     */
+    public function renderWithin(Result $result, callable $render, bool $json): string
+    {
+        $rendered = $render($result);
+
+        if ($this->maxTokens <= 0 || self::tokens($rendered) <= $this->maxTokens) {
+            return $rendered;
+        }
+
+        $low = 0;
+        $high = count($result->rows());
+        $best = null;
+
+        // The largest number of listed records that fits, found by halving.
+        while ($low <= $high) {
+            $middle = intdiv($low + $high, 2);
+            $attempt = $render($result->cutTo($middle, summarise: true));
+
+            if (self::tokens($attempt) <= $this->maxTokens) {
+                $best = $attempt;
+                $low = $middle + 1;
+            } else {
+                $high = $middle - 1;
+            }
+        }
+
+        return $best ?? $this->capRendered($render($result->cutTo(0, summarise: true)), $json);
+    }
+
+    /**
      * Cuts rendered output to the token ceiling on a line boundary, saying how many lines went.
      * Applied after rendering rather than before, because the cost being budgeted is the cost
      * of the text itself.
      */
-    public function capRendered(string $rendered): string
+    public function capRendered(string $rendered, bool $json = false): string
     {
         if ($this->maxTokens <= 0 || self::tokens($rendered) <= $this->maxTokens) {
             return $rendered;
@@ -87,9 +126,11 @@ final readonly class OutputBudget
             return $rendered;
         }
 
-        $kept[] = $this->implicit
-            ? sprintf('… %d more lines, cut at the default ceiling of %d tokens because output is not a terminal (--max-tokens N to raise it, 0 to remove it)', $dropped, $this->maxTokens)
-            : sprintf('… %d more lines (use --max-tokens)', $dropped);
+        $kept[] = match (true) {
+            $json => (string) json_encode(['elided' => $dropped, 'unit' => 'lines', 'reason' => 'max-tokens']),
+            $this->implicit => sprintf('… %d more lines, cut at the default ceiling of %d tokens because output is not a terminal (--max-tokens N to raise it, 0 to remove it)', $dropped, $this->maxTokens),
+            default => sprintf('… %d more lines (use --max-tokens)', $dropped),
+        };
 
         return implode("\n", $kept);
     }

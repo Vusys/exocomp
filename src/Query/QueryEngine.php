@@ -50,16 +50,27 @@ final readonly class QueryEngine
      */
     public function runOn(Pattern $pattern, SourceFile $file): array
     {
+        return $this->runDeciding($pattern, $file)[0];
+    }
+
+    /**
+     * The matches, and the ones a receiver predicate could not decide because the receiver's
+     * type was not known.
+     *
+     * @return array{list<QueryMatch>, list<QueryMatch>}
+     */
+    public function runDeciding(Pattern $pattern, SourceFile $file): array
+    {
         try {
             $statements = $this->parser->parse($file->contents);
         } catch (Error) {
             // One unparseable file degrades that file. A corpus-wide query that aborted on the
             // first half-edited file would be useless exactly when it is most wanted.
-            return [];
+            return [[], []];
         }
 
         if ($statements === null) {
-            return [];
+            return [[], []];
         }
 
         // Receiver predicates need a hierarchy to judge against, and the analysis for the
@@ -77,6 +88,6 @@ final readonly class QueryEngine
 
         new NodeTraverser(new NodeVisitor\NameResolver(null, ['replaceNodes' => false]), $collector)->traverse($statements);
 
-        return $collector->matches();
+        return [$collector->matches(), $collector->undecided()];
     }
 }
