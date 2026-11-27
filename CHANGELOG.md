@@ -16,6 +16,13 @@ All notable changes to this project are documented here. The format follows
 - `reaches 'route:…'` now carries the route table's notes, including the warning that the table is older than the route files.
 - Wording: `routes` no longer says "from 1 file" for the table it read; `bindings` says how many providers were read rather than implying every binding came from all of them; `config` says "1 read", not "1 reads"; `model` says "1 of 4 annotated properties is backed by no column…".
 - `schema` aligns its index rows like its column rows.
+- **An empty answer exits 1 in every command** (#111). An answer now counts as found only when it has something to show, unless the command says otherwise. Before, `found` defaulted to true, so a command that never set it exited 0 on nothing. This newly applies to:
+  - `calls-from` on a method that calls nothing;
+  - `imports` of a file with no imports;
+  - `overrides` of a method nothing overrides or is overridden by (its own declaration is still listed);
+  - `graph` of a method that calls nothing.
+
+  `check` and `index --status` report rather than search, and are unchanged.
 - Pint no longer reformats the test fixtures when given a directory such as `tests` (#117).
 
 ## [0.10.1] - 2026-11-27

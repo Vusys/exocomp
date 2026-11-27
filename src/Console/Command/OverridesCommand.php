@@ -90,6 +90,8 @@ final class OverridesCommand extends IndexedCommand
             sections: [new Section('', $kept)],
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
+            // The declaration itself is always listed; the answer is whatever else there is.
+            found: $elsewhere !== [],
         );
     }
 

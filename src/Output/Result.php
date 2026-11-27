@@ -18,9 +18,14 @@ final readonly class Result
      * @param  list<Row>  $unresolved  things deliberately not answered, each with a reason
      * @param  list<string>  $notes  operational remarks (an unparseable file, a stopped scan)
      * @param  array<string, string|int|bool|null>|null  $object  the `--json` payload for singleton commands
-     * @param  bool  $found  whether the question had an answer — the exit code, and for a
-     *                       negative one the body still carries why, because "no" and "no, and
-     *                       here is what I could not look at" are different claims
+     * @param  ?bool  $found  whether the question had an answer — the exit code, and for a
+     *                        negative one the body still carries why, because "no" and "no, and
+     *                        here is what I could not look at" are different claims. Left out,
+     *                        it is whether there is anything to show: a listed record, a body or
+     *                        a JSON payload, so a command that forgets cannot exit 0 on nothing
+     * @param  bool  $complete  whether a negative is the whole story. Not derived from the
+     *                          trailing block, which holds misses as well as gaps: a command
+     *                          whose "none" can have gaps says so
      * @param  list<array<string, string|int|bool|null>>  $objects  the `--json` payload for an
      *                                                              answer covering several addresses, one record per line. Separate
      *                                                              from `$object` so that asking for one address still yields a single
@@ -39,13 +44,18 @@ final readonly class Result
         public int $elided = 0,
         public array $notes = [],
         public ?array $object = null,
-        public bool $found = true,
+        ?bool $found = null,
         public array $objects = [],
         public array $unresolvedGroups = [],
         public bool $cutByTokens = false,
         public bool $complete = true,
         public ?PageWindow $window = null,
-    ) {}
+    ) {
+        $this->found = $found ?? (array_any($sections, static fn (Section $section): bool => $section->rows !== [])
+            || $body !== null || $object !== null || $objects !== []);
+    }
+
+    public bool $found;
 
     /**
      * This answer with only the first `$keep` listed records, the rest counted as elided, and

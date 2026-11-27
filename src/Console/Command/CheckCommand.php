@@ -109,6 +109,7 @@ final class CheckCommand extends IndexedCommand
             return new Result(
                 header: sprintf('%d violation%s recorded in %s', count($violations), count($violations) === 1 ? '' : 's', $baselinePath),
                 notes: $notes,
+                found: true,
             );
         }
 
@@ -160,6 +161,8 @@ final class CheckCommand extends IndexedCommand
             ))],
             elided: $elided,
             notes: [...$notes, ...$this->undecidedNotes(), ...$context->notes()],
+            // A report: the exit is decided in execute(), from the violations.
+            found: true,
         );
     }
 
