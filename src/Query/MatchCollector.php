@@ -77,7 +77,7 @@ final class MatchCollector extends NodeVisitorAbstract
             $this->types->observeForeach($node, $this->scope, $this->analysis->imports);
         }
 
-        $this->types?->enterNarrowing($node, $this->scope);
+        $this->types?->enterNarrowing($node, $this->scope, $this->analysis->imports ?? []);
 
         $captures = new Captures;
 

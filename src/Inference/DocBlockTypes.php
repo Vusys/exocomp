@@ -17,6 +17,7 @@ use PHPStan\PhpDocParser\Ast\Type\ArrayTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\GenericTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\NullableTypeNode;
+use PHPStan\PhpDocParser\Ast\Type\ThisTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
 use PHPStan\PhpDocParser\Lexer\Lexer;
 use PHPStan\PhpDocParser\Parser\ConstExprParser;
@@ -260,6 +261,17 @@ final readonly class DocBlockTypes
             return self::nameOf($type->type);
         }
 
+        // `$this` is the receiver's class, as `static` is.
+        if ($type instanceof ThisTypeNode) {
+            return 'static';
+        }
+
+        // `static<TKey, TValue>`, `Builder<Order>`: the class is the generic's base; what its
+        // parameters are is read separately, as elements.
+        if ($type instanceof GenericTypeNode) {
+            return self::nameOf($type->type);
+        }
+
         if (! $type instanceof IdentifierTypeNode) {
             return null;
         }
@@ -270,6 +282,8 @@ final readonly class DocBlockTypes
         return in_array(strtolower($name), [
             'int', 'integer', 'float', 'double', 'string', 'bool', 'boolean', 'array', 'object',
             'callable', 'iterable', 'mixed', 'void', 'null', 'never', 'true', 'false', 'resource',
+            'list', 'non-empty-list', 'non-empty-array', 'array-key', 'class-string', 'positive-int',
+            'negative-int', 'non-negative-int', 'numeric', 'scalar', 'non-empty-string', 'key-of', 'value-of',
         ], true) ? null : $name;
     }
 }

@@ -70,7 +70,7 @@ final class EnrolmentCallers
      */
     public function escapes(): void
     {
-        Order::query()->tap(fn ($query) => $query)->create([]);
+        Order::query()->tap(fn ($query) => app('swapped'))->create([]);
         Order::query()->get()->map(fn () => new Enrolment)->first()->create('mapped');
         Order::query()->value('enrolment')->create('stored');
         Order::query()->first()->getAttribute('enrolment')->create('attribute');

@@ -30,11 +30,23 @@ All notable changes to this project are documented here. The format follows
 - **`members` with a guessed namespace lists inherited members** after correcting it, instead of only the class's own, with advice about `--own` and `--vendor` that did not apply (#62).
 - **`locate` places a vendor class by its full name** through Composer's autoload map, as `show` does. A negative for a short name says that dependencies were not searched (#63).
 - **`app()` with no argument is the application**, so `app()->make(X::class)` is `Application::make`, not an unresolved call (#46).
+- **A known class in `vendor/` is no longer said to declare nothing.** For a class the index doesn't hold, such as `Illuminate\Support\Collection`, the resolver took the empty member list as complete and reported "Collection declares no filter()" without reading the class. It now reads it, follows `@return static<…>` and `@return $this`, and a call on it is excluded from an application method of the same name. This was much of the unresolved noise for common names in `callers-of` (#81).
+- **Relations, scopes and forwarded calls point at members that exist.**
+  - A method a relation declares itself is that relation's: `$s->invoices()->save($i)` is `HasOneOrMany::save` and `$s->order()->associate()` is `BelongsTo::associate`. Only what the relation doesn't declare goes to the query builder (#57).
+  - A local scope called on a builder is the model's scope: `Order::query()->open()` is `Order::scopeOpen`, not `Builder::open`. A `#[Scope]` method is typed like a legacy one, statically and on a builder, and the chain continues (#75).
+  - `Order::find()` and `Order::where()`, which nothing in the model's ancestry declares and `__callStatic` forwards, are `inferred` with that reason, not `resolved` "class name" (#58).
+- **`self $other` as a parameter type is the declaring class**, not a class called `self`.
 - **`self` in a trait is the class using it.** `?self` and `self` in a trait's signatures were bound to the trait, so `FindsHost::findBySlug('x')->only()` stopped at "Finds declares no only()" (#37).
 
 ### Added
 
 - **More expressions are typed.** A caught exception, `catch (GatewayFailed $e)`, is the class it names (#36). A `match` whose arms agree is that class (#38), and so is `$this->cached ??= new Gateway` (#38). The arm of a `match (true)` that tests `$x instanceof C` narrows `$x` (#38). A backed enum's `from()` and `tryFrom()` return the enum and `cases()` a list of it (#39). PHP 8.5's `$x |> $this->m(...)` and `$x |> (fn (Holder $h) => …)` are what the callable returns, and `clone($x, [...])` is a copy of `$x` rather than a call to a function named `clone` (#83).
+- **More Eloquent chains continue.**
+  - A relation method without a return type is read from its body, as the relation property already was (#56).
+  - `when()`, `unless()` and a builder's `tap()` continue as the builder when the callback hands it back, and the callback's untyped parameter is that builder. `tap($x, fn ($y) => …)` returns `$x` and passes it on (#59).
+  - The untyped parameter of an `each()`, `map()`, `filter()` (and similar) callback on a collection or builder of a model is the model. A `chunk()` callback's parameter is a collection of them (#59).
+  - `map()` on a model collection continues as a collection rather than stopping (#59).
+  - A factory state method without a return type keeps the factory, as one returning `static` already did (#82).
 - **A property the class never declares is typed from its assignments.** `$this->gateway = $gateway` in a constructor, from a typed parameter, types `$this->gateway` the way a declared but untyped property already was. It is listed as a member at its first assignment (#45).
 
 ## [0.9.1] - 2026-11-19

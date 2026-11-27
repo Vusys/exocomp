@@ -40,6 +40,30 @@ final class Scope
         public readonly ?string $parentFqn,
     ) {}
 
+    /**
+     * What a closure passed to a known method is called with, keyed by the closure node and
+     * then the parameter's position: the builder `when()` passes on, the model `each()` hands
+     * each callback. Worked out only if the closure's parameter turns out to be untyped.
+     *
+     * @var array<int, array<int, \Closure(): ?ResolvedType>>
+     */
+    private array $callbacks = [];
+
+    /**
+     * @param  \Closure(): ?ResolvedType  $type
+     */
+    public function hintCallback(Node $function, int $position, \Closure $type): void
+    {
+        $this->callbacks[spl_object_id($function)][$position] = $type;
+    }
+
+    public function callbackHint(Node $function, int $position): ?ResolvedType
+    {
+        $hint = $this->callbacks[spl_object_id($function)][$position] ?? null;
+
+        return $hint instanceof \Closure ? $hint() : null;
+    }
+
     public function set(string $variable, ResolvedType $type): void
     {
         $this->variables[$variable] = $type;
