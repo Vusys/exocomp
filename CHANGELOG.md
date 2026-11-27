@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-27
+
 ### Fixed
 
 - **Class templates are bound in more places** (#61):
