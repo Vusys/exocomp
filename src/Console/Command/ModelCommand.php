@@ -10,10 +10,13 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedFrameworkCommand;
+use Vusys\Exocomp\Framework\Laravel\Dispatched;
+use Vusys\Exocomp\Framework\Laravel\DispatchEdge;
 use Vusys\Exocomp\Framework\Laravel\EloquentModel;
 use Vusys\Exocomp\Framework\Laravel\LaravelProfile;
 use Vusys\Exocomp\Framework\Laravel\ModelFact;
 use Vusys\Exocomp\Framework\Laravel\ModelReader;
+use Vusys\Exocomp\Framework\Laravel\ObserverReader;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
@@ -59,6 +62,7 @@ final class ModelCommand extends IndexedFrameworkCommand
         ['dates', 'dates'],
         ['local scope', 'local scopes'],
         ['scope', 'global scopes'],
+        ['observer', 'observers'],
         ['trait', 'traits'],
         ['annotated', 'annotated properties'],
     ];
@@ -119,7 +123,7 @@ final class ModelCommand extends IndexedFrameworkCommand
                 continue;
             }
 
-            $facts = $model->group($group);
+            $facts = $group === 'observer' ? $this->observers($model->fqn, $context) : $model->group($group);
 
             if ($facts === []) {
                 continue;
@@ -166,6 +170,27 @@ final class ModelCommand extends IndexedFrameworkCommand
             unresolved: $kept,
             elided: $elided,
             notes: [...$notes, ...$model->notes, ...$context->notes()],
+        );
+    }
+
+    /**
+     * The observers registered for the model: `#[ObservedBy]`, `Model::observe()` and an event
+     * provider's `$observers`, read where `reaches` reads them.
+     *
+     * @return list<ModelFact>
+     */
+    private function observers(string $model, CommandContext $context): array
+    {
+        $short = Dispatched::shortName($model);
+        $paths = [];
+
+        foreach (['observe', 'observers', 'ObservedBy'] as $spelling) {
+            $paths = [...$paths, ...$context->index()->store->pathsMentioning($context->project->root, [$short, $spelling])];
+        }
+
+        return array_map(
+            static fn (DispatchEdge $edge): ModelFact => new ModelFact('observer', Dispatched::shortName((string) $edge->counterpart), $edge->counterpart, $edge->confidence, $edge->path, $edge->line, $edge->note, $edge->counterpart),
+            new ObserverReader()->read($model, array_values(array_unique($paths)), $context->project->path(...)),
         );
     }
 
