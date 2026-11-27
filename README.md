@@ -202,4 +202,6 @@ composer infection   # mutation testing
 ```
 
 `tests/Fixtures` is excluded from Pint, Rector and PHPStan on purpose: much of it is deliberately
-pathological code. See `tests/Fixtures/corpus/README.md`.
+pathological code. See `tests/Fixtures/corpus/README.md`. The Pint exclusion holds for `composer pint` and
+for `pint <directory>`, but Pint formats any file named on its command line, so never name a file
+under `tests/Fixtures`.
