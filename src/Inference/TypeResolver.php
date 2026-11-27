@@ -596,7 +596,9 @@ final readonly class TypeResolver
 
         return $this->eloquent?->fromRelationProperty((string) $owner->fqn, $name)
             ?? $this->magically((string) $owner->fqn, $name, SymbolKind::Property)
-            ?? ResolvedType::unknown('property has no declared class type');
+            ?? ResolvedType::unknown($this->graph->classLike((string) $owner->fqn) instanceof SymbolRecord
+                ? 'property has no declared class type'
+                : sprintf('%s is not in the index, so its properties are not known', $owner->fqn));
     }
 
     private function staticPropertyType(Node\Expr\StaticPropertyFetch $fetch, Scope $scope): ResolvedType
@@ -815,6 +817,11 @@ final readonly class TypeResolver
             // `clone($x, [...])`, PHP 8.5's clone with: a copy of `$x`, like `clone $x`.
             if (strtolower($call->name->toString()) === 'clone' && ($first = Analyser::arguments($call)[0] ?? null) instanceof Node\Arg) {
                 return $this->typeOf($first->value, $scope, $imports);
+            }
+
+            // `app()` with no argument is the application itself, by the helper's own signature.
+            if (Analyser::isGlobalFunction($call->name, 'app') && Analyser::arguments($call) === []) {
+                return ResolvedType::resolvedBy('Illuminate\\Foundation\\Application', 'app() with no argument returns the application');
             }
 
             if ((Analyser::isGlobalFunction($call->name, 'app') || Analyser::isGlobalFunction($call->name, 'resolve'))

@@ -15,6 +15,7 @@ use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
 use Vusys\Exocomp\Project\SymbolNotFound;
+use Vusys\Exocomp\Symbol\SymbolKind;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -42,6 +43,17 @@ abstract class RelationCommand extends IndexedCommand
 
     abstract protected function noun(int $count): string;
 
+    /**
+     * The kind the subject has to be for the question to make sense, with the command that
+     * answers the question for the other kinds; null when any class-like will do.
+     *
+     * @return ?array{SymbolKind, string}
+     */
+    protected function expects(): ?array
+    {
+        return null;
+    }
+
     protected function answer(InputInterface $input, CommandContext $context): Result
     {
         $notes = [];
@@ -59,6 +71,22 @@ abstract class RelationCommand extends IndexedCommand
         // themselves were never the problem: they are recorded by the files that declare the
         // children, so they exist whether or not the parent does.
         $fqn = $subject instanceof SymbolRecord ? $subject->fqn : $this->outsideTheIndex($ref, $context, $notes);
+
+        // "0 implementors" of a class, or "0 users" of something that is not a trait, read as
+        // an answer when the question could not have one.
+        $expected = $this->expects();
+
+        if ($expected !== null && $subject instanceof SymbolRecord && $subject->kind !== $expected[0]) {
+            throw new SymbolNotFound($ref->owner, sprintf(
+                '%s is %s %s, not %s %s — %s',
+                $subject->fqn,
+                $subject->kind === SymbolKind::InterfaceType ? 'an' : 'a',
+                $subject->kind->value,
+                $expected[0] === SymbolKind::InterfaceType ? 'an' : 'a',
+                $expected[0]->value,
+                sprintf($expected[1], "'".$subject->fqn."'"),
+            ));
+        }
 
         $records = $this->relatives($graph, $fqn, ! $this->boolOption($input, 'direct'));
         $width = $this->addressWidth($records);

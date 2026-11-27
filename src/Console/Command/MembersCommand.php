@@ -82,11 +82,18 @@ final class MembersCommand extends IndexedCommand
         $subject = $graph->namedClassLike($ref->owner);
 
         if (! $subject instanceof SymbolRecord) {
+            // A guessed namespace first: corrected, it is a class the index holds, and the
+            // answer is the same as for the right name.
+            $ref = $this->knownAddress($ref, $graph, $context);
+            $subject = $graph->classLike($ref->owner);
+        }
+
+        if (! $subject instanceof SymbolRecord) {
             // Not in the index — a vendor class, most likely. Rather than refuse, answer what
             // the parser alone can see and say what that costs.
-            $notes[] = sprintf('"%s" is not in the index, so only its own members are listed (add --vendor to index dependencies)', $ref->owner);
+            $notes[] = sprintf('"%s" is not in the index, so only its own members are listed (exocomp index --warm --vendor indexes dependencies)', $ref->owner);
 
-            return $this->declaredOnly($ref, $context, $notes);
+            return $this->declaredOnly($ref, $context, $notes, why: 'not in the index — exocomp index --warm --vendor indexes dependencies');
         }
 
         return $this->listing($subject, $graph, $ref, $matching, $notes, $context);
@@ -265,7 +272,7 @@ final class MembersCommand extends IndexedCommand
      *
      * @param  list<string>  $notes
      */
-    private function declaredOnly(SymbolRef $ref, CommandContext $context, array $notes = [], ?string $matching = null): Result
+    private function declaredOnly(SymbolRef $ref, CommandContext $context, array $notes = [], ?string $matching = null, string $why = 'members not listed with --own — drop the flag to resolve them'): Result
     {
         $located = $context->locator->locateOwner($ref);
         $declaration = $located->declaration;
@@ -299,7 +306,7 @@ final class MembersCommand extends IndexedCommand
                 : sprintf('%s  %s  (%d of %d own members matching)', $path, $declaration->fqn, count($rows), $total),
             sections: [new Section('own', $kept)],
             unresolvedTitle: 'not listed',
-            unresolved: $this->notListed($path, $declaration),
+            unresolved: $this->notListed($path, $declaration, $why),
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
             found: $matching === null || $rows !== [],
@@ -309,7 +316,7 @@ final class MembersCommand extends IndexedCommand
     /**
      * @return list<Row>
      */
-    private function notListed(string $path, Declaration $declaration): array
+    private function notListed(string $path, Declaration $declaration, string $why): array
     {
         $rows = [];
 
@@ -323,7 +330,7 @@ final class MembersCommand extends IndexedCommand
                     kind: $keyword,
                     text: $keyword.' '.$name,
                     confidence: Confidence::Textual,
-                    note: 'members not listed with --own — drop the flag to resolve them',
+                    note: $why,
                 );
             }
         }

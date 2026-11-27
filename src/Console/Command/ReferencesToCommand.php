@@ -66,7 +66,7 @@ final class ReferencesToCommand extends IndexedCommand
             $context->index()->freshness($this->boolOption($input, 'vendor'))->full();
         }
 
-        $target = $this->searchTarget(SymbolRef::parse($this->stringArgument($input, 'symbol') ?? ''), $graph, $notes);
+        $target = $this->searchTarget($this->knownAddress(SymbolRef::parse($this->stringArgument($input, 'symbol') ?? ''), $graph, $context), $graph, $notes);
         $finder = new ReferenceFinder($context->project, $context->index(), locator: $context->locator);
         $references = $finder->find(
             $target,

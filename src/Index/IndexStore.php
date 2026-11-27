@@ -341,6 +341,17 @@ final class IndexStore
         return $paths;
     }
 
+    /**
+     * Whether any indexed file's path starts with `$prefix`, such as `vendor/`.
+     */
+    public function holdsPathsUnder(string $root, string $prefix): bool
+    {
+        $statement = $this->prepare('holds_under', 'SELECT 1 FROM files WHERE root = ? AND substr(path, 1, length(?)) = ? LIMIT 1');
+        $statement->execute([$root, $prefix, $prefix]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
     public function forgetFile(string $root, string $path): void
     {
         $this->prepare('forget_file', 'DELETE FROM files WHERE root = ? AND path = ?')->execute([$root, $path]);
