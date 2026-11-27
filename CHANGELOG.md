@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
   `check` and `index --status` report rather than search, and are unchanged.
 - An address with line 0 is printed as the bare path everywhere, not only in `routes` and `reaches` (#113). Counted nouns in headers share one helper, and a sweep rule flags new hand-written plurals.
 - **`dispatches` exits 3 for undecided sends only when the class could be what they send** (#115): a class with a `handle()` method, a dispatchable trait or a queue interface, or one in a `Jobs` or `Events` namespace. Asking about a model or a service that nothing dispatches is now a plain miss, exit 1.
+- **The "route table may be out of date" note no longer fires after a fresh clone** (#112). exocomp records a hash of the table and of the route files when it reads them, and warns when the route files change while the table stays the same. For a table it has not seen before, a route file has to be more than five minutes newer to count.
 - Pint no longer reformats the test fixtures when given a directory such as `tests` (#117).
 
 ## [0.10.1] - 2026-11-27
