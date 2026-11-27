@@ -1,0 +1,8 @@
+One group of a model
+-----
+[project=laravel] model Customer --only relation
+-----
+App\Models\Customer   app/Models/Customer.php:12
+
+relations (1)
+app/Models/Customer.php:17  orders                 hasMany  App\Models\Order

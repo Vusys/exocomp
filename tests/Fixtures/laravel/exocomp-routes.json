@@ -103,12 +103,12 @@
     {
         "domain": null,
         "method": "GET|HEAD",
-        "uri": "?",
+        "uri": "api/30/dynamic",
         "name": null,
-        "action": "Closure",
+        "action": "App\\Http\\Controllers\\OrderController@index",
         "middleware": [
             "api"
         ],
-        "path": "routes/api.php:14"
+        "path": null
     }
 ]

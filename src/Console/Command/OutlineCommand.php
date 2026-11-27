@@ -42,8 +42,8 @@ final class OutlineCommand extends ExocompCommand
         if ($this->readingStdin($input)) {
             $analysis = $this->stdinFile($input, $context);
             $declarations = $analysis->declarations;
-        } elseif (is_file($target)) {
-            $analysis = $context->locator->analyse($target);
+        } elseif (($file = $this->existingFile($target, $context)) !== null) {
+            $analysis = $context->locator->analyse($file);
             $declarations = $analysis->declarations;
         } else {
             $located = $context->locator->locateOwner(SymbolRef::parse($target));

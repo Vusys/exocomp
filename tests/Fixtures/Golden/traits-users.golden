@@ -1,0 +1,6 @@
+The classes that use a trait
+-----
+traits-users Fixtures\TierA\Loggable
+-----
+1 user of Fixtures\TierA\Loggable
+src/TierA/Baseline.php:12:1  Fixtures\TierA\Baseline   class

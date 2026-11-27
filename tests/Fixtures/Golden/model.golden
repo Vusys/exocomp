@@ -1,0 +1,49 @@
+Everything a model declares, grouped, with its observers
+-----
+[project=laravel] model Order
+-----
+App\Models\Order   app/Models/Order.php:25
+note: 1 of 4 annotated property is backed by no column, cast, accessor or relation — legacy_code; the model was read to the end of its ancestry, so these are claims nothing backs
+
+attributes (2)
+app/Models/Order.php:29  table                  shop_orders
+app/Models/Order.php:31  connection             shop
+
+relations (3)
+app/Models/Order.php:42  customer               belongsTo  App\Models\Customer
+app/Models/Order.php:47  lines                  hasMany  App\Models\OrderLine
+app/Models/Order.php:52  comments               morphMany  App\Models\Comment
+
+accessors (2)
+app/Models/Order.php:78  display_name           getDisplayNameAttribute()   read as an attribute by the framework's naming convention
+app/Models/Order.php:87  short_code             shortCode()   read as an attribute — declared with an Attribute return type, not by its name
+
+casts (2)
+app/Models/Order.php:36  placed_at              datetime
+app/Models/Order.php:37  status                 App\Models\OrderStatus
+
+fillable (3)
+app/Models/Order.php:33  customer_id
+app/Models/Order.php:33  reference
+app/Models/Order.php:33  total_pence
+
+hidden (1)
+app/Models/Order.php:40  internal_note
+
+local scopes (1)
+app/Models/Order.php:70  active                 scopeActive()   called as ::active() or ->active()
+
+global scopes (1)
+app/Models/Concerns/HasTenant.php:17  App\Scopes\TenantScope    registered by App\Models\Concerns\HasTenant
+
+observers (1)
+app/Providers/AppServiceProvider.php:47  OrderObserver          App\Observers\OrderObserver   registered by Order::observe()
+
+traits (1)
+app/Models/Concerns/HasTenant.php:13  App\Models\Concerns\HasTenant
+
+annotated properties (4)
+app/Models/Order.php:25  id                        @property on App\Models\Order — backed by a column
+app/Models/Order.php:25  reference                 @property on App\Models\Order — backed by $fillable and a column
+app/Models/Order.php:25  display_name              @property-read on App\Models\Order — backed by an accessor
+app/Models/Order.php:25  legacy_code               @property on App\Models\Order — backed by nothing the model or its migrations declare

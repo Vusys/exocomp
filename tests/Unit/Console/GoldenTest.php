@@ -6,7 +6,6 @@ namespace Vusys\Exocomp\Tests\Unit\Console;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Vusys\Exocomp\Tests\Support\Cli;
 use Vusys\Exocomp\Tests\Support\GoldenFixture;
 
 /**
@@ -22,7 +21,7 @@ final class GoldenTest extends TestCase
     #[DataProvider('catalogue')]
     public function test_command_output_matches_its_golden_file(GoldenFixture $fixture): void
     {
-        $run = Cli::inCorpus($fixture->arguments);
+        $run = $fixture->run();
 
         $this->assertSame($fixture->expected, rtrim($run->output, "\n"), $fixture->errors($run));
         $this->assertSame($fixture->expectedExitCode, $run->exitCode, $fixture->errors($run));

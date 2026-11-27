@@ -235,11 +235,32 @@ abstract class ExocompCommand extends Command
      */
     protected function targetFile(string $target, CommandContext $context): FileAnalysis
     {
-        if (is_file($target)) {
-            return $context->locator->analyse($target);
+        $file = $this->existingFile($target, $context);
+
+        if ($file !== null) {
+            return $context->locator->analyse($file);
         }
 
         return $context->locator->locateOwner(SymbolRef::parse($target))->analysis;
+    }
+
+    /**
+     * A file target as given, or relative to the project root, as every path this tool prints
+     * is. Something shaped like a path that is neither is a missing file, not a class name.
+     */
+    protected function existingFile(string $target, CommandContext $context): ?string
+    {
+        foreach ([$target, $context->project->path($target)] as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        if (str_ends_with(strtolower($target), '.php')) {
+            throw new SymbolNotFound($target, sprintf('no file %s, here or under the project root %s', $target, $context->project->root));
+        }
+
+        return null;
     }
 
     /**

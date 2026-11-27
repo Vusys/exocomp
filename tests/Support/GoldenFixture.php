@@ -25,6 +25,7 @@ final readonly class GoldenFixture
         public array $arguments,
         public int $expectedExitCode,
         public string $expected,
+        public string $project = 'corpus',
     ) {}
 
     /**
@@ -63,23 +64,34 @@ final readonly class GoldenFixture
 
         [$name, $command, $expected] = $sections;
         $exitCode = 0;
+        $project = 'corpus';
+        $command = trim($command);
 
-        if (preg_match('/^\[exit=(\d+)\]\s+(.*)$/', trim($command), $matches) === 1) {
-            $exitCode = (int) $matches[1];
-            $command = $matches[2];
+        // Leading tags, in any order: `[exit=3]`, `[project=laravel]`.
+        while (preg_match('/^\[(exit|project)=(\w+)\]\s+(.*)$/s', $command, $matches) === 1) {
+            if ($matches[1] === 'exit') {
+                $exitCode = (int) $matches[2];
+            } else {
+                $project = $matches[2];
+            }
+
+            $command = $matches[3];
         }
+
+        if (! in_array($project, ['corpus', 'laravel'], true)) {
+            throw new RuntimeException(sprintf('%s: unknown project "%s"', basename($path), $project));
+        }
+
+        // Split on whitespace, with single quotes for an argument that holds a space, such as
+        // `'route:POST /orders'`. The argument "0" survives: `--arg-is-not-literal 0` needs it.
+        preg_match_all("/'([^']*)'|(\S+)/", $command, $parts, PREG_SET_ORDER);
 
         return new self(
             name: trim($name),
-            // Filtered on emptiness rather than truthiness: `array_filter()` with no callback
-            // would drop the argument "0", which is exactly the value a predicate like
-            // `--arg-is-not-literal 0` needs.
-            arguments: array_values(array_filter(
-                preg_split('/\s+/', trim($command)) ?: [],
-                static fn (string $part): bool => $part !== '',
-            )),
+            arguments: array_map(static fn (array $part): string => ($part[2] ?? '') !== '' ? $part[2] : ($part[1] ?? ''), $parts),
             expectedExitCode: $exitCode,
             expected: rtrim($expected, "\n"),
+            project: $project,
         );
     }
 
@@ -90,6 +102,24 @@ final readonly class GoldenFixture
     public function errors(Run $run): string
     {
         return $run->errors === '' ? $this->name : $this->name.' — stderr: '.trim($run->errors);
+    }
+
+    /**
+     * The command's output with the project's absolute root written as `<project>`: a next-page
+     * command repeats `--project`, and the checkout's location is no part of the contract.
+     */
+    public function run(): Run
+    {
+        // Whether the route table is older than the route files is a fact about the checkout's
+        // file times, not the output contract: a fresh clone writes them in any order.
+        if ($this->project === 'laravel') {
+            touch(Cli::laravelRoot().'/exocomp-routes.json');
+        }
+
+        $run = $this->project === 'laravel' ? Cli::inLaravel($this->arguments) : Cli::inCorpus($this->arguments);
+        $root = $this->project === 'laravel' ? Cli::laravelRoot() : Cli::corpusRoot();
+
+        return new Run($run->exitCode, str_replace([(string) realpath($root), $root], '<project>', $run->output), $run->errors);
     }
 
     public static function directory(): string

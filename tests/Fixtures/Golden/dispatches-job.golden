@@ -1,0 +1,13 @@
+A job's sends at every spelling, and the job handling itself
+-----
+[project=laravel] dispatches ProcessOrder
+-----
+App\Jobs\ProcessOrder — dispatched in 3 places, handled in 1
+
+dispatched (3)
+app/Services/OrderService.php:15      dispatch()
+app/Services/OrderService.php:17      ProcessOrder::dispatch()
+app/Services/ReportDispatcher.php:48  dispatch()
+
+handled by (1)
+app/Jobs/ProcessOrder.php:17  App\Jobs\ProcessOrder::handle                      the job handles itself

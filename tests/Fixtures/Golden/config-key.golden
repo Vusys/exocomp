@@ -1,0 +1,14 @@
+A config key, where it is defined and who reads it
+-----
+[project=laravel] config services.timeout
+-----
+services.timeout — 1 definition, 1 read
+
+── 1 read whose key is not a literal ──
+app/Services/BillingService.php:23  ?                                              config()   the key is computed, so it may or may not be this one
+
+defined (1)
+config/services.php:9  services.timeout                               30
+
+read (1)
+routes/api.php:14  services.timeout                               config()

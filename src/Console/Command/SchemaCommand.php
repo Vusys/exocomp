@@ -87,8 +87,9 @@ final class SchemaCommand extends FrameworkCommand
         $sections = [new Section(sprintf('columns of %s', $table->name), $kept)];
 
         if ($table->indexes !== []) {
+            $indexWidth = Address::width(array_map(static fn (array $index): string => Address::of($index['path'], $index['line']), $table->indexes));
             $sections[] = new Section('indexes', array_map(
-                fn (array $index): Row => $this->indexRow($table, $index),
+                fn (array $index): Row => $this->indexRow($table, $index, $indexWidth),
                 $table->indexes,
             ));
         }
@@ -189,7 +190,7 @@ final class SchemaCommand extends FrameworkCommand
     /**
      * @param  array{kind: string, columns: list<string>, path: string, line: int, name?: string}  $index
      */
-    private function indexRow(Table $table, array $index): Row
+    private function indexRow(Table $table, array $index, int $width): Row
     {
         return new Row(
             file: $index['path'],
@@ -197,7 +198,7 @@ final class SchemaCommand extends FrameworkCommand
             column: null,
             fqn: null,
             kind: 'index',
-            text: rtrim(sprintf('%s  %-10s %s   %s', Address::of($index['path'], $index['line']), $index['kind'], implode(', ', $index['columns']), $index['name'] ?? '')),
+            text: rtrim(sprintf('%s  %-10s %s   %s', str_pad(Address::of($index['path'], $index['line']), $width), $index['kind'], implode(', ', $index['columns']), $index['name'] ?? '')),
             confidence: Confidence::Inferred,
             extra: ['table' => $table->name, 'index' => $index['kind'], 'columns' => implode(',', $index['columns'])] + (isset($index['name']) ? ['name' => $index['name']] : []),
             carriesAddress: true,

@@ -71,17 +71,14 @@ final class RoutesCommand extends IndexedFrameworkCommand
         $declined = $this->filter($reader->declined(), $filter, $method);
 
         if ($routes === [] && $declined === []) {
-            throw new SymbolNotFound($filter ?? 'routes', sprintf(
-                '%d route file%s were read and nothing in them matches',
-                $reader->filesRead(),
-                $reader->filesRead() === 1 ? '' : 's',
-            ));
+            throw new SymbolNotFound($filter ?? 'routes', sprintf('no route in %s matches', $reader->source));
         }
 
         [$kept, $elided] = $context->budget->apply($this->rows($routes, $this->boolOption($input, 'middleware')));
 
         return new Result(
-            header: sprintf('%d route%s from %d file%s', count($routes), count($routes) === 1 ? '' : 's', $reader->filesRead(), $reader->filesRead() === 1 ? '' : 's'),
+            // Where the table came from is the first note; "from 1 file" read as one route file.
+            header: sprintf('%d route%s', count($routes), count($routes) === 1 ? '' : 's'),
             sections: [new Section('', $kept)],
             unresolvedTitle: 'declared, but not readable',
             unresolved: $this->rows($declined, false, withNote: false),
@@ -118,7 +115,7 @@ final class RoutesCommand extends IndexedFrameworkCommand
     private function rows(array $routes, bool $withMiddleware, bool $withNote = true): array
     {
         $width = Address::width(array_map(
-            static fn (RouteDefinition $route): string => Address::of($route->path, $route->line),
+            static fn (RouteDefinition $route): string => Address::of($route->path, $route->line === 0 ? null : $route->line),
             $routes,
         ));
 
@@ -137,7 +134,8 @@ final class RoutesCommand extends IndexedFrameworkCommand
                 kind: 'route',
                 text: rtrim(sprintf(
                     '%s  %-10s %s %s%s%s',
-                    str_pad(Address::of($route->path, $route->line), $width),
+                    // A route the route files do not place is at the table, with no line.
+                    str_pad(Address::of($route->path, $route->line === 0 ? null : $route->line), $width),
                     $route->method,
                     str_pad($route->uri, $uriWidth),
                     $route->target(),

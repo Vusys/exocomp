@@ -1,0 +1,10 @@
+No path, but the walk stopped at dependencies: incomplete, exit 3
+-----
+[project=laravel] [exit=3] reaches App\Http\Controllers\OrderController::store App\Inference\Gateway::refund
+-----
+no path from App\Http\Controllers\OrderController::store to App\Inference\Gateway::refund; 12 declarations were walked
+
+── 2 not followed ──
+vendor/illuminate/src/Database/Eloquent/Model.php:22:1  Illuminate\Database\Eloquent\Model::save    it is a dependency; --through-vendor walks past this
+vendor/illuminate/src/Database/Eloquent/Model.php:27:1  Illuminate\Database\Eloquent\Model::touch   it is a dependency; --through-vendor walks past this
+note: 2 edges led into a dependency and were not walked past; --through-vendor follows them

@@ -1,0 +1,12 @@
+A rename's whole family
+-----
+references-to Fixtures\TierA\Baseline::greet --family
+-----
+4 references to Fixtures\TierA\Baseline::greet  (4 resolved, 0 inferred, 0 unresolved)
+note: the family of Fixtures\TierA\Baseline::greet: Fixtures\TierA\AbstractBase::greet, Fixtures\TierA\Contract::greet and everything that overrides or implements them
+note: 1 file could not be parsed and is not in the index (see: exocomp index --status)
+
+src/TierA/AbstractBase.php:9:5  abstract public function greet(string $name, int $times = 1): string;
+src/TierA/Baseline.php:30:5     public function greet(string $name, int $times = 1): string { return str_repeat("hello {$n…
+src/TierA/Contract.php:11:5     public function greet(string $name, int $times = 1): string;
+src/TierB/Relative.php:18:5     public function greet(string $name, int $times = 1): string { return $name; }

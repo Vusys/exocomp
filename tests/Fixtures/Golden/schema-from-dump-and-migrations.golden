@@ -1,0 +1,23 @@
+A table replayed from a schema dump and later migrations, in column order
+-----
+[project=laravel] schema shop_orders
+-----
+shop_orders — 9 columns, 4 indexes
+note: reconstructed from database/schema/mysql-schema.sql then 4 migrations; this is the source's account of the schema, not the database's
+
+columns of shop_orders (9)
+database/schema/mysql-schema.sql:5   id                               bigint unsigned auto_increment
+database/schema/mysql-schema.sql:6   tenant_id                        bigint unsigned
+database/schema/mysql-schema.sql:7   customer_id                      bigint unsigned
+database/schema/mysql-schema.sql:8   reference                        varchar(64)
+database/migrations/2024_02_01_000000_add_total_to_shop_orders.php:14  total_pence                      unsignedInteger default(0) after('reference')
+database/schema/mysql-schema.sql:9   status                           varchar(32) default('draft')
+database/schema/mysql-schema.sql:10  note                             text nullable
+database/schema/mysql-schema.sql:12  created_at                       timestamp nullable
+database/schema/mysql-schema.sql:13  updated_at                       timestamp nullable
+
+indexes (4)
+database/schema/mysql-schema.sql:14  primary    id
+database/schema/mysql-schema.sql:15  unique     reference
+database/schema/mysql-schema.sql:16  index      customer_id
+database/migrations/2024_03_01_000000_rename_and_drop_on_shop_orders.php:14  index      tenant_id, status

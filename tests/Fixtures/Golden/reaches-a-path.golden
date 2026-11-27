@@ -1,0 +1,10 @@
+A route reaching a model write through a job
+-----
+[project=laravel] reaches 'route:POST /orders' App\Models\Order::save
+-----
+POST /orders (App\Http\Controllers\OrderController::store) reaches App\Models\Order::save in 3 steps; the weakest step is resolved
+note: routes read from exocomp-routes.json
+
+app/Http/Controllers/OrderController.php:35:9  method call  →  App\Services\OrderService::place
+app/Services/OrderService.php:15:9             dispatch  →  App\Jobs\ProcessOrder::handle
+app/Jobs/ProcessOrder.php:19:9                 method call  →  App\Models\Order::save

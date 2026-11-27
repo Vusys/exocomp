@@ -1,0 +1,28 @@
+The neighbourhood of a method, by step
+-----
+[project=laravel] graph App\Http\Controllers\OrderController::store
+-----
+11 declarations within 6 steps of App\Http\Controllers\OrderController::store
+
+── 2 not followed ──
+vendor/illuminate/src/Database/Eloquent/Model.php:22:1  Illuminate\Database\Eloquent\Model::save    it is a dependency; --through-vendor walks past this
+vendor/illuminate/src/Database/Eloquent/Model.php:27:1  Illuminate\Database\Eloquent\Model::touch   it is a dependency; --through-vendor walks past this
+
+1 step out (2)
+app/Http/Controllers/OrderController.php:35:9   method call  →  App\Services\OrderService::place
+app/Http/Controllers/OrderController.php:35:24  new  →  App\Models\Order::__construct
+
+2 steps out (5)
+app/Services/OrderService.php:15:18             new  →  App\Jobs\ProcessOrder::__construct
+app/Services/OrderService.php:19:15             new  →  App\Events\OrderPlaced::__construct
+app/Services/OrderService.php:15:9              dispatch  →  App\Jobs\ProcessOrder::handle
+app/Services/OrderService.php:19:9              listens  →  App\Listeners\NotifyCustomer::handle
+app/Services/OrderService.php:19:9              listens  →  App\Listeners\RecordMetrics::handle
+
+3 steps out (3)
+app/Jobs/ProcessOrder.php:19:9                  method call  →  App\Models\Order::save
+app/Jobs/ProcessOrder.php:19:9                  observed  →  App\Observers\OrderObserver::created
+app/Listeners/RecordMetrics.php:17:9            method call  →  App\Models\Order::touch
+
+4 steps out (1)
+app/Observers/OrderObserver.php:17:9            static call  →  App\Services\AuditLog::record

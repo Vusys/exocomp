@@ -1,0 +1,9 @@
+The morph map, alias to class
+-----
+[project=laravel] morph-map
+-----
+2 morph map entries
+note: these aliases are stored in the database, in the *_type column of every polymorphic relation
+
+config/morph-map.php:7  order                            App\Models\Order
+config/morph-map.php:8  comment                          App\Models\Comment
