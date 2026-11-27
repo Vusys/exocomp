@@ -1,0 +1,114 @@
+[
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "api/orders",
+        "name": "orders.index",
+        "action": "App\\Http\\Controllers\\OrderController@index",
+        "middleware": [
+            "api"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "api/orders/{order}",
+        "name": "orders.show",
+        "action": "App\\Http\\Controllers\\OrderController@show",
+        "middleware": [
+            "api"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "api/health",
+        "name": "api.health",
+        "action": "App\\Http\\Controllers\\HealthController",
+        "middleware": [
+            "api"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "/",
+        "name": "home",
+        "action": "Closure",
+        "middleware": [
+            "web"
+        ],
+        "path": "routes/web.php:6"
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "admin/orders",
+        "name": "admin.orders",
+        "action": "App\\Http\\Controllers\\OrderController@index",
+        "middleware": [
+            "web",
+            "auth"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "admin/reports/monthly",
+        "name": "admin.reports.monthly",
+        "action": "App\\Http\\Controllers\\OrderController@show",
+        "middleware": [
+            "web",
+            "auth"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "POST",
+        "uri": "orders",
+        "name": "place-order",
+        "action": "App\\Http\\Controllers\\OrderController@store",
+        "middleware": [
+            "web"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "exports",
+        "name": "exports",
+        "action": "App\\Http\\Controllers\\OrderController@index",
+        "middleware": [
+            "web"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "legacy/orders",
+        "name": "legacy.orders",
+        "action": "App\\Http\\Controllers\\Legacy\\OrderListController",
+        "middleware": [
+            "web"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "?",
+        "name": null,
+        "action": "Closure",
+        "middleware": [
+            "api"
+        ],
+        "path": "routes/api.php:14"
+    }
+]

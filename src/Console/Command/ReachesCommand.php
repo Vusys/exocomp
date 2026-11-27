@@ -15,6 +15,7 @@ use Vusys\Exocomp\Framework\Laravel\MiddlewareReader;
 use Vusys\Exocomp\Framework\Laravel\RouteDefinition;
 use Vusys\Exocomp\Framework\Laravel\RouteNamespace;
 use Vusys\Exocomp\Framework\Laravel\RouteReader;
+use Vusys\Exocomp\Framework\Laravel\RouteTable;
 use Vusys\Exocomp\Graph\Edge;
 use Vusys\Exocomp\Graph\Reachability;
 use Vusys\Exocomp\Graph\Start;
@@ -69,6 +70,7 @@ final class ReachesCommand extends GraphCommand
         $this
             ->addArgument('from', InputArgument::REQUIRED, 'Where to start: a method address, or "route:<pattern>" for every matching endpoint')
             ->addArgument('to', InputArgument::REQUIRED, 'What counts as arriving: "App\Models\Order::save", "App\Models\Order" for any member, or "::save" for any class\'s')
+            ->addOption('routes', null, InputOption::VALUE_REQUIRED, 'For a route: start, a file holding `php artisan route:list --json`; by default bootstrap/cache/routes-v7.php, then exocomp-routes.json, is read')
             ->addOption('max-routes', null, InputOption::VALUE_REQUIRED, 'How many matching routes a route: sweep walks; 0 walks them all', (string) self::MAX_STARTS);
     }
 
@@ -94,7 +96,7 @@ final class ReachesCommand extends GraphCommand
         }
 
         $matched = 0;
-        $starts = $this->starts($from, $context, $notes, $this->intOption($input, 'max-routes', self::MAX_STARTS), $matched);
+        $starts = $this->starts($from, $context, $notes, $this->intOption($input, 'max-routes', self::MAX_STARTS), $matched, $this->stringOption($input, 'routes'));
 
         return count($starts) === 1 && $matched <= 1
             ? $this->one($walk, $starts[0], $target, $context, $notes)
@@ -379,7 +381,7 @@ final class ReachesCommand extends GraphCommand
      * @param  list<string>  $notes
      * @return list<Start>
      */
-    private function starts(string $from, CommandContext $context, array &$notes, int $limit = self::MAX_STARTS, int &$matched = 0): array
+    private function starts(string $from, CommandContext $context, array &$notes, int $limit = self::MAX_STARTS, int &$matched = 0, ?string $routes = null): array
     {
         if (! str_starts_with($from, 'route:')) {
             return [new Start($from, $from, '', 0)];
@@ -393,6 +395,9 @@ final class ReachesCommand extends GraphCommand
             $profile->routesDirectory($context->project),
             static fn (string $absolute): string => $context->project->displayPath($absolute),
         );
+
+        // The table Laravel builds, not the route files: they only place each route.
+        $reader = RouteTable::forProject($context->project, $routes, $reader->routes(), $profile->routesDirectory($context->project));
 
         $starts = [];
         $closures = 0;
