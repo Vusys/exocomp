@@ -207,6 +207,47 @@ final class LaravelWiringTest extends TestCase
         $this->assertMatchesRegularExpression('/reports\.instance\s+→\s+App\\\\Services\\\\CsvReportWriter/', $output);
     }
 
+    public function test_column_order_follows_after_first_and_renames_in_place(): void
+    {
+        $this->project->write('database/migrations/2030_01_01_000000_create_widgets.php', <<<'PHP'
+            <?php
+
+            use Illuminate\Database\Migrations\Migration;
+            use Illuminate\Database\Schema\Blueprint;
+            use Illuminate\Support\Facades\Schema;
+
+            return new class extends Migration
+            {
+                public function up(): void
+                {
+                    Schema::create('widgets', function (Blueprint $table) {
+                        $table->id();
+                        $table->string('a');
+                        $table->string('b');
+                    });
+                    Schema::table('widgets', function (Blueprint $table) {
+                        $table->renameColumn('a', 'a2');
+                        $table->string('x')->after('id');
+                        $table->string('f')->first();
+                    });
+                }
+            };
+            PHP);
+
+        $run = $this->exocomp(['schema', 'widgets', '--json']);
+        $names = [];
+
+        foreach (explode("\n", trim($run->output)) as $line) {
+            $record = json_decode($line, true);
+
+            if (is_array($record) && ($record['kind'] ?? null) === 'column' && is_string($record['column'] ?? null)) {
+                $names[] = $record['column'];
+            }
+        }
+
+        $this->assertSame(['f', 'id', 'x', 'a2', 'b'], $names, $run->output);
+    }
+
     public function test_a_send_of_an_undecided_type_is_listed_as_not_decided(): void
     {
         $this->project->write('app/Wiring/Relay.php', <<<'PHP'

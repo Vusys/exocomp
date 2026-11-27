@@ -35,7 +35,46 @@ final class Table
 
     public function add(Column $column): void
     {
-        $this->columns[$column->name] = $column;
+        // A changed column keeps its place; a new one goes where `after('x')` or `first()` puts
+        // it, as MySQL places it, and otherwise at the end.
+        $place = isset($this->columns[$column->name]) ? null : $this->placement($column->modifiers);
+
+        if ($place === null) {
+            $this->columns[$column->name] = $column;
+
+            return;
+        }
+
+        $position = $place === '' ? 0 : array_search($place, array_keys($this->columns), true);
+
+        if ($position === false) {
+            $this->columns[$column->name] = $column;
+
+            return;
+        }
+
+        $offset = $place === '' ? 0 : $position + 1;
+        $this->columns = array_slice($this->columns, 0, $offset, true) + [$column->name => $column] + array_slice($this->columns, $offset, null, true);
+    }
+
+    /**
+     * The column a new one is placed after, '' for `first()`, or null for the end.
+     *
+     * @param  list<string>  $modifiers
+     */
+    private function placement(array $modifiers): ?string
+    {
+        foreach ($modifiers as $modifier) {
+            if ($modifier === 'first') {
+                return '';
+            }
+
+            if (preg_match("/^after\\('([^']+)'\\)$/", $modifier, $match) === 1) {
+                return $match[1];
+            }
+        }
+
+        return null;
     }
 
     public function drop(string $name): void
@@ -81,9 +120,18 @@ final class Table
             return;
         }
 
-        unset($this->columns[$from]);
+        // Renamed in place: a rename does not move the column.
+        $renamed = [];
 
-        $this->columns[$to] = new Column($to, $column->type, $column->arguments, $column->modifiers, $column->path, $column->line);
+        foreach ($this->columns as $name => $existing) {
+            if ($name === $from) {
+                $renamed[$to] = new Column($to, $column->type, $column->arguments, $column->modifiers, $column->path, $column->line);
+            } elseif ($name !== $to) {
+                $renamed[$name] = $existing;
+            }
+        }
+
+        $this->columns = $renamed;
     }
 
     public function isComplete(): bool
