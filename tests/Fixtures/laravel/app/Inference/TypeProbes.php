@@ -65,6 +65,11 @@ final class TypeProbes
         $repository->find(1)->refund(10);
     }
 
+    public function aliased(LegacyGateway $gateway): void
+    {
+        $gateway->refund(11);
+    }
+
     public function missingImport(StripeGateway $gateway): void
     {
         $gateway->refund(8);

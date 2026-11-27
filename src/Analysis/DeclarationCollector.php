@@ -96,6 +96,7 @@ final class DeclarationCollector
             $statement instanceof Stmt\Function_ => $this->collectFunction($statement),
             $statement instanceof Stmt\If_ => $this->collectConditional($statement),
             $statement instanceof Stmt\TryCatch => $this->collect($statement->stmts),
+            $statement instanceof Stmt\Expression => $this->collectAlias($statement),
             default => null,
         };
     }
@@ -155,6 +156,51 @@ final class DeclarationCollector
             line: $use->getStartLine(),
             column: $this->file->columnAt($use->getStartFilePos()),
             isAliased: $use->alias instanceof Node\Identifier,
+        );
+    }
+
+    /**
+     * `class_alias(Gateway::class, 'App\LegacyGateway')` with literal names declares the alias,
+     * as PHP does when the file runs. It is recorded as a class extending the original, so its
+     * members, and calls made on it, are the original's.
+     */
+    private function collectAlias(Stmt\Expression $statement): void
+    {
+        $call = $statement->expr;
+
+        if (! $call instanceof Node\Expr\FuncCall || ! $call->name instanceof Node\Name
+            || strcasecmp($call->name->getLast(), 'class_alias') !== 0 || $call->isFirstClassCallable()) {
+            return;
+        }
+
+        $arguments = Analyser::arguments($call);
+        $original = isset($arguments[0]) ? LiteralValue::className($arguments[0]->value) : null;
+        $alias = isset($arguments[1]) ? LiteralValue::className($arguments[1]->value) : null;
+
+        if ($original === null || $alias === null) {
+            return;
+        }
+
+        $alias = ltrim($alias, '\\');
+        $position = strrpos($alias, '\\');
+        $signature = sprintf('class_alias(%s, %s)', ltrim($original, '\\'), $alias);
+
+        $this->declarations[] = new Declaration(
+            kind: SymbolKind::ClassType,
+            name: $position === false ? $alias : substr($alias, $position + 1),
+            fqn: $alias,
+            startLine: $statement->getStartLine(),
+            endLine: $statement->getEndLine(),
+            startColumn: $this->file->columnAt($statement->getStartFilePos()),
+            startOffset: $statement->getStartFilePos(),
+            endOffset: $statement->getEndFilePos(),
+            spanStartLine: $this->spanStartLine($statement),
+            spanStartOffset: $this->spanStartOffset($statement),
+            signature: $signature,
+            fullSignature: $signature,
+            modifiers: ['alias'],
+            extends: [ltrim($original, '\\')],
+            hasBody: true,
         );
     }
 

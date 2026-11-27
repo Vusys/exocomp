@@ -54,6 +54,16 @@ final class DocumentedTypesTest extends TestCase
         $this->assertStringContainsString('App\Inference\TypeProbes::missingImport', Cli::inLaravel(['callers-of', 'App\Inference\Gateway::refund', '--all-unresolved', '--max-tokens', '0'])->output);
     }
 
+    public function test_a_call_on_a_class_alias_lands_on_the_original(): void
+    {
+        $this->assertContains('App\Inference\Gateway::refund', array_column($this->callsFrom('aliased'), 'lands'));
+    }
+
+    public function test_a_class_alias_is_located_where_it_is_declared(): void
+    {
+        $this->assertStringContainsString('app/Inference/aliases.php:7', Cli::inLaravel(['locate', 'App\Inference\LegacyGateway'])->output);
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
