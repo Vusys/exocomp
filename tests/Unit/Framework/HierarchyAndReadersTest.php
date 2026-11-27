@@ -44,6 +44,13 @@ final class HierarchyAndReadersTest extends TestCase
         $this->assertStringNotContainsString('App\Adapted\Calls::plain', $greets);
         $this->assertStringContainsString('App\Adapted\Calls::plain', $this->exocomp(['callers-of', 'App\Adapted\Pings::hello'])->output);
         $this->assertStringContainsString('App\Adapted\Calls::revealed', $this->exocomp(['callers-of', 'App\Adapted\Greets::secret'])->output);
+
+        $members = $this->exocomp(['members', 'App\Adapted\Host'])->output;
+
+        $this->assertStringContainsString('aliased from traits (2)', $members);
+        $this->assertStringContainsString('public function greet(): string  (App\Adapted\Greets::hello)', $members);
+        $this->assertStringContainsString('public function revealed(): string  (App\Adapted\Greets::secret)', $members);
+        $this->assertSame(0, $this->exocomp(['members', 'App\Adapted\Host::greet'])->exitCode);
     }
 
     public function test_overrides_down_from_an_interface_and_up_into_a_dependency(): void
