@@ -989,9 +989,10 @@ final class ModelReader
         }
 
         $this->notes[] = sprintf(
-            '%d of %d annotated properties are accounted for by no column, cast, accessor or relation — %s%s%s',
+            '%d of %d annotated propert%s backed by no column, cast, accessor or relation — %s%s%s',
             count($unaccounted),
             count($claimed),
+            count($unaccounted) === 1 ? 'y is' : 'ies are',
             implode(', ', array_slice($unaccounted, 0, 8)),
             count($unaccounted) > 8 ? sprintf(' and %d more', count($unaccounted) - 8) : '',
             $unreadable === []

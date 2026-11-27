@@ -268,14 +268,14 @@ final class ModelTest extends TestCase
         // The ordinary way a generated block goes wrong: a column is dropped and the comment
         // outlives it. Two of the four things needed to notice were already in hand here — the
         // migration history and the annotations — and nothing else in the toolchain will say so.
-        $this->assertStringContainsString('annotated properties are accounted for by no column', $run->output);
+        $this->assertMatchesRegularExpression('/annotated propert(y is|ies are) backed by no column/', $run->output);
         $this->assertStringContainsString('legacy_code', $run->output);
     }
 
     public function test_an_annotation_the_source_accounts_for_is_not_reported_as_drift(): void
     {
         $run = Cli::inLaravel(['model', 'Order']);
-        $note = explode("\n", (string) strstr($run->output, 'annotated properties are accounted for'))[0];
+        $note = explode("\n", (string) strstr($run->output, 'backed by no column'))[0];
 
         foreach (['id', 'reference', 'display_name'] as $accounted) {
             $this->assertStringNotContainsString($accounted, $note, "{$accounted} is a column, cast or accessor");

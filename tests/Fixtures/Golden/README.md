@@ -15,7 +15,22 @@ every path in the expected output is relative to the corpus root and stable acro
 Any argument naming a file that exists under the corpus is resolved to an absolute path before
 the run; everything else is passed through untouched.
 
-A non-zero exit is declared by prefixing the command with `[exit=N]`. Only stdout is compared —
+Tags before the command, in any order, change how it runs:
+
+- `[exit=N]` declares a non-zero exit.
+- `[project=laravel]` runs against `tests/Fixtures/laravel` instead, for the framework
+  commands (`routes`, `model`, `schema`, `reaches 'route:…'` and the rest). Before each such
+  run the harness touches `exocomp-routes.json`, so whether the table is older than the route
+  files never depends on the order a checkout wrote them in.
+
+An argument holding a space is single-quoted: `reaches 'route:POST /orders' X::y`. The
+project's absolute root is written as `<project>` in the expected output, because a page's
+next-page command repeats `--project`.
+
+`php ~/code/php-project-manager/tools/exo-regolden.php [name]` rewrites files from the current
+output; read the diff before committing it.
+
+Otherwise: Only stdout is compared —
 stderr is asserted separately, in `tests/Unit/Console/ExitCodesTest.php`, because keeping
 diagnostics off stdout is itself part of the contract.
 

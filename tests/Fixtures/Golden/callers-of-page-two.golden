@@ -1,0 +1,19 @@
+A later page repeats the summary
+-----
+[project=laravel] callers-of App\Inference\Gateway::refund --max-tokens 300 --page 2
+-----
+31 callers of App\Inference\Gateway::refund
+
+── 1 unresolved, by reason (3 shown of each; --all-unresolved lists every one) ──
+1  <class>: no such class is declared anywhere (a missing import?)
+   app/Inference/TypeProbes.php:75:9        App\Inference\TypeProbes::missingImport
+
+app/Inference/InferenceProbes.php:53:9   App\Inference\InferenceProbes::matched
+app/Inference/InferenceProbes.php:59:38  App\Inference\InferenceProbes::matchTrue
+app/Inference/InferenceProbes.php:66:9   App\Inference\InferenceProbes::coalesceAssigned
+app/Inference/InferenceProbes.php:71:9   App\Inference\InferenceProbes::enumFrom
+app/Inference/InferenceProbes.php:76:37  App\Inference\InferenceProbes::{closure:closureParameter():76}
+app/Inference/InferenceProbes.php:82:9   App\Inference\InferenceProbes::piped
+app/Inference/InferenceProbes.php:88:9   App\Inference\InferenceProbes::pipedArrow
+app/Inference/InferenceProbes.php:94:9   App\Inference\InferenceProbes::clonedWith
+── records 9–16 of 30; next: exocomp callers-of 'App\Inference\Gateway::refund' --max-tokens 300 --project '<project>' --page 3 ──

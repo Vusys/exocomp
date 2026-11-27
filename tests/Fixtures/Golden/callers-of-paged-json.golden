@@ -1,0 +1,8 @@
+A JSON page leads with where it is in the answer
+-----
+[project=laravel] callers-of App\Inference\Gateway::refund --json --max-tokens 300
+-----
+{"page_first":1,"page_last":1,"of":30,"next":"exocomp callers-of 'App\\Inference\\Gateway::refund' --json --max-tokens 300 --project '<project>' --page 2"}
+{"file":"app/Inference/ClosureCallers.php","line":14,"col":38,"fqn":"App\\Inference\\ClosureCallers::{closure:first():14}","kind":"method call","confidence":"resolved","text":"app/Inference/ClosureCallers.php:14:38   App\\Inference\\ClosureCallers::{closure:first():14}","reason":"receiver is App\\Inference\\Gateway"}
+{"unresolved_reason":"<class>: no such class is declared anywhere (a missing import?)","count":1,"examples":1}
+{"file":"app/Inference/TypeProbes.php","line":75,"col":9,"fqn":"App\\Inference\\TypeProbes::missingImport","kind":"method call","confidence":"textual","text":"app/Inference/TypeProbes.php:75:9        App\\Inference\\TypeProbes::missingImport","note":"App\\Inference\\StripeGateway: no such class is declared anywhere (a missing import?)","reason":"App\\Inference\\StripeGateway: no such class is declared anywhere (a missing import?)","unresolved":true}

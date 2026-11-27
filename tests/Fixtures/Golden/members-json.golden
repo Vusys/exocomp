@@ -1,0 +1,17 @@
+Members as JSON, the not-listed block included
+-----
+members Fixtures\TierA\Baseline --own --json
+-----
+{"file":"src/TierA/Baseline.php","line":16,"col":5,"fqn":"Fixtures\\TierA\\Baseline::DEFAULT_LABEL","kind":"constant","confidence":"resolved","text":"public const string DEFAULT_LABEL = 'baseline'","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":18,"col":5,"fqn":"Fixtures\\TierA\\Baseline::RETRIES","kind":"constant","confidence":"resolved","text":"protected const int RETRIES = 3","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":20,"col":5,"fqn":"Fixtures\\TierA\\Baseline::$instances","kind":"property","confidence":"resolved","text":"private static int $instances = 0","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":22,"col":5,"fqn":"Fixtures\\TierA\\Baseline::__construct","kind":"method","confidence":"resolved","text":"public function __construct(Repository, string=)","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":23,"col":9,"fqn":"Fixtures\\TierA\\Baseline::$repository","kind":"property","confidence":"resolved","text":"private readonly Repository $repository  (promoted)","origin":"own","promoted":true,"section":"own"}
+{"file":"src/TierA/Baseline.php","line":24,"col":9,"fqn":"Fixtures\\TierA\\Baseline::$label","kind":"property","confidence":"resolved","text":"protected string $label = self::DEFAULT_LABEL  (promoted)","origin":"own","promoted":true,"section":"own"}
+{"file":"src/TierA/Baseline.php","line":30,"col":5,"fqn":"Fixtures\\TierA\\Baseline::greet","kind":"method","confidence":"resolved","text":"public function greet(string, int=): string","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":35,"col":5,"fqn":"Fixtures\\TierA\\Baseline::repository","kind":"method","confidence":"resolved","text":"public function repository(): Repository","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":40,"col":5,"fqn":"Fixtures\\TierA\\Baseline::retries","kind":"method","confidence":"resolved","text":"protected function retries(): int","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":45,"col":5,"fqn":"Fixtures\\TierA\\Baseline::reset","kind":"method","confidence":"resolved","text":"private function reset(): void","origin":"own","section":"own"}
+{"file":"src/TierA/Baseline.php","line":12,"col":1,"fqn":"Fixtures\\TierA\\AbstractBase","kind":"extends","confidence":"textual","text":"extends Fixtures\\TierA\\AbstractBase","note":"members not listed with --own — drop the flag to resolve them","unresolved":true}
+{"file":"src/TierA/Baseline.php","line":12,"col":1,"fqn":"Fixtures\\TierA\\Contract","kind":"implements","confidence":"textual","text":"implements Fixtures\\TierA\\Contract","note":"members not listed with --own — drop the flag to resolve them","unresolved":true}
+{"file":"src/TierA/Baseline.php","line":12,"col":1,"fqn":"Fixtures\\TierA\\Loggable","kind":"use","confidence":"textual","text":"use Fixtures\\TierA\\Loggable","note":"members not listed with --own — drop the flag to resolve them","unresolved":true}

@@ -115,7 +115,7 @@ final class ConfigCommand extends IndexedFrameworkCommand
         return new Result(
             header: sprintf('%s — %d definition%s, %d read%s', $key, count($definitions), count($definitions) === 1 ? '' : 's', count($certain), count($certain) === 1 ? '' : 's'),
             sections: $sections,
-            unresolvedTitle: 'reads whose key is not a literal',
+            unresolvedTitle: count($computed) === 1 ? 'read whose key is not a literal' : 'reads whose key is not a literal',
             unresolved: $this->rows($computed, withNote: false),
             elided: $elided,
             notes: [...$notes, ...$reader->notes(), ...$context->notes()],

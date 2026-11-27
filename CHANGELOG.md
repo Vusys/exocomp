@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A command-line error is printed once.** A missing argument or an unknown option was rendered twice, the second time without the suggestion.
+- **`subclasses`, `implementors` and `traits-users` exit 1 when there are none,** like every other command whose answer is empty. They exited 0.
+- **A file target may be relative to the project root,** as every path exocomp prints is: `outline src/Foo.php --project app`. A `.php` target that is not a file says so, rather than being looked up as a class name.
+- **A summary before untitled records is followed by a blank line,** so the last unresolved row no longer reads as the first answer.
+- A route the route files do not place is shown at the table (`exocomp-routes.json`) rather than at line `:0`, in `routes` and in a `reaches 'route:*'` sweep.
+- `reaches 'route:…'` now carries the route table's notes, including the warning that the table is older than the route files.
+- Wording: `routes` no longer says "from 1 file" for the table it read; `bindings` says how many providers were read rather than implying every binding came from all of them; `config` says "1 read", not "1 reads"; `model` says "1 of 4 annotated properties is backed by no column…".
+- `schema` aligns its index rows like its column rows.
+
 ## [0.10.1] - 2026-11-27
 
 ### Fixed

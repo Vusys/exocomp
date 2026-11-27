@@ -1,0 +1,15 @@
+A model whose framework ancestor is not indexed
+-----
+[project=laravel] members App\Models\Order --limit 4
+-----
+app/Models/Order.php  App\Models\Order  (13 reachable members; 1 ancestor not reached)
+
+── 1 not reached ──
+extends Illuminate\Database\Eloquent\Model   not in the index — run: exocomp index --warm --vendor
+
+own (4)
+app/Models/Order.php:29:5  protected $table = 'shop_orders'
+app/Models/Order.php:31:5  protected $connection = 'shop'
+app/Models/Order.php:33:5  protected $fillable
+app/Models/Order.php:35:5  protected $casts
+… 9 more (use --limit)

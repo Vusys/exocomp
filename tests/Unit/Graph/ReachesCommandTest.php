@@ -59,7 +59,7 @@ final class ReachesCommandTest extends TestCase
         $run = Cli::inLaravel(['reaches', 'route:*', 'App\Models\Order::save']);
 
         $this->assertSame(0, $run->exitCode);
-        $this->assertStringContainsString('of 8 starting points reach', $run->output);
+        $this->assertStringContainsString('of 9 starting points reach', $run->output);
         $this->assertStringContainsString('POST /orders', $run->output);
         $this->assertStringContainsString('reached in 3 steps', $run->output);
         $this->assertStringContainsString('not reached', $run->output);
@@ -93,7 +93,7 @@ final class ReachesCommandTest extends TestCase
 
         // Some routes met edges the walk could not follow, so the "none" has gaps.
         $this->assertSame(3, $run->exitCode);
-        $this->assertStringContainsString('0 of 8 starting points', $run->output);
+        $this->assertStringContainsString('0 of 9 starting points', $run->output);
     }
 
     public function test_a_route_pattern_matching_nothing_is_a_not_found(): void

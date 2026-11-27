@@ -101,6 +101,7 @@ abstract class RelationCommand extends IndexedCommand
             sections: [new Section('', $kept)],
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
+            found: $records !== [],
         );
     }
 

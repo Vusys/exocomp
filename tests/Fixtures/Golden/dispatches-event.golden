@@ -1,0 +1,12 @@
+An event's sends, a registered listener and a discovered one
+-----
+[project=laravel] dispatches OrderPlaced
+-----
+App\Events\OrderPlaced — dispatched in 1 place, handled in 2
+
+dispatched (1)
+app/Services/OrderService.php:19  event()
+
+handled by (2)
+app/Providers/EventServiceProvider.php:19  App\Listeners\NotifyCustomer                       registered in $listen
+app/Listeners/RecordMetrics.php:15         App\Listeners\RecordMetrics                        takes the event by type; the framework discovers listeners this way, if discovery is enabled

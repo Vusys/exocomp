@@ -169,7 +169,7 @@ final class ReachesCommand extends GraphCommand
         $rows = [];
         $reached = 0;
         $addressWidth = Address::width(array_map(
-            static fn (Start $start): string => Address::of($start->path, $start->line, 1),
+            $this->startAddress(...),
             $starts,
         ));
         $labelWidth = array_reduce($starts, static fn (int $widest, Start $start): int => max($widest, strlen($start->label)), 0);
@@ -223,7 +223,7 @@ final class ReachesCommand extends GraphCommand
             column: $start->line === 0 ? null : 1,
             fqn: $start->node,
             kind: $reach->found ? 'reached' : 'not reached',
-            text: rtrim(str_pad(Address::of($start->path, $start->line, 1), $addressWidth).'  '.str_pad($start->label, $labelWidth).'  '.$summary),
+            text: rtrim(str_pad($this->startAddress($start), $addressWidth).'  '.str_pad($start->label, $labelWidth).'  '.$summary),
             confidence: $reach->found ? $reach->confidence() : Confidence::Textual,
             extra: ['steps' => count($reach->path), 'expanded' => $reach->expanded],
             carriesAddress: $start->path !== '',
@@ -378,6 +378,14 @@ final class ReachesCommand extends GraphCommand
     }
 
     /**
+     * A route the route files do not place has only the table it came from: no line, no column.
+     */
+    private function startAddress(Start $start): string
+    {
+        return $start->line === 0 ? Address::of($start->path) : Address::of($start->path, $start->line, 1);
+    }
+
+    /**
      * @param  list<string>  $notes
      * @return list<Start>
      */
@@ -398,6 +406,9 @@ final class ReachesCommand extends GraphCommand
 
         // The table Laravel builds, not the route files: they only place each route.
         $reader = RouteTable::forProject($context->project, $routes, $reader->routes(), $profile->routesDirectory($context->project));
+
+        // Which table, and whether it is older than the route files, matter as much to a walk.
+        $notes = [...$notes, ...$reader->notes()];
 
         $starts = [];
         $closures = 0;

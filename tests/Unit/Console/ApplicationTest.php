@@ -44,6 +44,12 @@ final class ApplicationTest extends TestCase
         $this->assertStringContainsString($flat('Did you mean --matching?'), $flat($misspelt));
         $this->assertStringContainsString($flat('callers-of answers one level'), $flat($invented));
         $this->assertStringContainsString($flat('--max-nodes is an option of: reaches, graph.'), $flat($elsewhere));
+        // Said once: the original was rendered again beneath the suggestion when chained.
+        $this->assertSame(1, substr_count($flat($misspelt), $flat('option does not exist')));
+
+        [, $missing] = $run('config');
+
+        $this->assertSame(1, substr_count($missing, 'Not enough arguments'));
     }
 
     public function test_it_registers_every_phase_zero_command(): void

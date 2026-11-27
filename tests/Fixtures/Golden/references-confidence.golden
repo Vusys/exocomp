@@ -8,6 +8,7 @@ references-to Fixtures\TierD\Notifier::send
 src/TierD/ArrayCallers.php:52:16   $this->pair()['other']->send('hello')   an element of something whose elements are not known
 src/TierD/CallSites.php:36:16      $anything->send('hello')                receiver type unknown
 note: 1 file could not be parsed and is not in the index (see: exocomp index --status)
+
 src/TierD/CallSites.php:18:16      $this->notifier->send('hello')
 src/TierD/CallSites.php:24:16      $this->loud->send('hello')
 src/TierD/CallSites.php:44:16      $made->send('hello')

@@ -4,5 +4,6 @@ query $X->record(...) --arg-is-not-literal 0
 -----
 2 matches for $X->record(...)  (1 file scanned)
 note: 1 file could not be parsed and is not in the index (see: exocomp index --status)
+
 src/TierB/CallSites.php:28:9  X=$this
 src/TierB/CallSites.php:29:9  X=$this

@@ -1,0 +1,8 @@
+A facade and the class it stands for
+-----
+[project=laravel] facade Reporting
+-----
+App\Facades\Reporting resolves through the container key "reporting"
+note: bound to "reporting" in App\Providers\AppServiceProvider
+
+app/Facades/Reporting.php:13  App\Facades\Reporting  →  App\Services\ReportBuilder

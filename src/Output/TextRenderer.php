@@ -33,7 +33,14 @@ final class TextRenderer implements Renderer
         $summaryFirst = $result->body === null && $result->sections !== [];
 
         if ($summaryFirst) {
-            $lines = [...$lines, ...$this->summary($result)];
+            $summary = $this->summary($result);
+            $lines = [...$lines, ...$summary];
+
+            // Untitled records straight after the summary read as more of it: the last
+            // unresolved row and the first resolved one looked like one list.
+            if ($summary !== [] && $result->sections[0]->title === '') {
+                $lines[] = '';
+            }
         }
 
         foreach ($result->sections as $section) {

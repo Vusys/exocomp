@@ -1,0 +1,9 @@
+A forwarded call addressed by its receiver, with where it lands
+-----
+[project=laravel] calls-from App\Inference\EloquentProbes::tapped
+-----
+4 calls from App\Inference\EloquentProbes::tapped
+app/Inference/EloquentProbes.php:61:9   App\Inference\Gateway::refund
+app/Inference/EloquentProbes.php:61:9   tap
+app/Inference/EloquentProbes.php:61:13  App\Inference\Gateway::__construct
+app/Inference/EloquentProbes.php:61:37  App\Inference\Gateway::refund

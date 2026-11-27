@@ -87,9 +87,12 @@ final class Application extends SymfonyApplication
         try {
             return parent::doRunCommand($command, $input, $output);
         } catch (ConsoleRuntimeException $error) {
-            // Not chained: the original would be rendered again beneath the replacement.
-            throw new ConsoleRuntimeException($this->suggest($error->getMessage(), $command), 2, $error);
+            $message = $error->getMessage();
         }
+
+        // Not chained, and thrown outside the catch so Rector's ThrowWithPreviousExceptionRector
+        // does not chain it: Symfony renders a previous exception again beneath the replacement.
+        throw new ConsoleRuntimeException($this->suggest($message, $command), 2);
     }
 
     private function suggest(string $message, Command $command): string

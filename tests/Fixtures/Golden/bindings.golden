@@ -1,0 +1,13 @@
+Container bindings, with the one whose concrete class is not readable
+-----
+[project=laravel] bindings
+-----
+4 bindings, 4 service providers read
+
+── 1 registered, but the concrete class is not readable ──
+app/Providers/AppServiceProvider.php:30  bind        report.writer.chosen  →  ?   built by a factory that does more than construct one class
+
+app/Providers/AppServiceProvider.php:24  bind        App\Contracts\ReportWriter  →  App\Services\CsvReportWriter
+app/Providers/AppServiceProvider.php:26  singleton   reporting  →  App\Services\ReportBuilder   the factory returns one `new`, so this is what it builds
+app/Providers/AppServiceProvider.php:40  alias       report.builder  →  App\Services\ReportBuilder
+app/Providers/AppServiceProvider.php:36  contextual  App\Contracts\ReportWriter  →  App\Services\PdfReportWriter   when resolved for App\Http\Controllers\OrderController

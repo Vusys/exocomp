@@ -59,7 +59,7 @@ final class ConfigTest extends TestCase
     {
         $output = Cli::inLaravel(['config', 'services.timeout'])->output;
 
-        $this->assertStringContainsString('reads whose key is not a literal', $output);
+        $this->assertStringContainsString('read whose key is not a literal', $output);
         $this->assertStringContainsString('may or may not be this one', $output);
     }
 

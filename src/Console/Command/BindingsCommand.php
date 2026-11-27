@@ -60,7 +60,13 @@ final class BindingsCommand extends IndexedFrameworkCommand
         [$kept, $elided] = $context->budget->apply($this->rows($bindings));
 
         return new Result(
-            header: sprintf('%d binding%s from %d service providers', count($bindings), count($bindings) === 1 ? '' : 's', $reader->providersRead()),
+            header: sprintf(
+                '%d binding%s, %d service provider%s read',
+                count($bindings),
+                count($bindings) === 1 ? '' : 's',
+                $reader->providersRead(),
+                $reader->providersRead() === 1 ? '' : 's',
+            ),
             sections: [new Section('', $kept)],
             unresolvedTitle: 'registered, but the concrete class is not readable',
             unresolved: $this->rows($declined, withNote: false),
