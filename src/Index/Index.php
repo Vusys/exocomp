@@ -60,9 +60,48 @@ final class Index
     public static function cachePath(): string
     {
         return self::cacheDirectory().'/'.IndexSchema::fileName(
-            Application::VERSION,
+            Application::VERSION.self::extractorStamp(),
             PhpVersion::getNewestSupported()->id.'-'.self::parserVersion(),
         );
+    }
+
+    /** The source files whose behaviour decides what an index holds. */
+    private const array EXTRACTORS = ['Analysis/*.php', 'Index/*.php', 'Inference/DocBlockTypes.php'];
+
+    private static ?string $extractorStamp = null;
+
+    /**
+     * Run from a git checkout, the index is also keyed by the extractor's source, because a
+     * change to what `BodyTypes` or `DeclarationCollector` records does not change the version,
+     * and an index built before it went on answering from the old extraction (#116). A release
+     * installed by Composer has no `.git` and its version is the key; this is empty there.
+     */
+    private static function extractorStamp(): string
+    {
+        if (self::$extractorStamp !== null) {
+            return self::$extractorStamp;
+        }
+
+        $source = dirname(__DIR__);
+
+        if (! is_dir(dirname($source).'/.git')) {
+            return self::$extractorStamp = '';
+        }
+
+        $files = [];
+
+        foreach (self::EXTRACTORS as $pattern) {
+            $files = [...$files, ...(glob($source.'/'.$pattern) ?: [])];
+        }
+
+        sort($files);
+        $hash = hash_init('xxh32');
+
+        foreach ($files as $file) {
+            hash_update($hash, basename($file).@file_get_contents($file));
+        }
+
+        return self::$extractorStamp = '-dev'.hash_final($hash);
     }
 
     public function graph(bool $validate = true, bool $includeVendor = false): SymbolGraph
