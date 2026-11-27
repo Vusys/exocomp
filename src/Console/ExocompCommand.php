@@ -7,22 +7,27 @@ namespace Vusys\Exocomp\Console;
 use InvalidArgumentException;
 use RuntimeException;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Output\StreamOutput;
 use Vusys\Exocomp\Analysis\FileAnalysis;
 use Vusys\Exocomp\Framework\SourceRoots;
+use Vusys\Exocomp\Index\Index;
 use Vusys\Exocomp\Output\JsonRenderer;
 use Vusys\Exocomp\Output\OutputBudget;
 use Vusys\Exocomp\Output\OutputFormat;
 use Vusys\Exocomp\Output\Result;
+use Vusys\Exocomp\Output\Row;
+use Vusys\Exocomp\Output\Section;
+use Vusys\Exocomp\Output\UnresolvedGroup;
 use Vusys\Exocomp\Project\AutoloadMap;
 use Vusys\Exocomp\Project\Project;
 use Vusys\Exocomp\Project\SymbolLocator;
 use Vusys\Exocomp\Project\SymbolNotFound;
 use Vusys\Exocomp\Source\ParseFailure;
 use Vusys\Exocomp\Source\Revision;
+use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolRef;
 
 /**
@@ -51,15 +56,17 @@ abstract class ExocompCommand extends Command
     protected const int EXIT_INCOMPLETE = 3;
 
     /**
-     * The ceiling applied when output is not going to a terminal and the caller named none.
+     * The ceiling every answer is held to unless the caller names another: one page.
      *
-     * Roughly 100KB of text. Chosen against the measured distribution of real answers — median
-     * 1KB, ninetieth percentile 5KB, largest 13KB — so it is some eight times the biggest
-     * answer anyone has actually received and cannot bite ordinary use. It is a bound on a
-     * runaway, not a budget: the failure it exists to prevent is a `members` on a god object or
-     * a `references-to` on a framework base class filling a caller's whole context in one go.
+     * About 16KB of text, the same at a terminal and in a pipe, so how much an answer costs is
+     * known before it is asked. The measured distribution of real answers (median 1KB, ninetieth
+     * percentile 5KB) fits on one page. A bigger one is cut on a record boundary, keeps its
+     * summary, and says how to get the next page, so nothing is ever lost to `| head`.
      */
-    public const int DEFAULT_MAX_TOKENS = 25000;
+    public const int DEFAULT_MAX_TOKENS = 4000;
+
+    /** How long a cut answer is kept, so that its next pages do not repeat the search. */
+    private const int PAGE_CACHE_SECONDS = 600;
 
     protected function configure(): void
     {
@@ -72,7 +79,9 @@ abstract class ExocompCommand extends Command
             ->addOption('as', null, InputOption::VALUE_REQUIRED, 'The path to report for --stdin input', '(stdin)')
             ->addOption('scan', null, InputOption::VALUE_NONE, 'If the name cannot be placed, read every file under the source roots to find it (slow; needed only for a class sharing a file with a differently-named sibling)')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Maximum records to emit; the remainder is reported, never dropped silently. Use this, not `| head`, which hides the cut and the exit code', '0')
-            ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, sprintf('Approximate ceiling on output size; any cut is reported. Defaults to %d when output is not a terminal; 0 removes it', self::DEFAULT_MAX_TOKENS), '0');
+            ->addOption('max-tokens', null, InputOption::VALUE_REQUIRED, sprintf('Approximate size of one page of output, in tokens; a longer answer is cut on a record boundary and says how to get the next page. Defaults to %d; 0 removes it', self::DEFAULT_MAX_TOKENS), '0')
+            ->addOption('page', null, InputOption::VALUE_REQUIRED, 'Which page of a cut answer to print; each page repeats the summary', '1')
+            ->addOption('all', null, InputOption::VALUE_NONE, 'Print the whole answer, however long (the same as --max-tokens 0)');
     }
 
     /**
@@ -86,7 +95,7 @@ abstract class ExocompCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         try {
-            $context = $this->context($input, $output);
+            $context = $this->context($input);
         } catch (InvalidArgumentException|RuntimeException $error) {
             $this->fail($output, $error->getMessage());
 
@@ -94,7 +103,7 @@ abstract class ExocompCommand extends Command
         }
 
         try {
-            $result = $this->answer($input, $context);
+            $result = $this->cachedPage($input, $context) ?? $this->answer($input, $context);
         } catch (SymbolNotFound $notFound) {
             $this->fail($output, $notFound->getMessage());
 
@@ -130,11 +139,20 @@ abstract class ExocompCommand extends Command
         }
 
         $renderer = $context->format->renderer();
+        $capped = $result->capped($context->budget);
         $rendered = $context->budget->renderWithin(
-            $result->capped($context->budget),
+            $capped,
             $renderer->render(...),
             $renderer instanceof JsonRenderer,
+            $this->intOption($input, 'page', 1),
+            $this->commandLine($input),
         );
+
+        // Kept briefly when it took more than one page, so asking for the next does not repeat
+        // a search that may have taken seconds.
+        if ($context->budget->maxTokens > 0 && OutputBudget::tokens($renderer->render($capped)) > $context->budget->maxTokens) {
+            $this->keepPage($input, $context, $result);
+        }
 
         // Raw mode, always. The payload is PHP source and PHP source contains `<?php`, `<` in
         // comparisons and `<...>` in docblock generics — all of which Symfony's formatter would
@@ -253,36 +271,76 @@ abstract class ExocompCommand extends Command
     }
 
     /**
-     * Whether the answer is being read by a person at a terminal or piped into something else.
-     *
-     * The distinction decides whether a token ceiling applies by default, so it is read off the
-     * actual output stream rather than guessed: a test harness writing to a memory buffer is
-     * correctly not a terminal, and gets exactly the behaviour an agent's pipe gets.
-     */
-    private function writingToATerminal(OutputInterface $output): bool
-    {
-        $stream = $output instanceof StreamOutput ? $output->getStream() : null;
-
-        return is_resource($stream) && stream_isatty($stream);
-    }
-
-    /**
      * The token ceiling for this run.
      *
      * An explicit `--max-tokens` always wins, including `--max-tokens 0`, which is how a caller
      * asks for no ceiling at all and must keep working — an answer someone deliberately wants
      * whole has to arrive whole.
      */
-    private function tokenCeiling(InputInterface $input, OutputInterface $output): int
+    private function tokenCeiling(InputInterface $input): int
     {
+        if ($this->boolOption($input, 'all')) {
+            return 0;
+        }
+
         if ($input->hasParameterOption('--max-tokens')) {
             return $this->intOption($input, 'max-tokens', 0);
         }
 
-        return $this->writingToATerminal($output) ? 0 : self::DEFAULT_MAX_TOKENS;
+        return self::DEFAULT_MAX_TOKENS;
     }
 
-    private function context(InputInterface $input, OutputInterface $output): CommandContext
+    /**
+     * The command as typed, without the page it asked for: what the next page is asked by.
+     */
+    private function commandLine(InputInterface $input): string
+    {
+        $typed = $input instanceof ArgvInput ? (string) $input : (string) $this->getName();
+        $typed = trim((string) preg_replace('/\s--page(?:=|\s+)\S+/', '', ' '.$typed));
+
+        return 'exocomp '.$typed;
+    }
+
+    private function pageKey(InputInterface $input, CommandContext $context): string
+    {
+        $stamp = @filemtime(Index::cachePath()) ?: 0;
+        $typed = trim((string) preg_replace('/\s--(?:page|max-tokens)(?:=|\s+)\S+|\s--all\b/', '', ' '.$this->commandLine($input)));
+
+        return Index::cacheDirectory().'/pages/'.hash('xxh128', $context->project->root."\0".$typed."\0".$stamp).'.ser';
+    }
+
+    /**
+     * The answer a first page was cut from, for a later page asked for soon after.
+     */
+    private function cachedPage(InputInterface $input, CommandContext $context): ?Result
+    {
+        if ($this->intOption($input, 'page', 1) <= 1) {
+            return null;
+        }
+
+        $path = $this->pageKey($input, $context);
+
+        if (! is_file($path) || time() - (int) filemtime($path) > self::PAGE_CACHE_SECONDS) {
+            return null;
+        }
+
+        $result = @unserialize((string) file_get_contents($path), ['allowed_classes' => [Result::class, Section::class, Row::class, UnresolvedGroup::class, Confidence::class]]);
+
+        return $result instanceof Result ? $result : null;
+    }
+
+    private function keepPage(InputInterface $input, CommandContext $context, Result $result): void
+    {
+        $path = $this->pageKey($input, $context);
+
+        if (! is_dir(dirname($path))) {
+            @mkdir(dirname($path), 0o777, true);
+        }
+
+        @file_put_contents($path, serialize($result));
+    }
+
+    private function context(InputInterface $input): CommandContext
     {
         $root = $this->stringOption($input, 'project');
         $project = $root === null
@@ -305,7 +363,7 @@ abstract class ExocompCommand extends Command
             locator: new SymbolLocator($project, $map, $this->boolOption($input, 'scan'), $revision),
             budget: new OutputBudget(
                 limit: $this->intOption($input, 'limit', 0),
-                maxTokens: $this->tokenCeiling($input, $output),
+                maxTokens: $this->tokenCeiling($input),
                 implicit: ! $input->hasParameterOption('--max-tokens'),
             ),
             format: $format,

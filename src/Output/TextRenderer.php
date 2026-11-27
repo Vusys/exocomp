@@ -28,6 +28,14 @@ final class TextRenderer implements Renderer
             $lines[] = $result->body;
         }
 
+        // What could not be resolved, and the notes, lead a listing: they are what says how far
+        // to trust it, and a page of records, or a reader who stops early, must not lose them.
+        $summaryFirst = $result->body === null && $result->sections !== [];
+
+        if ($summaryFirst) {
+            $lines = [...$lines, ...$this->summary($result)];
+        }
+
         foreach ($result->sections as $section) {
             if ($section->title !== '') {
                 $lines[] = '';
@@ -47,17 +55,35 @@ final class TextRenderer implements Renderer
             $lines[] = sprintf('… %d more (use %s)', $result->elided, $result->cutByTokens ? '--max-tokens' : '--limit');
         }
 
+        if ($result->window instanceof PageWindow) {
+            $lines[] = '── '.$result->window->describe().' ──';
+        }
+
+        if (! $summaryFirst) {
+            $lines = [...$lines, ...$this->summary($result)];
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function summary(Result $result): array
+    {
+        $lines = [];
+
         if ($result->unresolvedGroups !== []) {
-            $lines = [...$lines, '', ...$this->renderGroups($result)];
+            $lines = ['', ...$this->renderGroups($result)];
         } elseif ($result->unresolved !== []) {
-            $lines = [...$lines, '', ...$this->renderUnresolved($result)];
+            $lines = ['', ...$this->renderUnresolved($result)];
         }
 
         foreach ($result->notes as $note) {
             $lines[] = 'note: '.$note;
         }
 
-        return implode("\n", $lines);
+        return $lines;
     }
 
     /**

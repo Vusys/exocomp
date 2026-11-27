@@ -30,6 +30,12 @@ final class JsonRenderer implements Renderer
             $lines[] = $this->encode(['found' => false, 'complete' => $result->complete, 'note' => $result->header]);
         }
 
+        // A page says which records it holds and how to ask for the next, first, so a reader
+        // of the first line knows the answer is not all here.
+        if ($result->window instanceof PageWindow) {
+            $lines[] = $this->encode(['page_first' => $result->window->first, 'page_last' => $result->window->last, 'of' => $result->window->total, 'next' => $result->window->next]);
+        }
+
         foreach ($result->objects as $object) {
             $lines[] = $this->encode($object);
         }

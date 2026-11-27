@@ -63,7 +63,7 @@ final class OutputAndOptionsTest extends TestCase
         $records = array_map(static fn (string $line): mixed => json_decode($line, true), explode("\n", trim($run->output)));
 
         $this->assertNotContains(null, $records, 'every line is JSON');
-        $this->assertContains('max-tokens', array_column(array_filter($records, is_array(...)), 'reason'));
+        $this->assertNotSame([], array_filter($records, static fn (mixed $record): bool => is_array($record) && array_key_exists('next', $record)), 'the page says how to get the next');
         $this->assertNotSame([], array_filter($records, static fn (mixed $record): bool => is_array($record) && isset($record['unresolved_reason'])));
     }
 

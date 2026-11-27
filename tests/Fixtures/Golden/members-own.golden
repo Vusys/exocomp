@@ -4,6 +4,11 @@ members Fixtures\TierA\Baseline --own
 -----
 src/TierA/Baseline.php  Fixtures\TierA\Baseline  (10 own members)
 
+── 3 not listed ──
+extends Fixtures\TierA\AbstractBase   members not listed with --own — drop the flag to resolve them
+implements Fixtures\TierA\Contract    members not listed with --own — drop the flag to resolve them
+use Fixtures\TierA\Loggable           members not listed with --own — drop the flag to resolve them
+
 own (10)
    16  public const string DEFAULT_LABEL = 'baseline'
    18  protected const int RETRIES = 3
@@ -15,8 +20,3 @@ own (10)
    35  public function repository(): Repository
    40  protected function retries(): int
    45  private function reset(): void
-
-── 3 not listed ──
-extends Fixtures\TierA\AbstractBase   members not listed with --own — drop the flag to resolve them
-implements Fixtures\TierA\Contract    members not listed with --own — drop the flag to resolve them
-use Fixtures\TierA\Loggable           members not listed with --own — drop the flag to resolve them

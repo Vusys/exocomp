@@ -3,5 +3,5 @@ A predicate about the enclosing declaration
 query $R->findByUuid($U) --annotated @deprecated
 -----
 1 match for $R->findByUuid($U)  (1 file scanned)
-src/TierB/CallSites.php:44:16  R=$this->repository  U=$uuid
 note: 1 file could not be parsed and is not in the index (see: exocomp index --status)
+src/TierB/CallSites.php:44:16  R=$this->repository  U=$uuid
