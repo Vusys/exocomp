@@ -55,6 +55,15 @@ final class Dispatched
         // `$job = new ShipOrder(1); dispatch($job);`.
         self::$assigned = [];
 
+        // A parameter typed with a class is that class too: `handle(ShipOrder $job) { dispatch($job); }`.
+        foreach (new NodeFinder()->findInstanceOf($statements, Node\Param::class) as $param) {
+            if ($param->var instanceof Node\Expr\Variable && is_string($param->var->name) && $param->type instanceof Node\Name) {
+                $class = Analyser::resolvedName($param->type);
+                $previous = self::$assigned[$param->var->name] ?? null;
+                self::$assigned[$param->var->name] = $previous === null || $previous === $class ? $class : '';
+            }
+        }
+
         foreach (new NodeFinder()->findInstanceOf($statements, Node\Expr\Assign::class) as $assign) {
             if ($assign->var instanceof Node\Expr\Variable && is_string($assign->var->name)
                 && $assign->expr instanceof Node\Expr\New_ && $assign->expr->class instanceof Node\Name) {
@@ -101,7 +110,7 @@ final class Dispatched
                 }
 
                 $argument = Analyser::arguments($call)[0]->value ?? null;
-                $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
+                $sent = self::sent($argument);
 
                 if ($sent !== null) {
                     $sites[] = new DispatchSite($sent, $sender.'()', $call->getStartLine(), $call->getStartFilePos());
@@ -138,7 +147,7 @@ final class Dispatched
             // `Bus::chain([new A, new B])`, `Bus::batch([...])`, `X::withChain([...])`: each job listed.
             if (in_array($method, self::SENDS_A_LIST, true) && ($list = Analyser::arguments($call)[0]->value ?? null) instanceof Node\Expr\Array_) {
                 foreach ($list->items as $item) {
-                    $sent = self::constructedClass($item->value);
+                    $sent = self::sent($item->value);
 
                     if ($sent !== null) {
                         $sites[] = new DispatchSite($sent, $spelling, $call->getStartLine(), $call->getStartFilePos());
@@ -149,7 +158,7 @@ final class Dispatched
             // `Queue::push(new ShipOrder)`, `Queue::later($delay, new ShipOrder)`.
             if (isset(self::QUEUE_PUSHES[$method]) && self::QUEUE_PUSHES[$method] >= 0 && strcasecmp(self::shortName($class), 'Queue') === 0) {
                 $argument = Analyser::arguments($call)[self::QUEUE_PUSHES[$method]]->value ?? null;
-                $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
+                $sent = self::sent($argument);
 
                 if ($sent !== null) {
                     $sites[] = new DispatchSite($sent, $spelling, $call->getStartLine(), $call->getStartFilePos());
@@ -164,7 +173,7 @@ final class Dispatched
             }
 
             $argument = Analyser::arguments($call)[0]->value ?? null;
-            $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
+            $sent = self::sent($argument);
 
             if ($sent !== null) {
                 $sites[] = new DispatchSite($sent, $spelling, $call->getStartLine(), $call->getStartFilePos());
@@ -195,9 +204,10 @@ final class Dispatched
             }
 
             $argument = Analyser::arguments($call)[0]->value ?? null;
-            $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
+            $sent = self::sent($argument);
 
-            if ($sent !== null) {
+            // Its receiver is not checked, so an argument of unknown type is not even a send.
+            if ($sent !== null && $sent !== '') {
                 $sites[] = new DispatchSite(
                     $sent,
                     '->'.$call->name->toString().'()',
@@ -210,6 +220,30 @@ final class Dispatched
         }
 
         return $sites;
+    }
+
+    /**
+     * The class an argument sends; '' where it is an object of a type not decided here (a
+     * variable, a property, a call), so the send is reported rather than dropped; null where it
+     * sends no class at all (a string event name, a closure).
+     */
+    private static function sent(?Node\Expr $argument): ?string
+    {
+        if (! $argument instanceof Node\Expr) {
+            return null;
+        }
+
+        $class = self::constructedClass($argument);
+
+        if ($class !== null) {
+            return $class;
+        }
+
+        return $argument instanceof Node\Scalar || $argument instanceof Node\Expr\ConstFetch || $argument instanceof Node\Expr\ClassConstFetch
+            || $argument instanceof Node\Expr\Array_ || $argument instanceof Node\Expr\Closure || $argument instanceof Node\Expr\ArrowFunction
+            || $argument instanceof Node\Expr\BinaryOp\Concat
+            ? null
+            : '';
     }
 
     private static function constructedClass(Node\Expr $expression): ?string

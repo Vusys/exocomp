@@ -207,6 +207,35 @@ final class LaravelWiringTest extends TestCase
         $this->assertMatchesRegularExpression('/reports\.instance\s+→\s+App\\\\Services\\\\CsvReportWriter/', $output);
     }
 
+    public function test_a_send_of_an_undecided_type_is_listed_as_not_decided(): void
+    {
+        $this->project->write('app/Wiring/Relay.php', <<<'PHP'
+            <?php
+
+            namespace App\Wiring;
+
+            use App\Jobs\ProcessOrder;
+
+            final class Relay
+            {
+                public function typed(ProcessOrder $job): void { dispatch($job); }
+                public function opaque(object $thing): void { dispatch($thing); }
+                public function named(): void { event('order.placed'); }
+            }
+            PHP);
+
+        $run = $this->exocomp(['dispatches', 'App\Jobs\ProcessOrder', '--max-tokens', '0']);
+
+        // A typed parameter decides the send; an `object` does not; a string event is no class.
+        $this->assertMatchesRegularExpression('/app\/Wiring\/Relay\.php:9\s+dispatch\(\)/', $run->output);
+        $this->assertStringContainsString('not decided', $run->output);
+        $this->assertMatchesRegularExpression('/app\/Wiring\/Relay\.php:10\s+dispatch\(\) sends something whose type is not known/', $run->output);
+        $this->assertStringNotContainsString('Relay.php:11', $run->output);
+
+        // Nothing sends the model, but the opaque send might: incomplete, not a clean miss.
+        $this->assertSame(3, $this->exocomp(['dispatches', 'App\Models\Customer'])->exitCode);
+    }
+
     public function test_dispatch_shapes_and_listener_registrations(): void
     {
         $this->project->write('app/Wiring/Sends.php', <<<'PHP'
