@@ -2,16 +2,17 @@ Routes from the table Laravel builds, placed in the route files
 -----
 [project=laravel] routes
 -----
-10 routes
+11 routes
 note: routes read from exocomp-routes.json
 
-routes/api.php:9     GET|HEAD   /api/orders            App\Http\Controllers\OrderController::index
-routes/api.php:9     GET|HEAD   /api/orders/{order}    App\Http\Controllers\OrderController::show
-routes/api.php:11    GET|HEAD   /api/health            App\Http\Controllers\HealthController::__invoke   a single-action controller
-routes/web.php:6     GET|HEAD   /                      closure   answered by a closure, so there is no controller to point at
-routes/web.php:9     GET|HEAD   /admin/orders          App\Http\Controllers\OrderController::index
-routes/web.php:14    GET|HEAD   /admin/reports/monthly App\Http\Controllers\OrderController::show
-routes/web.php:18    POST       /orders                App\Http\Controllers\OrderController::store
-routes/web.php:22    GET|HEAD   /exports               App\Http\Controllers\OrderController::index
-routes/web.php:27    GET|HEAD   /legacy/orders         App\Http\Controllers\Legacy\OrderListController::__invoke   a single-action controller
-exocomp-routes.json  GET|HEAD   /api/30/dynamic        App\Http\Controllers\OrderController::index
+routes/web.php:6                                      GET|HEAD   /                      closure   answered by a closure, so there is no controller to point at
+routes/web.php:9                                      GET|HEAD   /admin/orders          App\Http\Controllers\OrderController::index
+routes/web.php:14                                     GET|HEAD   /admin/reports/monthly App\Http\Controllers\OrderController::show
+exocomp-routes.json                                   GET|HEAD   /api/30/dynamic        App\Http\Controllers\OrderController::index
+routes/api.php:11                                     GET|HEAD   /api/health            App\Http\Controllers\HealthController::__invoke   a single-action controller
+routes/api.php:9                                      GET|HEAD   /api/orders            App\Http\Controllers\OrderController::index
+routes/api.php:9                                      GET|HEAD   /api/orders/{order}    App\Http\Controllers\OrderController::show
+routes/web.php:22                                     GET|HEAD   /exports               App\Http\Controllers\OrderController::index
+routes/web.php:27                                     GET|HEAD   /legacy/orders         App\Http\Controllers\Legacy\OrderListController::__invoke   a single-action controller
+routes/web.php:18                                     POST       /orders                App\Http\Controllers\OrderController::store
+vendor/acme/widgets/src/WidgetServiceProvider.php:40  GET|HEAD   /widgets/ping          closure   answered by a closure, so there is no controller to point at

@@ -2,39 +2,6 @@
     {
         "domain": null,
         "method": "GET|HEAD",
-        "uri": "api/orders",
-        "name": "orders.index",
-        "action": "App\\Http\\Controllers\\OrderController@index",
-        "middleware": [
-            "api"
-        ],
-        "path": null
-    },
-    {
-        "domain": null,
-        "method": "GET|HEAD",
-        "uri": "api/orders/{order}",
-        "name": "orders.show",
-        "action": "App\\Http\\Controllers\\OrderController@show",
-        "middleware": [
-            "api"
-        ],
-        "path": null
-    },
-    {
-        "domain": null,
-        "method": "GET|HEAD",
-        "uri": "api/health",
-        "name": "api.health",
-        "action": "App\\Http\\Controllers\\HealthController",
-        "middleware": [
-            "api"
-        ],
-        "path": null
-    },
-    {
-        "domain": null,
-        "method": "GET|HEAD",
         "uri": "/",
         "name": "home",
         "action": "Closure",
@@ -69,12 +36,45 @@
     },
     {
         "domain": null,
-        "method": "POST",
-        "uri": "orders",
-        "name": "place-order",
-        "action": "App\\Http\\Controllers\\OrderController@store",
+        "method": "GET|HEAD",
+        "uri": "api/30/dynamic",
+        "name": null,
+        "action": "App\\Http\\Controllers\\OrderController@index",
         "middleware": [
-            "web"
+            "api"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "api/health",
+        "name": "api.health",
+        "action": "App\\Http\\Controllers\\HealthController",
+        "middleware": [
+            "api"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "api/orders",
+        "name": "orders.index",
+        "action": "App\\Http\\Controllers\\OrderController@index",
+        "middleware": [
+            "api"
+        ],
+        "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "api/orders/{order}",
+        "name": "orders.show",
+        "action": "App\\Http\\Controllers\\OrderController@show",
+        "middleware": [
+            "api"
         ],
         "path": null
     },
@@ -102,13 +102,22 @@
     },
     {
         "domain": null,
-        "method": "GET|HEAD",
-        "uri": "api/30/dynamic",
-        "name": null,
-        "action": "App\\Http\\Controllers\\OrderController@index",
+        "method": "POST",
+        "uri": "orders",
+        "name": "place-order",
+        "action": "App\\Http\\Controllers\\OrderController@store",
         "middleware": [
-            "api"
+            "web"
         ],
         "path": null
+    },
+    {
+        "domain": null,
+        "method": "GET|HEAD",
+        "uri": "widgets/ping",
+        "name": "widgets.ping",
+        "action": "Closure",
+        "middleware": [],
+        "path": "var/www/app/vendor/acme/widgets/src/WidgetServiceProvider.php:40"
     }
 ]

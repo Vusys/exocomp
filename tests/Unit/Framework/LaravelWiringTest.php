@@ -49,35 +49,24 @@ final class LaravelWiringTest extends TestCase
 
     public function test_the_route_cache_is_read_without_running_it(): void
     {
+        // A real `php artisan route:cache` of these route files (tests/Fixtures/route-tables).
         @unlink($this->project->path('exocomp-routes.json'));
-        $this->project->write('bootstrap/cache/routes-v7.php', <<<'PHP'
-            <?php
-
-            app('router')->setCompiledRoutes(
-                array (
-              'compiled' => array (),
-              'attributes' =>
-              array (
-                'orders.store' =>
-                array (
-                  'methods' => array (0 => 'POST'),
-                  'uri' => 'orders',
-                  'action' => array (
-                    'uses' => 'App\\Http\\Controllers\\OrderController@store',
-                    'controller' => 'App\\Http\\Controllers\\OrderController@store',
-                    'middleware' => array (0 => 'web'),
-                    'as' => 'orders.store',
-                  ),
-                ),
-              ),
-            )
-            );
-            PHP);
+        $this->project->write('bootstrap/cache/routes-v7.php', (string) file_get_contents(__DIR__.'/../../Fixtures/route-tables/routes-v7.php'));
 
         $output = $this->exocomp(['routes'])->output;
 
         $this->assertStringContainsString('routes read from bootstrap/cache/routes-v7.php', $output);
-        $this->assertMatchesRegularExpression('#POST\s+/orders\s+App\\\\Http\\\\Controllers\\\\OrderController::store#', $output);
+        $this->assertMatchesRegularExpression('#routes/web\.php:18\s+POST\s+/orders\s+App\\\\Http\\\\Controllers\\\\OrderController::store#', $output);
+        $this->assertMatchesRegularExpression('#/\s+closure#', $output);
+
+        // `uses` keeps a name written absolute as it was written; the leading backslash goes.
+        $this->assertMatchesRegularExpression('#/exports\s+App\\\\Http#', $output);
+    }
+
+    public function test_a_package_route_is_shown_from_vendor(): void
+    {
+        // `route:list` leaves a package's closure at its absolute path, less the leading slash.
+        $this->assertStringContainsString('vendor/acme/widgets/src/WidgetServiceProvider.php:40', $this->exocomp(['routes', 'widgets'])->output);
     }
 
     public function test_without_a_route_table_the_route_commands_refuse(): void
