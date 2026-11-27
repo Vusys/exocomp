@@ -49,10 +49,13 @@ Addresses have neither failure mode.
 
 ## Reading the answer
 
-**Exit codes: `0` found, `1` not found, `2` error.** A command line that does not parse is an error, and the
-message names the nearest real option or command. So `exocomp locate Foo >/dev/null && …` is a real
-predicate. A `1` from `reaches` is an answer, not a failure: do not retry it. `query` exits `0` with
-`0 matches` when nothing matches.
+**Exit codes: `0` found, `1` not found, `2` error, `3` not found but incomplete.** A command line that does
+not parse is an error, and the message names the nearest real option or command. So
+`exocomp locate Foo >/dev/null && …` is a real predicate. A `1` is an answer, not a failure: do not retry
+it. A `3` means "none, as far as could be checked": `reaches` met edges it could not follow or routes it did
+not walk, `callers-of` / `references-to` found nothing certain but have unresolved candidates or unsearched
+files, `query` or `check` could not decide some matches for want of a receiver type. The trailing block
+says what. `query` with nothing matching exits `1`, like every other command.
 
 **Every record leads with `file:line:col`.** Cuttable, awkable, clickable.
 

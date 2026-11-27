@@ -38,7 +38,8 @@ final class MiddlewareEdgesTest extends TestCase
         $web = Cli::inLaravel(['reaches', 'route:GET /api/orders', 'App\Http\Middleware\StartTenant::handle']);
 
         $this->assertSame(0, $global->exitCode, $global->output);
-        $this->assertSame(1, $web->exitCode, $web->output);
+        // Not reached, with edges the walk could not follow on the way: a "no" with gaps.
+        $this->assertSame(3, $web->exitCode, $web->output);
     }
 
     public function test_a_name_only_the_framework_defines_is_said_rather_than_dropped(): void

@@ -59,7 +59,8 @@ final class PolicyEdgesTest extends TestCase
     {
         $run = Cli::inLaravel(['reaches', 'App\Http\Controllers\AuthorizedActions::'.$method, 'App\Policies\*']);
 
-        $this->assertSame(1, $run->exitCode);
+        // A gap is not a no, and the exit code says so: 3, not found but incomplete.
+        $this->assertSame(3, $run->exitCode);
         $this->assertStringContainsString('1 not followed', $run->output);
         $this->assertStringContainsString($reason, $run->output);
         $this->assertStringNotContainsString('ran out of graph', $run->output);

@@ -27,7 +27,7 @@ final class JsonRenderer implements Renderer
         // The verdict leads, so a consumer reading the stream knows what the records are
         // evidence for before it reads them.
         if (! $result->found) {
-            $lines[] = $this->encode(['found' => false, 'note' => $result->header]);
+            $lines[] = $this->encode(['found' => false, 'complete' => $result->complete, 'note' => $result->header]);
         }
 
         foreach ($result->objects as $object) {

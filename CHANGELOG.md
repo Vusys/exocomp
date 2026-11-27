@@ -16,6 +16,11 @@ All notable changes to this project are documented here. The format follows
 
 - **`instanceof` types the variable it tests.** `$x` is the class inside `if ($x instanceof C) {…}` and an `elseif`, on the right of `&&`, and in a ternary's first branch. It is the class for the rest of the body after `assert($x instanceof C)`, and after a guard such as `if (! $x instanceof C) { throw … }` that has no other branch and always leaves. PHP guarantees each of these, so the type is `resolved`. It does not apply in an `else`, before the test in the same condition, or after the block ends. The type the variable had before comes back. `references-to`, `callers-of`, `calls-from`, `reaches` and `query`'s receiver predicates all use it.
 
+### Changed
+
+- **Exit code `3`: not found, but incomplete.** A "none" that could not check everything no longer exits like a clean one. `reaches` met edges it could not follow, hit its budget, or left routes unwalked. `callers-of` and `references-to` found nothing certain but have unresolved candidates or unsearched files. `query` found no match but could not decide some for want of a receiver type. `check` found no new violation, with the same proviso. `if exocomp …; then` reads `3` as false, as it reads `1`. In `--json` the leading `found: false` record also says `complete`.
+- **`callers-of`, `references-to` and `query` exit `1` when nothing is found,** as their help always said. They exited `0` on "0 callers" and "0 matches".
+
 ### Fixed
 
 - **`references-to` on an override is safe to rename from, and `--family` gives the whole hierarchy.** On a method that overrides or implements another, the parent's declaration was a `resolved` reference while the sibling implementations were missing, so rewriting the `resolved` set broke the hierarchy. Now:

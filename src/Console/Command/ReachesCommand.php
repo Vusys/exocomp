@@ -153,6 +153,7 @@ final class ReachesCommand extends GraphCommand
             unresolved: $shown,
             notes: [...$notes, ...$hidden, ...$this->coverage($reach), ...$this->walkNotes($walk), ...$context->notes()],
             found: false,
+            complete: $reach->stops === [] && ! $reach->exhausted,
         );
     }
 
@@ -171,9 +172,12 @@ final class ReachesCommand extends GraphCommand
         ));
         $labelWidth = array_reduce($starts, static fn (int $widest, Start $start): int => max($widest, strlen($start->label)), 0);
 
+        $complete = true;
+
         foreach ($starts as $start) {
             $reach = $walk->reach($start->node, $target, $start->before);
             $reached += $reach->found ? 1 : 0;
+            $complete = $complete && ($reach->found || ($reach->stops === [] && ! $reach->exhausted));
             $rows[] = $this->verdict($start, $reach, $addressWidth, $labelWidth);
         }
 
@@ -198,6 +202,7 @@ final class ReachesCommand extends GraphCommand
                 ...$context->notes(),
             ],
             found: $reached > 0,
+            complete: $complete && $matched <= count($starts),
         );
     }
 
