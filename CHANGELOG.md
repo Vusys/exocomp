@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-27
+
 ### Added
 
 - **Blade views are searched.** `references-to` and `callers-of` read `resources/views/**/*.blade.php`. The PHP is lifted out by syntax, keeping every line, and nothing is compiled or run:
