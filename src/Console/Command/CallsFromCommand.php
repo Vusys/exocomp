@@ -85,6 +85,8 @@ final class CallsFromCommand extends IndexedCommand
             unresolved: array_map(fn (OutgoingCall $c): Row => $this->row($c, $width, true), $unsure),
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
+            // A call it cannot resolve is still a call it makes.
+            found: $calls !== [],
         );
     }
 

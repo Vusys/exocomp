@@ -63,7 +63,12 @@ final class HierarchyAndReadersTest extends TestCase
 
         $this->assertStringContainsString('Illuminate\Database\Eloquent\Model', $up);
         $this->assertStringContainsString('in a dependency', $up);
-        $this->assertSame(0, $this->exocomp(['overrides', 'Illuminate\Database\Eloquent\Model::save'])->exitCode);
+        // A dependency's class is placed and its declaration listed; nothing in the app
+        // overrides it, so that is a "none", exit 1.
+        $vendor = $this->exocomp(['overrides', 'Illuminate\Database\Eloquent\Model::save']);
+
+        $this->assertStringContainsString('vendor/illuminate/src/Database/Eloquent/Model.php:22:5', $vendor->output);
+        $this->assertSame(1, $vendor->exitCode);
     }
 
     public function test_config_reads_through_the_repository_and_writes_apart(): void

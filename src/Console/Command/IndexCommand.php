@@ -72,6 +72,7 @@ final class IndexCommand extends IndexedCommand
             header: 'exocomp index',
             sections: [new Section('', $rows)],
             notes: $notes,
+            found: true,
         );
     }
 

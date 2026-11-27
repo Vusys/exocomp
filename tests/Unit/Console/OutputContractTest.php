@@ -189,7 +189,8 @@ final class OutputContractTest extends TestCase
     {
         $run = Cli::inCorpus(['imports', 'src/TierA/Status.php']);
 
-        $this->assertSame(0, $run->exitCode);
+        // Nothing to list is exit 1, as everywhere; the header still says what was looked at.
+        $this->assertSame(1, $run->exitCode);
         $this->assertSame('src/TierA/Status.php  Fixtures\TierA  (0 imports)', trim($run->output));
     }
 }
