@@ -11,12 +11,15 @@ use Vusys\Exocomp\Console\CommandContext;
 use Vusys\Exocomp\Console\IndexedFrameworkCommand;
 use Vusys\Exocomp\Framework\Laravel\DispatchEdge;
 use Vusys\Exocomp\Framework\Laravel\DispatchReader;
+use Vusys\Exocomp\Index\ResolvedMember;
+use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
 use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Project\SymbolNotFound;
+use Vusys\Exocomp\Symbol\SymbolKind;
 
 /**
  * Where a job or event is sent, and what receives it.
@@ -67,15 +70,21 @@ final class DispatchesCommand extends IndexedFrameworkCommand
         $sites = $reader->sites();
         $receivers = $reader->receivers();
 
-        // Every send whose argument's type is not known could be this one, wherever it is.
-        $sending = [];
+        // Every send whose argument's type is not known could be this one, wherever it is, but
+        // only if this is something that gets sent: a model or a service never is, and a miss
+        // on one is a plain "no", not an incomplete one (#115).
+        $undecided = [];
 
-        foreach (['dispatch', 'event', 'Queue', 'Bus'] as $spelling) {
-            $sending = [...$sending, ...$context->index()->store->pathsMentioning($context->project->root, [$spelling])];
+        if ($sites !== [] || $receivers !== [] || $this->couldBeSent($graph, $record->fqn)) {
+            $sending = [];
+
+            foreach (['dispatch', 'event', 'Queue', 'Bus'] as $spelling) {
+                $sending = [...$sending, ...$context->index()->store->pathsMentioning($context->project->root, [$spelling])];
+            }
+
+            $undecided = $reader->undecided(array_values(array_unique($sending)), static fn (string $path): string => $context->project->path($path));
+            usort($undecided, static fn (DispatchEdge $a, DispatchEdge $b): int => [$a->path, $a->line] <=> [$b->path, $b->line]);
         }
-
-        $undecided = $reader->undecided(array_values(array_unique($sending)), static fn (string $path): string => $context->project->path($path));
-        usort($undecided, static fn (DispatchEdge $a, DispatchEdge $b): int => [$a->path, $a->line] <=> [$b->path, $b->line]);
 
         if ($sites === [] && $receivers === [] && $undecided === []) {
             throw new SymbolNotFound($record->fqn, sprintf(
@@ -162,6 +171,38 @@ final class DispatchesCommand extends IndexedFrameworkCommand
                 carriesAddress: true,
             ),
             $edges,
+        );
+    }
+
+    /** What marks a class as a job or an event, by trait or interface. */
+    private const array SENT = [
+        'Illuminate\\Foundation\\Bus\\Dispatchable',
+        'Illuminate\\Foundation\\Events\\Dispatchable',
+        'Illuminate\\Contracts\\Queue\\ShouldQueue',
+        'Illuminate\\Contracts\\Broadcasting\\ShouldBroadcast',
+        'Illuminate\\Bus\\Queueable',
+    ];
+
+    /**
+     * Whether a class looks like a job or an event: it has a `handle()` method, uses a
+     * dispatchable trait or a queue interface, or lives in a `Jobs` or `Events` namespace,
+     * where an application puts the plain event classes that carry no marker at all.
+     */
+    private function couldBeSent(SymbolGraph $graph, string $fqn): bool
+    {
+        if (preg_match('/\\\\(Jobs|Events)\\\\/', '\\'.$fqn) === 1) {
+            return true;
+        }
+
+        foreach (array_keys($graph->ancestorsOf($fqn)) as $ancestor) {
+            if (in_array(ltrim($ancestor, '\\'), self::SENT, true)) {
+                return true;
+            }
+        }
+
+        return array_any(
+            $graph->members($fqn)['members'],
+            static fn (ResolvedMember $member): bool => $member->record->kind === SymbolKind::Method && strcasecmp($member->record->name, 'handle') === 0,
         );
     }
 
