@@ -17,10 +17,12 @@ use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Index\UnreachableAncestor;
 use Vusys\Exocomp\Inference\MemberElsewhere;
+use Vusys\Exocomp\Inference\TraitAdaptations;
 use Vusys\Exocomp\Output\Address;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
+use Vusys\Exocomp\Project\ClassSource;
 use Vusys\Exocomp\Symbol\Confidence;
 use Vusys\Exocomp\Symbol\SymbolKind;
 use Vusys\Exocomp\Symbol\SymbolRef;
@@ -130,16 +132,65 @@ final class MembersCommand extends IndexedCommand
         }
 
         [$kept, $elided] = $context->budget->apply($members);
+        $aliases = $this->aliases($subject, $graph, $ref, $matching, $context);
+        $sections = $this->group($kept);
+
+        if ($aliases !== []) {
+            $sections[] = new Section('aliased from traits', $aliases);
+        }
 
         return new Result(
-            header: $this->header($subject->path, $subject->fqn, count($members), $total, $matching ?? ($ref->hasMember() ? '' : null), count($resolved['unreachable'])),
-            sections: $this->group($kept),
+            header: $this->header($subject->path, $subject->fqn, count($members) + count($aliases), $total + count($aliases), $matching ?? ($ref->hasMember() ? '' : null), count($resolved['unreachable'])),
+            sections: $sections,
             unresolvedTitle: 'not reached',
             unresolved: $this->unreachable($subject->path, $resolved['unreachable']),
             elided: $elided,
             notes: [...$notes, ...$context->notes()],
-            found: $members !== [],
+            found: $members !== [] || $aliases !== [],
         );
+    }
+
+    /**
+     * The methods a `use T { hello as greet; }` adaptation gives the class: each at the trait
+     * method it runs, under the name and visibility the class gives it.
+     *
+     * @return list<Row>
+     */
+    private function aliases(SymbolRecord $subject, SymbolGraph $graph, SymbolRef $ref, ?string $matching, CommandContext $context): array
+    {
+        $rows = [];
+
+        foreach (new TraitAdaptations(new ClassSource($context->project, $graph, $context->locator), $graph)->aliasesOf($subject->fqn) as $alias) {
+            if (($matching !== null && preg_match($matching, $alias['name']) !== 1) || ($ref->hasMember() && strcasecmp((string) $ref->member, $alias['name']) !== 0)) {
+                continue;
+            }
+
+            [$trait, $method] = explode('::', $alias['target'], 2);
+            $record = array_find(
+                $graph->members($trait, includeInherited: false)['members'],
+                static fn (ResolvedMember $member): bool => $member->record->kind === SymbolKind::Method && strcasecmp($member->record->name, $method) === 0,
+            )?->record;
+
+            if (! $record instanceof SymbolRecord) {
+                continue;
+            }
+
+            $signature = (string) preg_replace('/\bfunction\s+&?'.preg_quote($record->name, '/').'\b/i', 'function '.$alias['name'], $record->signature);
+            $signature = $alias['visibility'] === null ? $signature : (string) preg_replace('/\b(public|protected|private)\b/', $alias['visibility'], $signature, 1);
+
+            $rows[] = new Row(
+                file: $record->path,
+                line: $record->line,
+                column: $record->column,
+                fqn: $subject->fqn.'::'.$alias['name'],
+                kind: 'method',
+                text: sprintf('%s  %s  (%s)', Address::of($record->path, $record->line, $record->column), $signature, $alias['target']),
+                extra: ['origin' => 'alias', 'origin_fqn' => $alias['target'], 'promoted' => false],
+                carriesAddress: true,
+            );
+        }
+
+        return $rows;
     }
 
     /**

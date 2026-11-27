@@ -23,7 +23,7 @@ use Vusys\Exocomp\Symbol\SymbolKind;
  */
 final class TraitAdaptations implements MagicSource
 {
-    /** @var array<string, array{aliases: array<string, string>, excluded: array<string, true>}> */
+    /** @var array<string, array{aliases: array<string, string>, excluded: array<string, true>, named: list<array{name: string, target: string, visibility: ?string}>}> */
     private array $read = [];
 
     public function __construct(private readonly ClassSource $source, private readonly SymbolGraph $graph) {}
@@ -79,7 +79,18 @@ final class TraitAdaptations implements MagicSource
     }
 
     /**
-     * @return array{aliases: array<string, string>, excluded: array<string, true>}
+     * The methods a class's `as` adaptations give it, as written: `Greets::hello as greet`,
+     * `secret as public revealed`.
+     *
+     * @return list<array{name: string, target: string, visibility: ?string}>
+     */
+    public function aliasesOf(string $host): array
+    {
+        return $this->adaptationsOf($host)['named'];
+    }
+
+    /**
+     * @return array{aliases: array<string, string>, excluded: array<string, true>, named: list<array{name: string, target: string, visibility: ?string}>}
      */
     private function adaptationsOf(string $fqn): array
     {
@@ -89,7 +100,7 @@ final class TraitAdaptations implements MagicSource
             return $this->read[$key];
         }
 
-        $found = ['aliases' => [], 'excluded' => []];
+        $found = ['aliases' => [], 'excluded' => [], 'named' => []];
         $class = $this->source->load($fqn);
 
         foreach ($class?->node->stmts ?? [] as $statement) {
@@ -117,6 +128,16 @@ final class TraitAdaptations implements MagicSource
 
                 if ($adaptation instanceof Node\Stmt\TraitUseAdaptation\Alias && $adaptation->newName instanceof Node\Identifier) {
                     $found['aliases'][strtolower($adaptation->newName->toString())] = $trait.'::'.$method;
+                    $found['named'][] = [
+                        'name' => $adaptation->newName->toString(),
+                        'target' => $trait.'::'.$method,
+                        'visibility' => match ($adaptation->newModifier) {
+                            Node\Stmt\Class_::MODIFIER_PUBLIC => 'public',
+                            Node\Stmt\Class_::MODIFIER_PROTECTED => 'protected',
+                            Node\Stmt\Class_::MODIFIER_PRIVATE => 'private',
+                            default => null,
+                        },
+                    ];
                 }
             }
         }

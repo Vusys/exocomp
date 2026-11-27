@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
   - by `@extends Repository<Gateway>` (or `@implements`) for inherited methods returning the template or `list<TModel>`;
   - for an override with no docblock, which keeps the `@return` of the method it overrides.
 - **A literal `class_alias(Gateway::class, 'App\LegacyGateway')` declares the alias** (#69). `locate` finds it, and calls on `LegacyGateway` land on `Gateway`'s methods.
+- **`members` lists the methods a trait `as` adaptation gives a class** (#70), under "aliased from traits": `Greets::hello as greet` and `secret as public revealed`, with the name and visibility the class gives them and the trait method they run.
 - A docblock `@return` now narrows a native `object` or `mixed`, and is read on abstract and interface methods too.
 
 ## [0.10.0] - 2026-11-27
