@@ -247,7 +247,15 @@ final class SymbolGraph
             }
         }
 
-        foreach ($this->subclasses($ownerFqn, true) as $descendant) {
+        // Down from a class through its subclasses, and from an interface through everything
+        // that implements it, however indirectly.
+        $descendants = [];
+
+        foreach ([...$this->subclasses($ownerFqn, true), ...$this->implementors($ownerFqn, true)] as $descendant) {
+            $descendants[Identifier::fold($descendant->fqn)] = $descendant;
+        }
+
+        foreach ($descendants as $descendant) {
             foreach ($this->declaredMember($descendant->fqn, $memberName) as $record) {
                 $found[] = new ResolvedMember($record, MemberOrigin::Inherited, $descendant->fqn, true);
             }
@@ -512,7 +520,15 @@ final class SymbolGraph
             return $records;
         }
 
-        return $this->freshness->full() ? $fetch() : $records;
+        if (! $this->freshness->full()) {
+            return $records;
+        }
+
+        // Everything memoised before the pass was read from the stale index: a class looked up
+        // and missed a moment ago would go on missing for the rest of the command.
+        $this->forgetCaches();
+
+        return $fetch();
     }
 
     /**

@@ -70,6 +70,7 @@ final class ContainerReader
             }
 
             $this->providersRead++;
+            $this->readDeclaredBindings($class);
             $this->readBindings($class);
             $this->readAliases($class);
             $this->readContextual($class);
@@ -130,7 +131,7 @@ final class ContainerReader
     public function concreteFor(string $abstract): ?Binding
     {
         foreach ($this->bindings as $binding) {
-            if ($binding->context === null && strcasecmp($binding->abstract, $abstract) === 0) {
+            if ($binding->context === null && $binding->concrete !== null && ! in_array($binding->kind, ['extend', 'tag'], true) && strcasecmp($binding->abstract, $abstract) === 0) {
                 return $binding;
             }
         }
@@ -155,6 +156,28 @@ final class ContainerReader
     private function readBindings(LoadedClass $class): void
     {
         foreach ($this->containerCalls($class) as [$method, $arguments, $line]) {
+            // `extend(X::class, fn ($x) => …)` decorates what the container gives for X, and
+            // `tag([A::class, B::class], 'name')` is what `tagged('name')` gives back.
+            if ($method === 'extend' && ($abstract = $arguments === [] ? null : $this->name($arguments[0]->value, $class)) !== null) {
+                $this->bindings[] = new Binding($abstract, null, 'extend', $class->path, $line, Confidence::Inferred, 'decorated by a closure: what the container gives is what that returns', $class->fqn);
+
+                continue;
+            }
+
+            if ($method === 'tag' && count($arguments) >= 2 && is_string($tag = LiteralValue::scalar($arguments[1]->value))) {
+                $tagged = $arguments[0]->value instanceof Expr\Array_ ? array_map(static fn (Node\ArrayItem $item): Expr => $item->value, $arguments[0]->value->items) : [$arguments[0]->value];
+
+                foreach ($tagged as $item) {
+                    $member = $this->name($item, $class);
+
+                    if ($member !== null) {
+                        $this->bindings[] = new Binding($tag, $member, 'tag', $class->path, $line, Confidence::Resolved, 'tagged; tagged() gives every class with the tag', $class->fqn);
+                    }
+                }
+
+                continue;
+            }
+
             if (! in_array($method, self::BINDS, true)) {
                 continue;
             }
@@ -269,6 +292,33 @@ final class ContainerReader
         return count($constructions) === 1 ? array_key_first($constructions) : null;
     }
 
+    /**
+     * `public $bindings = [A::class => B::class]` and `public $singletons = [...]`, the
+     * declarative form the framework registers for a provider before calling `register()`.
+     */
+    private function readDeclaredBindings(LoadedClass $class): void
+    {
+        foreach ($class->node->getProperties() as $property) {
+            foreach ($property->props as $item) {
+                $kind = match ($item->name->toString()) {
+                    'bindings' => 'bind',
+                    'singletons' => 'singleton',
+                    default => null,
+                };
+
+                if ($kind === null || ! $item->default instanceof Expr) {
+                    continue;
+                }
+
+                foreach (LiteralValue::pairs($item->default) as $pair) {
+                    $this->bindings[] = $pair['value'] === null
+                        ? new Binding($pair['key'], null, $kind, $class->path, $pair['line'], Confidence::Textual, sprintf('declared in $%s, with a value that is not a class name', $item->name->toString()), $class->fqn)
+                        : new Binding($pair['key'], $pair['value'], $kind, $class->path, $pair['line'], Confidence::Resolved, sprintf('declared in $%s', $item->name->toString()), $class->fqn);
+                }
+            }
+        }
+    }
+
     private function readAliases(LoadedClass $class): void
     {
         foreach ($this->containerCalls($class) as [$method, $arguments, $line]) {
@@ -320,14 +370,28 @@ final class ContainerReader
                 continue;
             }
 
-            $abstractName = $this->name($abstract);
-            $contextName = $this->name($context);
+            $abstractName = $this->name($abstract, $class);
 
-            if ($abstractName === null || $contextName === null) {
+            // `when([A::class, B::class])` gives the same binding to each.
+            $contexts = $context instanceof Expr\Array_
+                ? array_values(array_filter(array_map(fn (Node\ArrayItem $item): ?string => $this->name($item->value, $class), $context->items), static fn (?string $name): bool => $name !== null))
+                : array_filter([$this->name($context, $class)], static fn (?string $name): bool => $name !== null);
+
+            if ($abstractName === null || $contexts === []) {
                 continue;
             }
 
-            $this->recordConcrete($class, $abstractName, 'contextual', $concrete, $call->getStartLine(), $contextName);
+            foreach ($contexts as $contextName) {
+                // `needs('$currency')->give('GBP')`: a primitive, given as a value, not a class.
+                if (str_starts_with($abstractName, '$') && ! $concrete instanceof Expr\ClassConstFetch) {
+                    $value = LiteralValue::scalar($concrete);
+                    $this->bindings[] = new Binding($abstractName, $value === null ? null : var_export($value, true), 'contextual', $class->path, $call->getStartLine(), $value === null ? Confidence::Textual : Confidence::Resolved, 'a primitive given to the constructor', $class->fqn, $contextName);
+
+                    continue;
+                }
+
+                $this->recordConcrete($class, $abstractName, 'contextual', $concrete, $call->getStartLine(), $contextName);
+            }
         }
     }
 

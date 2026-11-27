@@ -2,7 +2,7 @@ Implementors reached through an intermediate interface
 -----
 implementors Fixtures\TierA\Describable
 -----
-4 implementors of Fixtures\TierA\Describable
+4 implementors of Fixtures\TierA\Describable  (1 of them an interface that extends it)
 src/TierA/Colour.php:7:1     Fixtures\TierA\Colour   enum
 src/TierA/Contract.php:7:1   Fixtures\TierA\Contract   interface
 src/TierA/Baseline.php:12:1  Fixtures\TierA\Baseline   class
