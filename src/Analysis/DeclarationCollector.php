@@ -204,6 +204,8 @@ final class DeclarationCollector
             };
         }
 
+        $members = [...$members, ...$this->undeclaredPropertyMembers($node, $fqn, $inferred, $members)];
+
         usort($members, static fn (Declaration $a, Declaration $b): int => $a->startOffset <=> $b->startOffset);
 
         $signature = $this->signatures->classLike($node);
@@ -357,6 +359,56 @@ final class DeclarationCollector
                 inferredFqn: $inferred['$'.$name][0] ?? null,
                 inferredReason: $inferred['$'.$name][1] ?? null,
                 inferredElements: $elements['$'.$name] ?? [],
+            );
+        }
+
+        return $properties;
+    }
+
+    /**
+     * A property the class assigns without declaring it, and whose assignments type it. It is
+     * recorded where it is first assigned, so a receiver `$this->gateway` can be looked up like
+     * a declared one; a property no assignment types is left out, as before.
+     *
+     * @param  array<string, array{string, string}>  $inferred  from BodyTypes
+     * @param  list<Declaration>  $members
+     * @return list<Declaration>
+     */
+    private function undeclaredPropertyMembers(Stmt\ClassLike $node, string $ownerFqn, array $inferred, array $members): array
+    {
+        $declared = [];
+
+        foreach ($members as $member) {
+            if ($member->kind === SymbolKind::Property) {
+                $declared[$member->name] = true;
+            }
+        }
+
+        $properties = [];
+
+        foreach ($this->bodyTypes->firstAssignments($node) as $name => $assign) {
+            $type = $inferred['$'.$name] ?? null;
+
+            if (isset($declared[$name]) || $type === null) {
+                continue;
+            }
+
+            $properties[] = new Declaration(
+                kind: SymbolKind::Property,
+                name: $name,
+                fqn: $ownerFqn.'::$'.$name,
+                startLine: $assign->getStartLine(),
+                endLine: $assign->getEndLine(),
+                startColumn: $this->file->columnAt($assign->getStartFilePos()),
+                startOffset: $assign->getStartFilePos(),
+                endOffset: $assign->getEndFilePos(),
+                spanStartLine: $assign->getStartLine(),
+                spanStartOffset: $assign->getStartFilePos(),
+                signature: 'public $'.$name.'  (not declared; created by this assignment)',
+                fullSignature: 'public $'.$name.'  (not declared; created by this assignment)',
+                modifiers: ['public'],
+                inferredFqn: $type[0],
+                inferredReason: $type[1],
             );
         }
 

@@ -445,7 +445,7 @@ final class RouteReader
                 return [];
             }
 
-            array_unshift($links, ['name' => $current->name->toString(), 'args' => $current->getArgs(), 'line' => $current->getStartLine()]);
+            array_unshift($links, ['name' => $current->name->toString(), 'args' => Analyser::arguments($current), 'line' => $current->getStartLine()]);
             $current = $current->var;
         }
 
@@ -459,7 +459,7 @@ final class RouteReader
             return [];
         }
 
-        array_unshift($links, ['name' => $current->name->toString(), 'args' => $current->getArgs(), 'line' => $current->getStartLine()]);
+        array_unshift($links, ['name' => $current->name->toString(), 'args' => Analyser::arguments($current), 'line' => $current->getStartLine()]);
 
         return $links;
     }

@@ -171,7 +171,7 @@ final class DispatchReader
                 continue;
             }
 
-            $arguments = $call->getArgs();
+            $arguments = Analyser::arguments($call);
             $event = isset($arguments[0]) ? LiteralValue::className($arguments[0]->value) : null;
 
             if ($event === null || Identifier::fold($event) !== Identifier::fold($subject)) {

@@ -71,6 +71,18 @@ final readonly class BodyTypes
             }
         }
 
+        // A property the class never declares but assigns, as older code does from its
+        // constructor: PHP creates it on first assignment, and its assignments type it the same
+        // way. Only one some assignment can type is reported, so it is never a bare guess.
+        foreach ($this->undeclaredProperties($methods, $properties, $propertyTypes) as $name) {
+            $type = $this->assignedType($name, null, $methods, $classFqn);
+
+            if ($type !== null) {
+                $found['$'.$name] = [$type[0], 'every assignment in the class; the property is not declared'];
+                $propertyTypes[$name] = $type[0];
+            }
+        }
+
         foreach ($methods as $method) {
             if ($method->returnType instanceof Node || $method->stmts === null) {
                 continue;
@@ -123,12 +135,68 @@ final readonly class BodyTypes
     }
 
     /**
+     * The names of `$this->x = …` assignments to properties the class does not declare.
+     *
+     * @param  array<string, ClassMethod>  $methods
+     * @param  array<string, Stmt\Property>  $declared
+     * @param  array<string, ?string>  $promoted
+     * @return list<string>
+     */
+    private function undeclaredProperties(array $methods, array $declared, array $promoted): array
+    {
+        $names = [];
+
+        foreach ($methods as $method) {
+            foreach (self::nodesIn($method->stmts ?? []) as $node) {
+                if ($node instanceof Expr\Assign && $node->var instanceof Expr\PropertyFetch
+                    && $node->var->var instanceof Expr\Variable && $node->var->var->name === 'this'
+                    && $node->var->name instanceof Node\Identifier) {
+                    $name = $node->var->name->toString();
+
+                    if (! isset($declared[$name]) && ! array_key_exists($name, $promoted)) {
+                        $names[$name] = true;
+                    }
+                }
+            }
+        }
+
+        return array_keys($names);
+    }
+
+    /**
+     * Where each undeclared property is first assigned, for the declaration that stands in for
+     * it: name to the assignment.
+     *
+     * @return array<string, Expr\Assign>
+     */
+    public function firstAssignments(Stmt\ClassLike $class): array
+    {
+        $first = [];
+
+        foreach ($class->stmts as $statement) {
+            if (! $statement instanceof ClassMethod) {
+                continue;
+            }
+
+            foreach (self::nodesIn($statement->stmts ?? []) as $node) {
+                if ($node instanceof Expr\Assign && $node->var instanceof Expr\PropertyFetch
+                    && $node->var->var instanceof Expr\Variable && $node->var->var->name === 'this'
+                    && $node->var->name instanceof Node\Identifier) {
+                    $first[$node->var->name->toString()] ??= $node;
+                }
+            }
+        }
+
+        return $first;
+    }
+
+    /**
      * @param  array<string, ClassMethod>  $methods
      * @return ?array{string, string}
      */
-    private function assignedType(string $name, Stmt\Property $property, array $methods, string $classFqn): ?array
+    private function assignedType(string $name, ?Stmt\Property $property, array $methods, string $classFqn): ?array
     {
-        foreach ($property->props as $item) {
+        foreach ($property->props ?? [] as $item) {
             if ($item->name->toString() === $name && $item->default !== null && ! $this->isNull($item->default)) {
                 return null;
             }

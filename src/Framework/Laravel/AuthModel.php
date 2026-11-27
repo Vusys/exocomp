@@ -80,7 +80,7 @@ final readonly class AuthModel
     private static function className(Node\Expr $value): ?string
     {
         if ($value instanceof Node\Expr\FuncCall && $value->name instanceof Node\Name && Analyser::isGlobalFunction($value->name, 'env')) {
-            $default = $value->getArgs()[1]->value ?? null;
+            $default = Analyser::arguments($value)[1]->value ?? null;
 
             return $default === null ? null : LiteralValue::className($default);
         }

@@ -153,6 +153,18 @@ final readonly class Analyser
         return $name;
     }
 
+    /**
+     * A call's arguments, or none for a first-class callable (`$x->m(...)`), which has no
+     * arguments yet. php-parser asserts against asking it for them, so under `zend.assertions=1`
+     * (the development default) calling `getArgs()` on one is a fatal error.
+     *
+     * @return list<Node\Arg>
+     */
+    public static function arguments(Node\Expr\CallLike $call): array
+    {
+        return $call->isFirstClassCallable() ? [] : array_values($call->getArgs());
+    }
+
     public static function resolvedName(Node\Name $name): string
     {
         $resolved = $name->getAttribute('resolvedName');
