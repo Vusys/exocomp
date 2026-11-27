@@ -273,8 +273,16 @@ final class LaravelWiringTest extends TestCase
         $this->assertMatchesRegularExpression('/app\/Wiring\/Relay\.php:10\s+dispatch\(\) sends something whose type is not known/', $run->output);
         $this->assertStringNotContainsString('Relay.php:11', $run->output);
 
-        // Nothing sends the model, but the opaque send might: incomplete, not a clean miss.
-        $this->assertSame(3, $this->exocomp(['dispatches', 'App\Models\Customer'])->exitCode);
+        // A model is never sent, so the opaque send says nothing about it: a plain miss.
+        $this->assertSame(1, $this->exocomp(['dispatches', 'App\Models\Customer'])->exitCode);
+
+        // A job nothing sends by name still handles itself, and the opaque send may be it.
+        $this->project->write('app/Jobs/RebuildIndex.php', "<?php\n\nnamespace App\\Jobs;\n\nfinal class RebuildIndex\n{\n    public function handle(): void {}\n}\n");
+        $this->assertStringContainsString('not decided', $this->exocomp(['dispatches', 'App\Jobs\RebuildIndex'])->output);
+
+        // So might an event that carries no marker, by where it lives.
+        $this->project->write('app/Events/IndexRebuilt.php', "<?php\n\nnamespace App\\Events;\n\nfinal class IndexRebuilt {}\n");
+        $this->assertSame(3, $this->exocomp(['dispatches', 'App\Events\IndexRebuilt'])->exitCode);
     }
 
     public function test_dispatch_shapes_and_listener_registrations(): void
