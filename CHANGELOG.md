@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-27
+
 ### Fixed
 
 - **A command-line error is printed once.** A missing argument or an unknown option was rendered twice, the second time without the suggestion.
