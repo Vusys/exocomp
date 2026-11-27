@@ -55,6 +55,16 @@ final class TypeProbes
         }
     }
 
+    public function constructedBox(): void
+    {
+        (new Box(new Gateway))->get()->refund(9);
+    }
+
+    public function inheritedDocblock(GatewayRepository $repository): void
+    {
+        $repository->find(1)->refund(10);
+    }
+
     public function missingImport(StripeGateway $gateway): void
     {
         $gateway->refund(8);

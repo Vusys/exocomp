@@ -6,6 +6,8 @@ namespace Vusys\Exocomp\Inference;
 
 use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprIntegerNode;
 use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
+use PHPStan\PhpDocParser\Ast\PhpDoc\ExtendsTagValueNode;
+use PHPStan\PhpDocParser\Ast\PhpDoc\ImplementsTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\MethodTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\MixinTagValueNode;
 use PHPStan\PhpDocParser\Ast\PhpDoc\ParamTagValueNode;
@@ -208,6 +210,27 @@ final readonly class DocBlockTypes
         }
 
         return $found;
+    }
+
+    /**
+     * What a class's `@extends Repo<Order>` (or `@implements`, `@template-extends`) binds the
+     * parent's last template to, as elements: `['*' => 'Order']`.
+     *
+     * @return array<string, string>
+     */
+    public function extended(string $docblock): array
+    {
+        if (trim($docblock) === '') {
+            return [];
+        }
+
+        foreach ($this->parser->parse(new TokenIterator($this->lexer->tokenize($docblock)))->getTags() as $tag) {
+            if (($tag->value instanceof ExtendsTagValueNode || $tag->value instanceof ImplementsTagValueNode) && ($bound = self::elementsOf($tag->value->type)) !== []) {
+                return $bound;
+            }
+        }
+
+        return [];
     }
 
     /**

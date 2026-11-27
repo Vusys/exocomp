@@ -27,6 +27,9 @@ final class DocumentedTypesTest extends TestCase
         yield 'keyed destructuring of an array shape' => ['destructured'];
         yield '@return static on a native self' => ['fluentFromSubclass'];
         yield 'a test double' => ['doubled'];
+        yield 'a class template bound by the constructor argument' => ['constructedBox'];
+        yield 'list<TModel> bound by @extends Repository<Gateway>' => ['templateLeak'];
+        yield 'an override with no docblock keeps the parent @return TModel' => ['inheritedDocblock'];
     }
 
     #[DataProvider('typed')]

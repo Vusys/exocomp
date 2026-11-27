@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Class templates are bound in more places** (#61):
+  - by a constructor argument: `(new Box(new Gateway))->get()` is a `Gateway`;
+  - by `@extends Repository<Gateway>` (or `@implements`) for inherited methods returning the template or `list<TModel>`;
+  - for an override with no docblock, which keeps the `@return` of the method it overrides.
+- A docblock `@return` now narrows a native `object` or `mixed`, and is read on abstract and interface methods too.
+
 ## [0.10.0] - 2026-11-27
 
 ### Added

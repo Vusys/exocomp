@@ -196,7 +196,7 @@ final readonly class TypeResolver
 
         return match (true) {
             $expression instanceof Node\Expr\Variable => $this->variableType($expression, $scope),
-            $expression instanceof Node\Expr\New_ => $this->instantiationType($expression),
+            $expression instanceof Node\Expr\New_ => $this->instantiationType($expression, $scope, $imports),
             $expression instanceof Node\Expr\PropertyFetch,
             $expression instanceof Node\Expr\NullsafePropertyFetch => $this->propertyType($expression, $scope, $imports),
             $expression instanceof Node\Expr\StaticPropertyFetch => $this->staticPropertyType($expression, $scope),
@@ -730,13 +730,89 @@ final readonly class TypeResolver
         return $scope->get($variable->name) ?? ResolvedType::unknown('receiver type unknown');
     }
 
-    private function instantiationType(Node\Expr\New_ $new): ResolvedType
+    /**
+     * @param  list<Import>  $imports
+     */
+    private function instantiationType(Node\Expr\New_ $new, Scope $scope, array $imports): ResolvedType
     {
         if (! $new->class instanceof Node\Name) {
             return ResolvedType::unknown('variable class name');
         }
 
-        return ResolvedType::resolvedBy(Analyser::resolvedName($new->class), 'new');
+        $fqn = Analyser::resolvedName($new->class);
+        $type = ResolvedType::resolvedBy($fqn, 'new');
+        $held = $this->boundByConstructor($fqn, $new, $scope, $imports);
+
+        return $held === null ? $type : $type->withElements(['*' => $held]);
+    }
+
+    /**
+     * `new Box(new Gateway())`, where Box's constructor takes `@param T $value` and T is the
+     * class's last template: a Box holding a Gateway.
+     *
+     * @param  list<Import>  $imports
+     */
+    private function boundByConstructor(string $fqn, Node\Expr\New_ $new, Scope $scope, array $imports): ?string
+    {
+        $class = $this->source instanceof ClassSource && $new->args !== [] ? $this->source->load($fqn) : null;
+        $templates = $class instanceof LoadedClass ? $this->docblocks->templates($class->node->getDocComment()?->getText() ?? '') : [];
+        $constructor = $class?->node->getMethod('__construct');
+
+        if ($templates === [] || ! $constructor instanceof Node\Stmt\ClassMethod) {
+            return null;
+        }
+
+        $held = $templates[array_key_last($templates)];
+        $documented = $this->documented($constructor)['params'];
+        $arguments = Analyser::arguments($new);
+
+        foreach ($constructor->params as $position => $param) {
+            $name = $param->var instanceof Node\Expr\Variable && is_string($param->var->name) ? $param->var->name : null;
+
+            if ($name === null || ($documented[$name] ?? null) !== $held) {
+                continue;
+            }
+
+            // By name, or by position where that argument is not itself named.
+            $argument = array_find($arguments, static fn (Node\Arg $arg): bool => $arg->name?->toString() === $name)
+                ?? (($arguments[$position] ?? null)?->name === null ? $arguments[$position] ?? null : null);
+            $type = $argument instanceof Node\Arg ? $this->typeOf($argument->value, $scope, $imports) : null;
+
+            return $type?->isKnown() === true ? $type->fqn : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * What a class's `@extends Repo<Gateway>` binds the template its inherited methods return:
+     * `['*' => Gateway]`, read from the class or the nearest ancestor that says.
+     *
+     * @return array<string, string>
+     */
+    private function boundByAncestry(string $fqn): array
+    {
+        // Kept beside the vendor lookups, as an elements-only type.
+        $key = '@bound:'.Identifier::fold($fqn);
+
+        if (! $this->beyond->has($key)) {
+            $bound = [];
+
+            foreach ($this->source instanceof ClassSource ? $this->source->withAncestors($fqn) : [] as $class) {
+                $docblock = $class->node->getDocComment()?->getText() ?? '';
+                $found = array_diff($this->docblocks->extended($docblock), $this->docblocks->templates($docblock));
+
+                if ($found !== []) {
+                    $bound = $this->qualifyAll($found, $class->fqn, $class->analysis->imports);
+
+                    break;
+                }
+            }
+
+            $this->beyond->set($key, ResolvedType::unknown('@extends')->withElements($bound));
+        }
+
+        return $this->beyond->get($key)->elements ?? [];
     }
 
     /**
@@ -860,6 +936,22 @@ final readonly class TypeResolver
      */
     private function withReceiverElements(ResolvedType $owner, string $method, ResolvedType $type): ResolvedType
     {
+        $holdsTheTemplate = $type->receiverElement || in_array(BodyTypes::RECEIVER_ELEMENT, $type->elements, true);
+
+        if ($owner->elements === [] && $owner->isKnown() && $holdsTheTemplate) {
+            $owner = $owner->withElements($this->boundByAncestry((string) $owner->fqn));
+        }
+
+        // `@return list<TModel>`: a list of whatever the receiver holds.
+        if (in_array(BodyTypes::RECEIVER_ELEMENT, $type->elements, true)) {
+            $held = $owner->element(null)?->fqn;
+
+            return $type->withElements(array_filter(
+                array_map(static fn (string $element): ?string => $element === BodyTypes::RECEIVER_ELEMENT ? $held : $element, $type->elements),
+                is_string(...),
+            ));
+        }
+
         if ($owner->elements === []) {
             return $type->receiverElement ? ResolvedType::unknown('returns what the receiver holds, and the receiver does not say what that is') : $type;
         }
@@ -1008,7 +1100,33 @@ final readonly class TypeResolver
         }
 
         return $this->memberType($member, $ownerFqn)
+            ?? $this->inheritedReturn($member, $ownerFqn, $method)
             ?? ResolvedType::unknown('method declares no class-like return type');
+    }
+
+    /**
+     * An override that documents nothing keeps what the method it overrides documents, as
+     * PHPStan reads it: `find(): object` under a parent's `@return TModel` still returns TModel.
+     */
+    private function inheritedReturn(SymbolRecord $member, string $ownerFqn, string $method): ?ResolvedType
+    {
+        if ($member->owner === null) {
+            return null;
+        }
+
+        foreach (array_keys($this->graph->ancestorsOf($member->owner)) as $ancestor) {
+            $overridden = $this->member($ancestor, $method, SymbolKind::Method);
+
+            if ($overridden instanceof SymbolRecord && $overridden->owner !== $member->owner) {
+                $type = $this->memberType($overridden, $ownerFqn);
+
+                if ($type instanceof ResolvedType) {
+                    return $type;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
