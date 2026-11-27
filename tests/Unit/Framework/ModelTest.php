@@ -282,6 +282,13 @@ final class ModelTest extends TestCase
         }
     }
 
+    public function test_observers_are_listed_however_they_are_registered(): void
+    {
+        $this->assertStringContainsString('App\Observers\CustomerObserver   registered by #[ObservedBy]', Cli::inLaravel(['model', 'Customer', '--only', 'observer'])->output);
+        $this->assertStringContainsString('app/Providers/AppServiceProvider.php:47  OrderObserver', Cli::inLaravel(['model', 'Order', '--only', 'observer'])->output);
+        $this->assertStringContainsString('App\Observers\InvoiceObserver', Cli::inLaravel(['model', 'Invoice', '--only', 'observer'])->output);
+    }
+
     public function test_an_unknown_name_is_not_found(): void
     {
         $this->assertSame(1, Cli::inLaravel(['model', 'NoSuchModel'])->exitCode);
