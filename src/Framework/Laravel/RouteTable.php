@@ -177,7 +177,7 @@ final class RouteTable
             }
 
             // `path` is `file:line`, given for a closure: where it is declared.
-            $where = is_string($route['path'] ?? null) && preg_match('/^(.*):(\d+)$/', $route['path'], $match) === 1 ? [$match[1], (int) $match[2]] : [$display, 0];
+            $where = is_string($route['path'] ?? null) && preg_match('/^(.*):(\d+)$/', $route['path'], $match) === 1 ? [self::closurePath($project, $match[1]), (int) $match[2]] : [$display, 0];
 
             $table->add(
                 is_string($route['method'] ?? null) ? $route['method'] : '?',
@@ -194,11 +194,33 @@ final class RouteTable
     }
 
     /**
+     * Where `route:list` says a closure is declared. Laravel strips the application's base path,
+     * so a route a package registers keeps its absolute path, less the leading slash: shown
+     * from `vendor/`, or relative to the project when it lies inside it.
+     */
+    private static function closurePath(Project $project, string $path): string
+    {
+        if (is_file($project->path($path))) {
+            return $path;
+        }
+
+        $vendor = strpos('/'.$path, '/vendor/');
+
+        if ($vendor !== false) {
+            return substr($path, $vendor);
+        }
+
+        return is_file('/'.$path) ? $project->displayPath('/'.$path) : $path;
+    }
+
+    /**
      * @param  list<string>  $middleware
      */
     private function add(string $method, string $uri, string $action, ?string $name, array $middleware, string $path, int $line): void
     {
         $uri = '/'.ltrim($uri, '/');
+        // The cache keeps `uses` as written, and a name written absolute keeps its backslash.
+        $action = ltrim($action, '\\');
 
         // `App\Http\Controllers\OrderController@store`, or an invokable class.
         [$controller, $callable, $note] = match (true) {

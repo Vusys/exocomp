@@ -5,15 +5,15 @@ A route sweep: one verdict per route
 1 of 9 starting points reach App\Models\Order::save
 note: routes read from exocomp-routes.json
 note: middleware the application does not declare (throttle) was not followed; the framework's own aliases and groups are not read
-note: 1 matching route is answered by a closure rather than a controller, so there is no declaration to start from
+note: 2 matching routes are answered by a closure rather than a controller, so there is no declaration to start from
 note: a sweep reports the verdict per starting point; ask about one of them directly to see its path and what the walk could not follow
 
-routes/api.php:9:1   GET|HEAD /api/orders             not reached
-routes/api.php:9:1   GET|HEAD /api/orders/{order}     not reached
-routes/api.php:11:1  GET|HEAD /api/health             not reached
 routes/web.php:9:1   GET|HEAD /admin/orders           not reached
 routes/web.php:14:1  GET|HEAD /admin/reports/monthly  not reached
-routes/web.php:18:1  POST /orders                     reached in 3 steps
+exocomp-routes.json  GET|HEAD /api/30/dynamic         not reached
+routes/api.php:11:1  GET|HEAD /api/health             not reached
+routes/api.php:9:1   GET|HEAD /api/orders             not reached
+routes/api.php:9:1   GET|HEAD /api/orders/{order}     not reached
 routes/web.php:22:1  GET|HEAD /exports                not reached
 routes/web.php:27:1  GET|HEAD /legacy/orders          not reached
-exocomp-routes.json  GET|HEAD /api/30/dynamic         not reached
+routes/web.php:18:1  POST /orders                     reached in 3 steps
