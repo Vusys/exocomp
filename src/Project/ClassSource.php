@@ -8,6 +8,7 @@ use PhpParser\Node;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassLike;
 use Vusys\Exocomp\Analysis\Analyser;
+use Vusys\Exocomp\Analysis\LiteralValue;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Source\ParseFailure;
@@ -235,6 +236,25 @@ final class ClassSource
         }
 
         return [];
+    }
+
+    /**
+     * The value of a class constant whose initialiser is a literal: `Order::MORPH_KEY` where
+     * Order declares `const MORPH_KEY = 'order'`. Null for anything computed.
+     */
+    public function constantValue(string $class, string $constant): ?string
+    {
+        foreach ($this->load($class)?->node->getConstants() ?? [] as $statement) {
+            foreach ($statement->consts as $item) {
+                if ($item->name->toString() === $constant) {
+                    $value = LiteralValue::scalar($item->value);
+
+                    return is_string($value) || is_int($value) ? (string) $value : null;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -80,7 +80,7 @@ final class RouteReaderTest extends TestCase
     public function test_a_resource_route_uses_the_frameworks_own_uris(): void
     {
         $this->assertSame('/api/orders', $this->route('orders.index')->uri);
-        $this->assertSame('/api/orders/{id}', $this->route('orders.show')->uri);
+        $this->assertSame('/api/orders/{order}', $this->route('orders.show')->uri);
     }
 
     public function test_a_bare_name_inside_a_namespaced_group_is_qualified_and_inferred(): void

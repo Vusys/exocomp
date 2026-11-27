@@ -17,7 +17,7 @@ final class Table
     /** @var array<string, Column> */
     public array $columns = [];
 
-    /** @var list<array{kind: string, columns: list<string>, path: string, line: int}> */
+    /** @var list<array{kind: string, columns: list<string>, path: string, line: int, name?: string}> */
     public array $indexes = [];
 
     /** @var list<array{reason: string, path: string, line: int}> */
@@ -41,6 +41,36 @@ final class Table
     public function drop(string $name): void
     {
         unset($this->columns[$name]);
+    }
+
+    /**
+     * `dropIndex('orders_status_index')` or `dropIndex(['status'])`: an index named so, or the
+     * one on exactly those columns. An index given no name has the one the framework makes up,
+     * `{table}_{columns}_{kind}`.
+     *
+     * @param  list<string>  $columns
+     */
+    public function dropIndex(?string $name, array $columns, string $kind): void
+    {
+        $this->indexes = array_values(array_filter($this->indexes, function (array $index) use ($name, $columns, $kind): bool {
+            if ($kind !== '' && $index['kind'] !== $kind) {
+                return true;
+            }
+
+            if ($name !== null) {
+                return ($index['name'] ?? $this->indexName($index['columns'], $index['kind'])) !== $name;
+            }
+
+            return $index['columns'] !== $columns;
+        }));
+    }
+
+    /**
+     * @param  list<string>  $columns
+     */
+    public function indexName(array $columns, string $kind): string
+    {
+        return str_replace(['-', '.'], '_', strtolower($this->name.'_'.implode('_', $columns).'_'.$kind));
     }
 
     public function rename(string $from, string $to): void

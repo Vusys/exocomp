@@ -51,12 +51,36 @@ final class Dispatched
      */
     public static function in(array $statements): array
     {
-        return [
-            ...self::throughFunctions($statements),
-            ...self::throughStaticCalls($statements),
-            ...self::throughMethodCalls($statements),
-        ];
+        // A variable assigned `new X` once in a function is an X wherever that function sends it:
+        // `$job = new ShipOrder(1); dispatch($job);`.
+        self::$assigned = [];
+
+        foreach (new NodeFinder()->findInstanceOf($statements, Node\Expr\Assign::class) as $assign) {
+            if ($assign->var instanceof Node\Expr\Variable && is_string($assign->var->name)
+                && $assign->expr instanceof Node\Expr\New_ && $assign->expr->class instanceof Node\Name) {
+                $class = Analyser::resolvedName($assign->expr->class);
+                $previous = self::$assigned[$assign->var->name] ?? null;
+                self::$assigned[$assign->var->name] = $previous === null || $previous === $class ? $class : '';
+            }
+        }
+
+        $sites = [];
+
+        foreach ([...self::throughFunctions($statements), ...self::throughStaticCalls($statements), ...self::throughMethodCalls($statements)] as $site) {
+            $sites[$site->position.':'.$site->class] ??= $site;
+        }
+
+        return array_values($sites);
     }
+
+    /** @var array<string, string> variable to the one class assigned to it; '' when not one */
+    private static array $assigned = [];
+
+    /** Static calls that queue every job in their array argument: `Bus::chain([...])`. */
+    private const array SENDS_A_LIST = ['chain', 'batch', 'withchain'];
+
+    /** `Queue::push($job)` and its relatives, with where the job is among the arguments. */
+    private const array QUEUE_PUSHES = ['push' => 0, 'pushon' => 1, 'later' => 1, 'lateron' => 2, 'pushraw' => -1];
 
     /**
      * @param  array<int, Node>  $statements
@@ -105,9 +129,31 @@ final class Dispatched
             $spelling = self::shortName($class).'::'.$call->name->toString().'()';
             $method = strtolower($call->name->toString());
 
-            // `ProcessOrder::dispatch(…)` sends the class it was called on.
-            if (in_array($method, self::STATIC_SENDERS, true)) {
+            // `ProcessOrder::dispatch(…)` sends the class it was called on, and so does
+            // `ProcessOrder::withChain([...])->dispatch()`.
+            if (in_array($method, self::STATIC_SENDERS, true) || $method === 'withchain') {
                 $sites[] = new DispatchSite($class, $spelling, $call->getStartLine(), $call->getStartFilePos());
+            }
+
+            // `Bus::chain([new A, new B])`, `Bus::batch([...])`, `X::withChain([...])`: each job listed.
+            if (in_array($method, self::SENDS_A_LIST, true) && ($list = Analyser::arguments($call)[0]->value ?? null) instanceof Node\Expr\Array_) {
+                foreach ($list->items as $item) {
+                    $sent = self::constructedClass($item->value);
+
+                    if ($sent !== null) {
+                        $sites[] = new DispatchSite($sent, $spelling, $call->getStartLine(), $call->getStartFilePos());
+                    }
+                }
+            }
+
+            // `Queue::push(new ShipOrder)`, `Queue::later($delay, new ShipOrder)`.
+            if (isset(self::QUEUE_PUSHES[$method]) && self::QUEUE_PUSHES[$method] >= 0 && strcasecmp(self::shortName($class), 'Queue') === 0) {
+                $argument = Analyser::arguments($call)[self::QUEUE_PUSHES[$method]]->value ?? null;
+                $sent = $argument instanceof Node\Expr ? self::constructedClass($argument) : null;
+
+                if ($sent !== null) {
+                    $sites[] = new DispatchSite($sent, $spelling, $call->getStartLine(), $call->getStartFilePos());
+                }
             }
 
             // `Bus::dispatch(new ProcessOrder)` and `Event::dispatch(new OrderPlaced)` send the
@@ -170,6 +216,10 @@ final class Dispatched
     {
         if ($expression instanceof Node\Expr\New_ && $expression->class instanceof Node\Name) {
             return Analyser::resolvedName($expression->class);
+        }
+
+        if ($expression instanceof Node\Expr\Variable && is_string($expression->name) && (self::$assigned[$expression->name] ?? '') !== '') {
+            return self::$assigned[$expression->name];
         }
 
         return LiteralValue::className($expression);

@@ -57,6 +57,32 @@ final class SchemaReplay
     /** @var list<string> */
     private const array SOFT_DELETES = ['softdeletes', 'softdeletestz', 'softdeletesdatetime'];
 
+    /**
+     * Helpers whose column name is optional, and what it is when left out.
+     *
+     * @var array<string, string>
+     */
+    private const array DEFAULT_NAMES = [
+        'uuid' => 'uuid', 'ulid' => 'ulid', 'ipaddress' => 'ip_address', 'macaddress' => 'mac_address',
+    ];
+
+    /**
+     * Helpers that drop columns they do not name, or name only a prefix of.
+     *
+     * @var array<string, list<string>>
+     */
+    private const array DROPS = [
+        'dropsoftdeletes' => ['deleted_at'], 'dropsoftdeletestz' => ['deleted_at'],
+        'droptimestamps' => ['created_at', 'updated_at'], 'droptimestampstz' => ['created_at', 'updated_at'],
+        'dropremembertoken' => ['remember_token'],
+    ];
+
+    /** @var array<string, string> the index each drop helper removes */
+    private const array INDEX_DROPS = [
+        'dropindex' => 'index', 'dropunique' => 'unique', 'dropprimary' => 'primary',
+        'dropfulltext' => 'fulltext', 'dropspatialindex' => 'spatialindex',
+    ];
+
     /** @var list<string> */
     private const array INDEXES = ['index', 'unique', 'primary', 'fulltext', 'spatialindex', 'rawindex'];
 
@@ -522,8 +548,71 @@ final class SchemaReplay
         $arguments = Analyser::arguments($base);
         $line = $base->getStartLine();
 
+        // The columns are the first argument; the second, when there is one, is the index's name.
         if (in_array($method, self::INDEXES, true)) {
-            $table->indexes[] = ['kind' => $method, 'columns' => $this->nameList($arguments), 'path' => $path, 'line' => $line];
+            $index = ['kind' => $method, 'columns' => $this->nameList(array_slice($arguments, 0, 1)), 'path' => $path, 'line' => $line];
+            $name = isset($arguments[1]) ? LiteralValue::scalar($arguments[1]->value) : null;
+            $table->indexes[] = is_string($name) ? $index + ['name' => $name] : $index;
+
+            return;
+        }
+
+        if (isset(self::INDEX_DROPS[$method])) {
+            $first = $arguments[0]->value ?? null;
+            $name = $first instanceof Node\Expr && ! $first instanceof Node\Expr\Array_ ? LiteralValue::scalar($first) : null;
+            $table->dropIndex(is_string($name) ? $name : null, $this->nameList(array_slice($arguments, 0, 1)), self::INDEX_DROPS[$method]);
+
+            return;
+        }
+
+        if (isset(self::DROPS[$method])) {
+            foreach ($this->firstName($arguments) === null ? self::DROPS[$method] : [$this->firstName($arguments)] as $name) {
+                $table->drop($name);
+            }
+
+            return;
+        }
+
+        // `dropMorphs('owner')`: both columns and the index on them.
+        if ($method === 'dropmorphs') {
+            $prefix = $this->firstName($arguments);
+
+            if ($prefix !== null) {
+                $table->drop($prefix.'_type');
+                $table->drop($prefix.'_id');
+                $table->dropIndex(null, [$prefix.'_type', $prefix.'_id'], 'index');
+            }
+
+            return;
+        }
+
+        if ($method === 'dropconstrainedforeignid' || $method === 'dropconstrainedforeignidfor') {
+            $name = $method === 'dropconstrainedforeignid' ? $this->firstName($arguments) : $this->foreignIdForName($arguments);
+
+            if ($name !== null) {
+                $table->drop($name);
+            }
+
+            return;
+        }
+
+        if (isset(self::DEFAULT_NAMES[$method])) {
+            $name = $this->firstName($arguments) ?? self::DEFAULT_NAMES[$method];
+            $table->add(new Column($name, $spelling, $this->extraArguments($arguments), $modifiers, $path, $line));
+            $this->addInlineIndexes($table, $name, $method, $modifiers, $path, $line);
+
+            return;
+        }
+
+        // `foreignIdFor(Invoice::class)` is `invoice_id`, the model's foreign key; a second
+        // argument names the column instead.
+        if ($method === 'foreignidfor') {
+            $name = $this->foreignIdForName($arguments);
+
+            if ($name !== null) {
+                $table->add(new Column($name, $spelling, [], $modifiers, $path, $line));
+                $this->addInlineIndexes($table, $name, $method, $modifiers, $path, $line);
+            }
 
             return;
         }
@@ -568,6 +657,9 @@ final class SchemaReplay
                 foreach (explode(',', self::SUFFIXED[$method]) as $suffix) {
                     $table->add(new Column($prefix.'_'.$suffix, $spelling, [], $modifiers, $path, $line));
                 }
+
+                // The framework indexes the pair.
+                $table->indexes[] = ['kind' => 'index', 'columns' => [$prefix.'_type', $prefix.'_id'], 'path' => $path, 'line' => $line];
             }
 
             return;
@@ -616,6 +708,31 @@ final class SchemaReplay
                 $table->indexes[] = ['kind' => $kind, 'columns' => [$column], 'path' => $path, 'line' => $line];
             }
         }
+    }
+
+    /**
+     * The column `foreignIdFor()` makes: the second argument, or the model's snake-cased short
+     * name and `_id`, which is what `Model::getForeignKey()` returns by default.
+     *
+     * @param  array<int, Node\Arg>  $arguments
+     */
+    private function foreignIdForName(array $arguments): ?string
+    {
+        $named = isset($arguments[1]) ? LiteralValue::scalar($arguments[1]->value) : null;
+
+        if (is_string($named) && $named !== '') {
+            return $named;
+        }
+
+        $class = isset($arguments[0]) ? LiteralValue::className($arguments[0]->value) : null;
+
+        if ($class === null) {
+            return null;
+        }
+
+        $short = (string) array_slice(explode('\\', $class), -1)[0];
+
+        return strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $short)).'_id';
     }
 
     /**
