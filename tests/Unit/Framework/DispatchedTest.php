@@ -78,8 +78,13 @@ final class DispatchedTest extends TestCase
 
     public function test_a_dispatch_of_something_that_is_not_a_class_name_is_not_a_site(): void
     {
-        $this->assertSame([], $this->sites('dispatch($job);'));
         $this->assertSame([], $this->sites('defer(fn () => null);'));
+        $this->assertSame([], $this->sites("event('order.placed');"));
+    }
+
+    public function test_a_dispatch_of_an_object_of_unknown_type_is_an_undecided_site(): void
+    {
+        $this->assertSame([''], array_map(static fn (DispatchSite $site): string => $site->class, $this->sites('dispatch($job);')));
     }
 
     public function test_a_short_name_is_the_last_segment(): void

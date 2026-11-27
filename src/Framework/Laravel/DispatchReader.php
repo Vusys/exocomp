@@ -78,6 +78,41 @@ final class DispatchReader
     }
 
     /**
+     * Sends whose argument is an object of a type not decided here, in the files given: any of
+     * them may send the subject, so they are what the count of sites is a lower bound against.
+     *
+     * @param  list<string>  $paths
+     * @param  callable(string): string  $absolute
+     * @return list<DispatchEdge>
+     */
+    public function undecided(array $paths, callable $absolute): array
+    {
+        $found = [];
+
+        foreach ($paths as $path) {
+            $file = $absolute($path);
+
+            if (! is_file($file)) {
+                continue;
+            }
+
+            try {
+                [, $statements] = $this->analyser->analyseWithAst(SourceFile::fromPath($file, $path));
+            } catch (ParseFailure) {
+                continue;
+            }
+
+            foreach (Dispatched::in($statements) as $site) {
+                if ($site->class === '') {
+                    $found[] = new DispatchEdge('undecided', '', null, $path, $site->line, Confidence::Textual, sprintf('%s sends something whose type is not known here', $site->sender));
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
      * @return list<DispatchEdge>
      */
     public function sites(): array

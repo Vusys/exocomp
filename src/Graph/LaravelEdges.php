@@ -102,6 +102,11 @@ final class LaravelEdges
         $edges = [];
 
         foreach (Dispatched::in([$body->node]) as $site) {
+            // A send of something whose type is not known has no receivers to walk into.
+            if ($site->class === '') {
+                continue;
+            }
+
             foreach ($this->receiversOf($site->class) as $receiver) {
                 $target = $this->entryPoint($receiver);
 

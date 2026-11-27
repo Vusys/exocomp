@@ -15,6 +15,7 @@ All notable changes to this project are documented here. The format follows
 - **A literal `class_alias(Gateway::class, 'App\LegacyGateway')` declares the alias** (#69). `locate` finds it, and calls on `LegacyGateway` land on `Gateway`'s methods.
 - **`members` lists the methods a trait `as` adaptation gives a class** (#70), under "aliased from traits": `Greets::hello as greet` and `secret as public revealed`, with the name and visibility the class gives them and the trait method they run.
 - **`model` lists the model's observers** (#75), from `#[ObservedBy]`, `Model::observe()` and an event provider's `$observers`. `--only observer` shows them alone.
+- **`dispatches` says what it could not decide** (#55). A send whose argument is an object of unknown type is listed in a trailing "not decided" block, so the count is a lower bound you can trust. A `dispatches` miss with such sends exits 3. A parameter typed with a class now decides `dispatch($job)`.
 - A docblock `@return` now narrows a native `object` or `mixed`, and is read on abstract and interface methods too.
 
 ## [0.10.0] - 2026-11-27

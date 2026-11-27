@@ -67,7 +67,17 @@ final class DispatchesCommand extends IndexedFrameworkCommand
         $sites = $reader->sites();
         $receivers = $reader->receivers();
 
-        if ($sites === [] && $receivers === []) {
+        // Every send whose argument's type is not known could be this one, wherever it is.
+        $sending = [];
+
+        foreach (['dispatch', 'event', 'Queue', 'Bus'] as $spelling) {
+            $sending = [...$sending, ...$context->index()->store->pathsMentioning($context->project->root, [$spelling])];
+        }
+
+        $undecided = $reader->undecided(array_values(array_unique($sending)), static fn (string $path): string => $context->project->path($path));
+        usort($undecided, static fn (DispatchEdge $a, DispatchEdge $b): int => [$a->path, $a->line] <=> [$b->path, $b->line]);
+
+        if ($sites === [] && $receivers === [] && $undecided === []) {
             throw new SymbolNotFound($record->fqn, sprintf(
                 '%s is never dispatched and nothing handles it, across the %d file%s that mention it',
                 $record->fqn,
@@ -98,20 +108,25 @@ final class DispatchesCommand extends IndexedFrameworkCommand
                 count($receivers),
             ),
             sections: $sections,
+            unresolvedTitle: 'not decided — each may send it',
+            unresolved: $this->rows($undecided, withNote: false),
             elided: $elided,
             notes: [
                 ...$notes,
                 ...($receivers === [] ? ['nothing was found that receives this; if it is handled by a listener registered at runtime, that is not visible from the source'] : []),
                 ...$context->notes(),
             ],
+            found: $sites !== [] || $receivers !== [],
+            complete: $undecided === [],
         );
     }
 
     /**
      * @param  list<DispatchEdge>  $edges
+     * @param  bool  $withNote  false for the trailing block, which prints the note in its own column
      * @return list<Row>
      */
-    private function rows(array $edges): array
+    private function rows(array $edges, bool $withNote = true): array
     {
         $width = Address::width(array_map(
             static fn (DispatchEdge $edge): string => Address::of($edge->path, $edge->line),
@@ -119,7 +134,17 @@ final class DispatchesCommand extends IndexedFrameworkCommand
         ));
 
         return array_map(
-            static fn (DispatchEdge $edge): Row => new Row(
+            static fn (DispatchEdge $edge): Row => $withNote === false ? new Row(
+                file: $edge->path,
+                line: $edge->line,
+                column: null,
+                fqn: null,
+                kind: $edge->kind,
+                text: str_pad(Address::of($edge->path, $edge->line), $width),
+                confidence: $edge->confidence,
+                note: $edge->note,
+                carriesAddress: true,
+            ) : new Row(
                 file: $edge->path,
                 line: $edge->line,
                 column: null,
