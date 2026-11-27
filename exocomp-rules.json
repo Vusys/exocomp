@@ -10,6 +10,15 @@
             ]
         },
         {
+            "id": "hand-written-plural",
+            "message": "use Counted::of() or Counted::noun(); hand-written agreement drifted (\"1 reads\", #113)",
+            "pattern": "$N === 1 ? '' : 's'",
+            "not-in": [
+                "Fixtures\\**",
+                "Installed\\**"
+            ]
+        },
+        {
             "id": "substr-on-possibly-multibyte-text",
             "message": "substr() cuts on a byte boundary and can split a character; use mb_strcut() for text",
             "pattern": "substr($TEXT, 0, $LENGTH)",

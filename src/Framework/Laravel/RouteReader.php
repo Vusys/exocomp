@@ -8,6 +8,7 @@ use PhpParser\Node;
 use PhpParser\Node\Expr;
 use Vusys\Exocomp\Analysis\Analyser;
 use Vusys\Exocomp\Analysis\LiteralValue;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Source\ParseFailure;
 use Vusys\Exocomp\Source\SourceFile;
 use Vusys\Exocomp\Symbol\Confidence;
@@ -137,7 +138,7 @@ final class RouteReader
     public function notes(): array
     {
         if ($this->withoutController > 0) {
-            return [...$this->notes, sprintf('%d route%s %s a view or a redirect, with no controller, and %s not listed', $this->withoutController, $this->withoutController === 1 ? '' : 's', $this->withoutController === 1 ? 'is' : 'are', $this->withoutController === 1 ? 'is' : 'are')];
+            return [...$this->notes, sprintf('%s %s a view or a redirect, with no controller, and %s not listed', Counted::of($this->withoutController, 'route'), $this->withoutController === 1 ? 'is' : 'are', $this->withoutController === 1 ? 'is' : 'are')];
         }
 
         return $this->notes;

@@ -16,6 +16,7 @@ use Vusys\Exocomp\Index\ResolvedMember;
 use Vusys\Exocomp\Index\SymbolGraph;
 use Vusys\Exocomp\Index\SymbolRecord;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -86,7 +87,7 @@ final class OverridesCommand extends IndexedCommand
         ));
 
         return new Result(
-            header: sprintf('%d declaration%s of "%s" around %s', count($all), count($all) === 1 ? '' : 's', $member, $ownerFqn),
+            header: sprintf('%s of "%s" around %s', Counted::of(count($all), 'declaration'), $member, $ownerFqn),
             sections: [new Section('', $kept)],
             elided: $elided,
             notes: [...$notes, ...$context->notes()],

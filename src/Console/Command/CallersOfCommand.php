@@ -13,6 +13,7 @@ use Vusys\Exocomp\Inference\EloquentChain;
 use Vusys\Exocomp\Inference\Reference;
 use Vusys\Exocomp\Inference\ReferenceFinder;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -79,8 +80,8 @@ final class CallersOfCommand extends IndexedCommand
         $excluded = $finder->excluded();
 
         return new Result(
-            header: sprintf('%d caller%s of %s', count($callers), count($callers) === 1 ? '' : 's', (string) $target)
-                .($excluded === 0 ? '' : sprintf('  (%d call%s excluded)', $excluded, $excluded === 1 ? '' : 's'))
+            header: sprintf('%s of %s', Counted::of(count($callers), 'caller'), (string) $target)
+                .($excluded === 0 ? '' : sprintf('  (%s excluded)', Counted::of($excluded, 'call')))
                 .$incomplete,
             sections: [new Section('', array_map(fn (Reference $r): Row => $this->row($r, $width), $kept))],
             unresolvedTitle: 'unresolved',

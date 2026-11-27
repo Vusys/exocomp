@@ -19,6 +19,7 @@ use Vusys\Exocomp\Index\UnreachableAncestor;
 use Vusys\Exocomp\Inference\MemberElsewhere;
 use Vusys\Exocomp\Inference\TraitAdaptations;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -219,7 +220,7 @@ final class MembersCommand extends IndexedCommand
     {
         // With ancestors out of reach the total is only what could be read, and has to say so,
         // or a narrow pattern on a framework subclass reads as a small class all over again.
-        $unreachable = $unreached === 0 ? '' : sprintf('; %d ancestor%s not reached', $unreached, $unreached === 1 ? '' : 's');
+        $unreachable = $unreached === 0 ? '' : sprintf('; %s not reached', Counted::of($unreached, 'ancestor'));
         $members = $unreached === 0 ? 'members' : 'reachable members';
 
         if ($matching === null) {

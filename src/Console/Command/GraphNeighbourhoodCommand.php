@@ -13,6 +13,7 @@ use Vusys\Exocomp\Graph\Edge;
 use Vusys\Exocomp\Graph\Stop;
 use Vusys\Exocomp\Graph\Walk;
 use Vusys\Exocomp\Output\Address;
+use Vusys\Exocomp\Output\Counted;
 use Vusys\Exocomp\Output\Result;
 use Vusys\Exocomp\Output\Row;
 use Vusys\Exocomp\Output\Section;
@@ -67,7 +68,7 @@ final class GraphNeighbourhoodCommand extends GraphCommand
             }
 
             $sections[] = new Section(
-                sprintf('%d step%s out', $step, $step === 1 ? '' : 's'),
+                sprintf('%s out', Counted::of($step, 'step')),
                 array_map(fn (array $one): Row => $this->step($one[1], $width), $atStep),
             );
         }
