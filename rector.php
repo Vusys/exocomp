@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Rector\CodeQuality\Rector\Catch_\ThrowWithPreviousExceptionRector;
 use Rector\Config\RectorConfig;
 use Rector\Php55\Rector\String_\StringClassNameToClassConstantRector;
 use Rector\Set\ValueObject\SetList;
@@ -22,6 +23,11 @@ return RectorConfig::configure()
         // `::class` constants makes the code stop compiling — or, worse, silently changes what
         // a test feeds the tool.
         StringClassNameToClassConstantRector::class,
+
+        // Chaining an exception changes what is printed: Symfony renders a previous exception
+        // again beneath the one thrown, and a usage error was shown twice (#110). Whether to
+        // chain is a decision about output, not a code-quality default.
+        ThrowWithPreviousExceptionRector::class,
     ])
     ->withPhpSets(php84: true)
     ->withSets([
